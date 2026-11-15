@@ -1,0 +1,76 @@
+name: OpenCode autonomous APK repair
+
+on:
+  issue_comment:
+    types: [created]
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: read
+
+concurrency:
+  group: opencode-apk-repair
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    if: github.event_name != 'issue_comment' || contains(github.event.comment.body, '/opencode') || contains(github.event.comment.body, '/oc')
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check whether the latest APK build needs repair
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            RUNS="$(gh api "repos/$GH_REPO/actions/workflows/build-open-jarvis-apk.yml/runs?branch=main&per_page=1")"
+            CONCLUSION="$(echo "$RUNS" | jq -r '.workflow_runs[0].conclusion // "unknown"')"
+            if [ "$CONCLUSION" = "failure" ]; then
+              echo "needs_repair=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "needs_repair=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "needs_repair=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure Git identity
+        if: steps.check.outputs.needs_repair == 'true'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Run OpenCode
+        if: steps.check.outputs.needs_repair == 'true'
+        uses: anomalyco/opencode/github@latest
+        env:
+          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          model: google/gemini-3.5-flash-lite
+          use_github_token: true
+          prompt: |
+            You are repairing the Android APK build in this repository.
+            Inspect the latest failed "Build Open Jarvis APK" GitHub Actions run and its logs.
+            The source project is packaged in open-jarvis-apk-build-ready(2).zip.
+            Reproduce the build locally in this runner using JDK 17, Android SDK 34 and Gradle 8.2.
+            Fix the actual Kotlin/Gradle/resource errors in the source project. Do not hide errors,
+            weaken tests, or merely append temporary dependencies in the workflow. Preserve the
+            existing app behavior and Turkish-language support.
+            Repackage the corrected source into the ZIP if source files inside the ZIP need edits.
+            Make a focused branch and open a pull request titled exactly:
+            "Open Jarvis APK build repair"
+            Include the root cause, files changed, and the real build result in the PR body.
+            Do not merge the PR. Do not claim the APK is ready unless assembleDebug succeeds.
