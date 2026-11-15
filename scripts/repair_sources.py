@@ -185,4 +185,97 @@ else:
         )
         app_gradle_kts.write_text(gradle_text)
 
+
+# Repair UI, voice, vision and screen-watcher API mismatches found by CI.
+def settings(s):
+    s = s.replace("import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft", "import androidx.compose.material.icons.filled.KeyboardArrowLeft")
+    s = s.replace("import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight", "import androidx.compose.material.icons.filled.KeyboardArrowRight")
+    s = s.replace("Icons.AutoMirrored.Filled.KeyboardArrowLeft", "Icons.Filled.KeyboardArrowLeft")
+    s = s.replace("Icons.AutoMirrored.Filled.KeyboardArrowRight", "Icons.Filled.KeyboardArrowRight")
+    if "import androidx.compose.ui.graphics.graphicsLayer" not in s:
+        s = s.replace("import androidx.compose.ui.graphics.Color", "import androidx.compose.ui.graphics.Color\nimport androidx.compose.ui.graphics.graphicsLayer")
+    return s
+
+def tutorial(s):
+    s = s.replace("TutorialState.OFF", "TutorialState.Off")
+    s = s.replace("action.description ?: action.action", "action.action")
+    return s
+
+def screenshot(s):
+    s = s.replace("import android.view.WindowManager", "import android.view.WindowManager\nimport android.hardware.display.DisplayManager")
+    old_call = """            mediaProjection?.createVirtualDisplay(
+                "Screenshot",
+                surface.width,
+                surface.height,
+                surface.allocation,
+                surface.allocation,
+                surface,
+                null,
+                handler
+            )"""
+    new_call = """            val reader = imageReader ?: return null
+            val densityDpi = context.resources.displayMetrics.densityDpi
+            mediaProjection?.createVirtualDisplay(
+                "Screenshot",
+                reader.width,
+                reader.height,
+                densityDpi,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                surface,
+                null,
+                handler
+            )"""
+    return s.replace(old_call, new_call)
+
+def vision(s):
+    s = s.replace("confidence = block.confidence,", "confidence = 0f,")
+    s = s.replace("confidence = line.confidence,", "confidence = 0f,")
+    return s
+
+def voice(s):
+    if "import kotlinx.coroutines.cancel" not in s:
+        s = s.replace("import kotlinx.coroutines.launch", "import kotlinx.coroutines.launch\nimport kotlinx.coroutines.cancel")
+    return s
+
+def watcher(s):
+    s = s.replace("private val screenReader = ScreenReader(context)", "private val screenReader: ScreenReader? get() = JarvisAccessibilityService.instance?.let { ScreenReader(it) }")
+    s = s.replace("screenReader.extractAllText()", "screenReader?.extractAllText() ?: \"\"")
+    s = s.replace("val lastTriggered: Long = 0", "var lastTriggered: Long = 0")
+    return s
+
+edit("app/src/main/java/com/openjarvis/ui/settings/SettingsScreen.kt", settings)
+edit("app/src/main/java/com/openjarvis/ui/tutorial/TutorialMode.kt", tutorial)
+edit("app/src/main/java/com/openjarvis/vision/ScreenshotCapture.kt", screenshot)
+edit("app/src/main/java/com/openjarvis/vision/VisionModule.kt", vision)
+edit("app/src/main/java/com/openjarvis/voice/VoiceManager.kt", voice)
+edit("app/src/main/java/com/openjarvis/watch/ScreenWatcher.kt", watcher)
+
+theme = root / "app/src/main/java/com/openjarvis/ui/theme/VoidColor.kt"
+theme.parent.mkdir(parents=True, exist_ok=True)
+if not theme.exists():
+    theme.write_text("""package com.openjarvis.ui.theme
+
+import androidx.compose.ui.graphics.Color
+
+object VoidColor {
+    val Void950 = Color(0xFF09090F)
+    val Void900 = Color(0xFF11111B)
+    val Void800 = Color(0xFF1B1B2A)
+    val Void700 = Color(0xFF29293B)
+    val Void600 = Color(0xFF3A3A50)
+    val Violet = Color(0xFF9B59B6)
+    val VioletDim = Color(0xFF6F3F8E)
+    val Cyan = Color(0xFF42D9E8)
+    val Green = Color(0xFF43C98B)
+    val Red = Color(0xFFE45B68)
+    val Amber = Color(0xFFFFC857)
+    val TextPrimary = Color(0xFFF4F2FA)
+    val TextSecondary = Color(0xFFB7B3C7)
+    val TextDisabled = Color(0xFF777386)
+    val BorderSubtle = Color(0xFF333044)
+    val BorderGlow = Color(0xFF8E55B8)
+}
+""")
+
+
 print("Applied Open Jarvis Kotlin and Android resource configuration repairs")
