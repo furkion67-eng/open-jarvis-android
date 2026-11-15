@@ -635,4 +635,18 @@ def graphify_final(s):
     return s
 edit("app/src/main/java/com/openjarvis/graphify/GraphifyRepository.kt", graphify_final)
 
+
+def self_healing_final2(s):
+    s = s.replace("$" + "{action.description ?: action.action}", "$" + "{action.action}")
+    return s
+edit("app/src/main/java/com/openjarvis/agent/SelfHealingExecutor.kt", self_healing_final2)
+
+def onboarding_final2(s):
+    s = s.replace(
+        "private fun TryItScreen(onBack: () -> Unit, onSuccess: () -> Unit) {\n",
+        "private fun TryItScreen(onBack: () -> Unit, onSuccess: () -> Unit) {\n    val coroutineScope = rememberCoroutineScope()\n"
+    )
+    return s
+edit("app/src/main/java/com/openjarvis/ui/onboarding/OnboardingActivity.kt", onboarding_final2)
+
 print("Applied Open Jarvis compile repairs")
