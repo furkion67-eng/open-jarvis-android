@@ -30,6 +30,19 @@ jobs:
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
           echo "Project directory: $PROJECT_DIR"
           python3 scripts/repair_sources.py "$PROJECT_DIR"
+          # Avoid constructing AgentCore during launcher startup: it eagerly opens
+          # encrypted provider preferences and is not used by MainActivity's dashboard.
+          python3 - "$PROJECT_DIR/app/src/main/java/com/openjarvis/ui/MainActivity.kt" <<'PY'
+          import pathlib, sys
+          p = pathlib.Path(sys.argv[1])
+          s = p.read_text()
+          s = s.replace('import com.openjarvis.agent.AgentCore\n', '')
+          s = s.replace('import com.openjarvis.agent.AgentState\n', '')
+          s = s.replace('    private lateinit var agentCore: AgentCore\n', '')
+          s = s.replace('        agentCore = AgentCore(this)\n', '')
+          s = s.replace('                val agentState by agentCore.state.collectAsState()\n', '')
+          p.write_text(s)
+          PY
           ls -la "$PROJECT_DIR"
 
       - name: Audit declared Android permissions (no permission changes)
