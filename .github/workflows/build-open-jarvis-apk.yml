@@ -30,65 +30,32 @@ jobs:
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
           echo "Project directory: $PROJECT_DIR"
           python3 scripts/repair_sources.py "$PROJECT_DIR"
-          # Guard the actual launcher database path. MainActivity and DashboardScreen
-          # both queried Room during startup without handling migration/open errors.
-          python3 - "$PROJECT_DIR" <<'PY'
+          # Avoid constructing AgentCore during launcher startup: it eagerly opens
+          # encrypted provider preferences and is not used by MainActivity's dashboard.
+          python3 - "$PROJECT_DIR/app/src/main/java/com/openjarvis/ui/MainActivity.kt" <<'PY'
           import pathlib, sys
-          root = pathlib.Path(sys.argv[1])
-          main = root / "app/src/main/java/com/openjarvis/ui/MainActivity.kt"
-          s = main.read_text()
-          s = s.replace("    private lateinit var graphifyRepo: GraphifyRepository\n", "")
-          old_init = "        graphifyRepo = GraphifyRepository(this)"
-          if old_init not in s:
-              raise SystemExit("Expected GraphifyRepository initialization not found in MainActivity.kt")
-          s = s.replace(old_init, """        val graphifyRepo = try {
-              GraphifyRepository(applicationContext)
-          } catch (e: Exception) {
-              android.util.Log.e("OpenJarvis", "Graphify database initialization failed", e)
-              null
-          }""")
-          old_state = """                var recentTasks by remember { mutableStateOf<List<TaskNode>>(emptyList()) }
-                
-                LaunchedEffect(Unit) {
-                    recentTasks = graphifyRepo.getRecentTasks(10)
-                }
-"""
-          if old_state not in s:
-              raise SystemExit("Expected unguarded MainActivity database query not found")
-          s = s.replace(old_state, "")
-          s = s.replace("import com.openjarvis.graphify.nodes.TaskNode\n", "")
-          main.write_text(s)
-
-          dashboard = root / "app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt"
+          p = pathlib.Path(sys.argv[1])
+          s = p.read_text()
+          s = s.replace('import com.openjarvis.agent.AgentCore\n', '')
+          s = s.replace('import com.openjarvis.agent.AgentState\n', '')
+          s = s.replace('    private lateinit var agentCore: AgentCore\n', '')
+          s = s.replace('        agentCore = AgentCore(this)\n', '')
+          s = s.replace('                val agentState by agentCore.state.collectAsState()\n', '')
+          p.write_text(s)
+          # Keep the launcher/dashboard alive if the local Room database cannot
+          # be opened (for example, an older on-device schema or corrupt DB).
+          dashboard = p.parent / "dashboard" / "DashboardScreen.kt"
           ds = dashboard.read_text()
-          ds = ds.replace("    graphifyRepo: GraphifyRepository,", "    graphifyRepo: GraphifyRepository?,")
-          old_query = """    LaunchedEffect(Unit) {
-        recentTasks = graphifyRepo.getRecentTasks(10)
-        mostUsedApps = graphifyRepo.getMostUsedApps(4)
-    }"""
-          if old_query not in ds:
-              raise SystemExit("Expected unguarded DashboardScreen database query not found")
-          ds = ds.replace(old_query, """    LaunchedEffect(graphifyRepo) {
-        val repository = graphifyRepo ?: return@LaunchedEffect
-        try {
-            recentTasks = repository.getRecentTasks(10)
-            mostUsedApps = repository.getMostUsedApps(4)
-        } catch (e: Exception) {
-            android.util.Log.e("OpenJarvis", "Dashboard database load failed", e)
-        }
-    }""")
           ds = ds.replace(
-              "            HeroSection(isSystemActive = isSystemActive)",
-              """            HeroSection(isSystemActive = isSystemActive)
-
-            if (graphifyRepo == null) {
-                Text(
-                    text = "Yerel hafıza veritabanı açılamadı. Ana ekran çalışıyor; hafıza verileri geçici olarak kullanılamıyor.",
-                    color = VoidColor.TextSecondary,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 12.dp)
-                )
-            }"""
+              "        recentTasks = graphifyRepo.getRecentTasks(10)\\n        mostUsedApps = graphifyRepo.getMostUsedApps(4)",
+              """        try {
+                  recentTasks = graphifyRepo.getRecentTasks(10)
+                  mostUsedApps = graphifyRepo.getMostUsedApps(4)
+              } catch (e: Exception) {
+                  android.util.Log.e("OpenJarvis", "Dashboard database load failed", e)
+                  recentTasks = emptyList()
+                  mostUsedApps = emptyList()
+              }"""
           )
           dashboard.write_text(ds)
           PY
