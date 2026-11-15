@@ -54,11 +54,7 @@ if "openjarvis_startup_crash.txt" not in s:
                                 style = androidx.compose.material3.MaterialTheme.typography.titleLarge
                             )
                             androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
-                            androidx.compose.foundation.rememberScrollState().let { scroll ->
-                                androidx.compose.foundation.verticalScroll(scroll)
-                            }.let { scrollModifier ->
-                                androidx.compose.material3.Text(previousCrash, modifier = scrollModifier)
-                            }
+                            androidx.compose.material3.Text(previousCrash, modifier = Modifier.padding(8.dp))
                             androidx.compose.foundation.layout.Spacer(Modifier.height(16.dp))
                             androidx.compose.material3.Button(onClick = {
                                 startupCrashFile.delete()
