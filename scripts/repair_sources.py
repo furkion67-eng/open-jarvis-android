@@ -650,3 +650,112 @@ def onboarding_final2(s):
 edit("app/src/main/java/com/openjarvis/ui/onboarding/OnboardingActivity.kt", onboarding_final2)
 
 print("Applied Open Jarvis compile repairs")
+
+
+# Compile repair pass 26: resolve remaining API and Compose mismatches.
+def screen_reader_pass(s):
+    s = s.replace("import android.view.accessibility.AccessibilityNodeInfo", "import android.content.Context\nimport android.view.accessibility.AccessibilityNodeInfo")
+    s = s.replace("class ScreenReader(private val service: JarvisAccessibilityService) {", "class ScreenReader(private val context: Context) {\n    private val service: JarvisAccessibilityService? get() = JarvisAccessibilityService.instance")
+    s = s.replace("service.rootInActiveWindow", "service?.rootInActiveWindow")
+    return s
+edit("app/src/main/java/com/openjarvis/accessibility/ScreenReader.kt", screen_reader_pass)
+
+def interactor_pass(s):
+    s = s.replace("ScreenReader(it)", "ScreenReader(context)")
+    s = s.replace("return JarvisAccessibilityService.instance?.openAppByPackage(meta.packageName) ?: false", "return JarvisAccessibilityService.instance?.let { it.openAppByPackage(meta.packageName); true } ?: false")
+    return s
+edit("app/src/main/java/com/openjarvis/intelligence/AIAppInteractor.kt", interactor_pass)
+edit("app/src/main/java/com/openjarvis/agent/SelfHealingExecutor.kt", lambda s:
+     s.replace("ScreenReader(context)", "ScreenReader(context)")
+      .replace("UniversalAdapter.getModelManager(context)", "UniversalAdapter(context)")
+      .replace("if (result.success) return result", "if (result is ActionResult.Success) return result")
+      .replace("llm.complete(healingPrompt.first, healingPrompt.second)", "llm.complete(healingPrompt.first, healingPrompt.second).getOrNull()")
+      .replace("action.description ?: action.action", "action.action")
+      .replace("if (tapped)", "if (tapped == true)")
+      .replace("if (typed)", "if (typed == true)"))
+
+edit("app/src/main/java/com/openjarvis/accessibility/JarvisAccessibilityService.kt",
+     lambda s: s.replace("AccessibilityEvent.TYPE_ALL_MASK", "AccessibilityEvent.TYPES_ALL_MASK"))
+edit("app/src/main/java/com/openjarvis/agent/AgentCore.kt", lambda s:
+     s.replace("return@taskMutex.withLock", "return@launch")
+      .replace("cleanCommand = cleanCommand,", "command = cleanCommand,")
+      .replace("ScreenReader(context)", "ScreenReader(context)"))
+
+def prompt_pass(s):
+    s = s.replace("IntentAnalyzer.analyze(resolvedPrompt)", "IntentAnalyzer.analyze(resolvedPrompt, UniversalAdapter(context))")
+    s = s.replace("suspend fun analyze(prompt: String): JSONObject = withContext(Dispatchers.IO) {\n        val adapter = UniversalAdapter.getModelManager(context)", "suspend fun analyze(prompt: String, adapter: UniversalAdapter): JSONObject = withContext(Dispatchers.IO) {")
+    return s
+edit("app/src/main/java/com/openjarvis/agent/PromptEngine.kt", prompt_pass)
+
+def fallback_pass(s):
+    if "import org.json.JSONException" not in s:
+        s = s.replace("import kotlinx.coroutines.flow.MutableStateFlow", "import kotlinx.coroutines.flow.MutableStateFlow\nimport org.json.JSONException")
+    s = s.replace("val result = runCatching { provider.complete(system, user) }", "val result = provider.complete(system, user)")
+    return s
+edit("app/src/main/java/com/openjarvis/agent/ProviderFallbackChain.kt", fallback_pass)
+
+def skill_pass(s):
+    start = s.find("    private fun copyBuiltinSkillsIfNeeded() {")
+    end = s.find("    private fun parseSkill", start)
+    if start >= 0 and end >= 0:
+        s = s[:start] + """    private fun copyBuiltinSkillsIfNeeded() {
+        val names = context.assets.list("skills") ?: return
+        names.filter { it.endsWith(".json") }.forEach { name ->
+            val target = File(skillsDir, name)
+            if (!target.exists()) try {
+                context.assets.open("skills/$name").use { input -> target.outputStream().use { input.copyTo(it) } }
+            } catch (_: Exception) { }
+        }
+    }
+
+""" + s[end:]
+    # Supply defaults for optional skill statistics and repair the generated Skill constructor.
+    s = s.replace("val usageCount: Int,\n    val successRate: Float", "val usageCount: Int = 0,\n    val successRate: Float = 1.0f")
+    return s
+edit("app/src/main/java/com/openjarvis/skills/SkillEngine.kt", skill_pass)
+
+def main_pass(s):
+    s = s.replace("import androidx.compose.foundation.layout.fillMaxSize", "import androidx.compose.foundation.layout.*")
+    if "import androidx.compose.ui.unit.dp" not in s:
+        s = s.replace("import androidx.compose.ui.Modifier", "import androidx.compose.ui.Modifier\nimport androidx.compose.ui.unit.dp")
+    return s
+edit("app/src/main/java/com/openjarvis/ui/MainActivity.kt", main_pass)
+
+def overlay_pass(s):
+    s = s.replace("voiceManager.initialize()", "voiceManager.initialize()")
+    return s
+edit("app/src/main/java/com/openjarvis/ui/OverlayService.kt", overlay_pass)
+
+def settings_pass(s):
+    s = s.replace("if (isPassword && !passwordVisible)", "if (isPassword)")
+    return s
+edit("app/src/main/java/com/openjarvis/ui/settings/SettingsScreen.kt", settings_pass)
+
+def dashboard_pass(s):
+    if "import androidx.compose.ui.draw.scale" not in s:
+        s = s.replace("import androidx.compose.ui.draw.clip", "import androidx.compose.ui.draw.clip\nimport androidx.compose.ui.draw.scale")
+    if "import androidx.compose.ui.text.withStyle" not in s:
+        s = s.replace("import androidx.compose.ui.text.buildAnnotatedString", "import androidx.compose.ui.text.buildAnnotatedString\nimport androidx.compose.ui.text.withStyle")
+    return s
+edit("app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt", dashboard_pass)
+
+def onboarding_pass(s):
+    if "import androidx.compose.runtime.rememberCoroutineScope" not in s:
+        s = s.replace("import androidx.compose.runtime.*", "import androidx.compose.runtime.*")
+    s = s.replace("private fun TryItScreen(onBack: () -> Unit, onSuccess: () -> Unit) {", "private fun TryItScreen(onBack: () -> Unit, onSuccess: () -> Unit) {\n    val tryScope = rememberCoroutineScope()")
+    s = s.replace("delay(2000)", "tryScope.launch { delay(2000) }")
+    return s
+edit("app/src/main/java/com/openjarvis/ui/onboarding/OnboardingActivity.kt", onboarding_pass)
+
+def floating_pass(s):
+    s = s.replace("import androidx.compose.foundation.gestures.detectTransformableState\n", "")
+    s = s.replace("import androidx.compose.foundation.pointerInput\n", "")
+    s = s.replace("import androidx.compose.material.icons.automirrored.filled.KeyboardArrowUp", "import androidx.compose.material.icons.filled.KeyboardArrowUp")
+    s = s.replace("Icons.AutoMirrored.Filled.KeyboardArrowUp", "Icons.Filled.KeyboardArrowUp")
+    if "import androidx.compose.material3.Divider" not in s:
+        s = s.replace("import androidx.compose.material3.Icon", "import androidx.compose.material3.Divider\nimport androidx.compose.material3.Icon", 1)
+    s = s.replace("infiniteTransition.animateFloat(", "rememberInfiniteTransition(label = \"float\").animateFloat(")
+    return s
+edit("app/src/main/java/com/openjarvis/ui/overlay/FloatingOverlayWidget.kt", floating_pass)
+
+print("Applied Open Jarvis compile repair pass 26")
