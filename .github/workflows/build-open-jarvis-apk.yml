@@ -68,9 +68,8 @@ jobs:
                       DashboardScreen('''
           )
           # Persist uncaught startup/runtime crashes without requesting new Android permissions.
-          s = p.read_text()
           s = s.replace(
-              '        enableEdgeToEdge()\n',
+              '        enableEdgeToEdge()\\n',
               '''        val crashFile = java.io.File(filesDir, "openjarvis_last_crash.txt")
           val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
           Thread.setDefaultUncaughtExceptionHandler { thread, error ->
@@ -93,9 +92,6 @@ jobs:
                       }
                   } else if (!accessibilityEnabled || !overlayEnabled) {''', 1)
           p.write_text(s)
-          # Keep the launcher/dashboard alive''', 1)
-          p.write_text(s)
- if the local Room database cannot
           # be opened (for example, an older on-device schema or corrupt DB).
           dashboard = p.parent / "dashboard" / "DashboardScreen.kt"
           ds = dashboard.read_text()
