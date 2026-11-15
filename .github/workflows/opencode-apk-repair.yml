@@ -1,6 +1,8 @@
 name: OpenCode autonomous APK repair
 
 on:
+  push:
+    branches: [main]
   issue_comment:
     types: [created]
   schedule:
@@ -70,7 +72,8 @@ jobs:
             weaken tests, or merely append temporary dependencies in the workflow. Preserve the
             existing app behavior and Turkish-language support.
             Repackage the corrected source into the ZIP if source files inside the ZIP need edits.
-            Make a focused branch and open a pull request titled exactly:
-            "Open Jarvis APK build repair"
-            Include the root cause, files changed, and the real build result in the PR body.
-            Do not merge the PR. Do not claim the APK is ready unless assembleDebug succeeds.
+            Apply the complete fix directly to the main branch and commit it. Do not open a pull request.
+            Fix all compiler errors revealed by the latest build, not just the first error. Group related
+            errors by root cause, preserve existing functionality, and run assembleDebug again before
+            committing. If the build still fails, commit the next genuine source/configuration fixes.
+            Do not claim the APK is ready unless assembleDebug succeeds and the Open-Jarvis-APK artifact exists.
