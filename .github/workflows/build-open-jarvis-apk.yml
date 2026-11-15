@@ -43,23 +43,23 @@ jobs:
           s = s.replace('                val agentState by agentCore.state.collectAsState()\n', '')
           # Defer Room repository construction into a guarded Compose state.
           # A database initialization exception must not terminate MainActivity.
-          s = s.replace('    private lateinit var graphifyRepo: GraphifyRepository\\n', '')
-          s = s.replace('        graphifyRepo = GraphifyRepository(this)\\n', '')
+          s = s.replace('    private lateinit var graphifyRepo: GraphifyRepository\n', '')
+          s = s.replace('        graphifyRepo = GraphifyRepository(this)\n', '')
           s = s.replace(
-              '                val context = LocalContext.current\\n',
-              '                val context = LocalContext.current\\n                val graphifyRepoResult = remember { runCatching { GraphifyRepository(applicationContext) } }\\n'
+              '                val context = LocalContext.current\n',
+              '                val context = LocalContext.current\n                val graphifyRepoResult = remember { runCatching { GraphifyRepository(applicationContext) } }\n'
           )
           s = s.replace(
-              '                        graphifyRepo = graphifyRepo,\\n',
-              '                        graphifyRepo = graphifyRepoResult.getOrThrow(),\\n'
+              '                        graphifyRepo = graphifyRepo,\n',
+              '                        graphifyRepo = graphifyRepoResult.getOrThrow(),\n'
           )
           # If repository creation fails, show a recoverable diagnostic screen.
           s = s.replace(
-              '                } else {\\n                    DashboardScreen(',
+              '                } else {\n                    DashboardScreen(',
               '''                } else if (graphifyRepoResult.isFailure) {
                       androidx.compose.material3.Surface(modifier = Modifier.fillMaxSize()) {
                           androidx.compose.material3.Text(
-                              text = "Open Jarvis could not initialize local storage.\\n" +
+                              text = "Open Jarvis could not initialize local storage.\n" +
                                   (graphifyRepoResult.exceptionOrNull()?.message ?: "Unknown startup error"),
                               modifier = Modifier.padding(24.dp)
                           )
