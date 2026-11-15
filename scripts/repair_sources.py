@@ -403,4 +403,236 @@ if "androidx.activity:activity-compose" not in g:
     g = g.replace("implementation 'androidx.activity:activity-ktx:1.8.2'", "implementation 'androidx.activity:activity-ktx:1.8.2'\n    implementation 'androidx.activity:activity-compose:1.8.2'")
 app_gradle.write_text(g)
 
+
+# Final pass: resolve the remaining compile errors with source-level fixes.
+def screen_reader_final(s):
+    s = s.replace("import android.view.accessibility.AccessibilityNodeInfo", "import android.content.Context\nimport android.view.accessibility.AccessibilityNodeInfo")
+    s = s.replace(
+        "class ScreenReader(private val service: JarvisAccessibilityService) {",
+        "class ScreenReader(@Suppress(\"UNUSED_PARAMETER\") context: Context) {\n    private val service: JarvisAccessibilityService? get() = JarvisAccessibilityService.instance"
+    )
+    s = s.replace("service.rootInActiveWindow ?: return \"\"", "service?.rootInActiveWindow ?: return \"\"")
+    s = s.replace("service.rootInActiveWindow ?: return null", "service?.rootInActiveWindow ?: return null")
+    return s
+edit("app/src/main/java/com/openjarvis/accessibility/ScreenReader.kt", screen_reader_final)
+edit("app/src/main/java/com/openjarvis/accessibility/ActionExecutor.kt",
+     lambda s: s.replace("import com.openjarvis.agent.ActionPlan\n", ""))
+edit("app/src/main/java/com/openjarvis/accessibility/JarvisAccessibilityService.kt",
+     lambda s: s.replace("AccessibilityEvent.TYPE_ALL_MASK", "AccessibilityEvent.TYPES_ALL_MASK"))
+
+edit("app/src/main/java/com/openjarvis/agent/AgentCore.kt", lambda s:
+     s.replace("return@taskMutex.withLock", "return@withLock")
+      .replace("cleanCommand = cleanCommand,", "command = cleanCommand,"))
+
+def prompt_engine_final(s):
+    s = s.replace("IntentAnalyzer.analyze(resolvedPrompt)", "IntentAnalyzer.analyze(resolvedPrompt, UniversalAdapter(context))")
+    s = s.replace(
+        "suspend fun analyze(prompt: String): JSONObject = withContext(Dispatchers.IO) {\n        val adapter = UniversalAdapter.getModelManager(context)",
+        "suspend fun analyze(prompt: String, adapter: UniversalAdapter): JSONObject = withContext(Dispatchers.IO) {"
+    )
+    return s
+edit("app/src/main/java/com/openjarvis/agent/PromptEngine.kt", prompt_engine_final)
+
+def fallback_final(s):
+    if "import org.json.JSONException" not in s:
+        s = s.replace("import kotlinx.coroutines.flow.MutableStateFlow", "import kotlinx.coroutines.flow.MutableStateFlow\nimport org.json.JSONException")
+    s = s.replace("val result = runCatching { provider.complete(system, user) }", "val result = provider.complete(system, user)")
+    return s
+edit("app/src/main/java/com/openjarvis/agent/ProviderFallbackChain.kt", fallback_final)
+
+def self_healing_final(s):
+    s = s.replace("private val llm = UniversalAdapter.getModelManager(context)", "private val llm = UniversalAdapter(context)")
+    s = s.replace("if (result.success) return result", "if (result is ActionResult.Success) return result")
+    s = s.replace("llm.complete(healingPrompt.first, healingPrompt.second)", "llm.complete(healingPrompt.first, healingPrompt.second).getOrNull()")
+    s = s.replace("if (tapped) ", "if (tapped == true) ")
+    s = s.replace("if (typed) ", "if (typed == true) ")
+    s = s.replace("\${action.description ?: action.action}", "\${action.action}")
+    return s
+edit("app/src/main/java/com/openjarvis/agent/SelfHealingExecutor.kt", self_healing_final)
+
+def ai_interactor_final(s):
+    s = s.replace(
+        "return JarvisAccessibilityService.instance?.openAppByPackage(meta.packageName) ?: false",
+        "return JarvisAccessibilityService.instance?.let { service -> service.openAppByPackage(meta.packageName); true } ?: false"
+    )
+    s = s.replace("            delay(300)\n", "")
+    return s
+edit("app/src/main/java/com/openjarvis/intelligence/AIAppInteractor.kt", ai_interactor_final)
+
+def mcp_final(s):
+    s = s.replace('optJSONArray("result")?.optJSONArray("tools")', 'optJSONObject("result")?.optJSONArray("tools")')
+    return s
+edit("app/src/main/java/com/openjarvis/mcp/MCPClient.kt", mcp_final)
+
+def skill_final(s):
+    start = s.find("    private fun copyBuiltinSkillsIfNeeded() {")
+    end = s.find("    private fun parseSkill", start)
+    if start >= 0 and end >= 0:
+        method = """    private fun copyBuiltinSkillsIfNeeded() {
+        val assetNames = context.assets.list("skills") ?: return
+        for (assetName in assetNames) {
+            if (!assetName.endsWith(".json")) continue
+            val destFile = File(skillsDir, assetName)
+            if (destFile.exists()) continue
+            try {
+                context.assets.open("skills/$assetName").use { input ->
+                    destFile.outputStream().use { output -> input.copyTo(output) }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+"""
+        s = s[:start] + method + s[end:]
+    s = s.replace("val usageCount: Int,\n    val successRate: Float", "val usageCount: Int = 0,\n    val successRate: Float = 1.0f")
+    return s
+edit("app/src/main/java/com/openjarvis/skills/SkillEngine.kt", skill_final)
+
+# Compose host integration and theme.
+app_gradle = root / "app/build.gradle"
+gradle_text = app_gradle.read_text()
+if "androidx.activity:activity-compose" not in gradle_text:
+    gradle_text = gradle_text.replace(
+        "implementation 'androidx.activity:activity-ktx:1.8.2'",
+        "implementation 'androidx.activity:activity-ktx:1.8.2'\n    implementation 'androidx.activity:activity-compose:1.8.2'"
+    )
+app_gradle.write_text(gradle_text)
+
+theme_file = root / "app/src/main/java/com/openjarvis/ui/theme/Theme.kt"
+theme_file.parent.mkdir(parents=True, exist_ok=True)
+if not theme_file.exists():
+    theme_file.write_text("""package com.openjarvis.ui.theme
+
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.runtime.Composable
+
+private val JarvisDarkColors = darkColorScheme(
+    primary = VoidColor.Violet,
+    onPrimary = VoidColor.TextPrimary,
+    secondary = VoidColor.Cyan,
+    onSecondary = VoidColor.Void950,
+    background = VoidColor.Void950,
+    onBackground = VoidColor.TextPrimary,
+    surface = VoidColor.Void900,
+    onSurface = VoidColor.TextPrimary,
+    surfaceVariant = VoidColor.Void800,
+    onSurfaceVariant = VoidColor.TextSecondary,
+    error = VoidColor.Red
+)
+
+@Composable
+fun OpenJarvisTheme(content: @Composable () -> Unit) {
+    MaterialTheme(colorScheme = JarvisDarkColors, content = content)
+}
+""")
+
+def main_activity_final(s):
+    if "import androidx.compose.foundation.layout.*" not in s:
+        s = s.replace("import androidx.compose.foundation.layout.fillMaxSize", "import androidx.compose.foundation.layout.*")
+    if "import androidx.compose.ui.unit.dp" not in s:
+        s = s.replace("import androidx.compose.ui.Modifier", "import androidx.compose.ui.Modifier\nimport androidx.compose.ui.unit.dp")
+    return s
+edit("app/src/main/java/com/openjarvis/ui/MainActivity.kt", main_activity_final)
+
+def dashboard_final(s):
+    if "import androidx.compose.ui.draw.scale" not in s:
+        s = s.replace("import androidx.compose.ui.draw.clip", "import androidx.compose.ui.draw.clip\nimport androidx.compose.ui.draw.scale")
+    if "import androidx.compose.ui.text.withStyle" not in s:
+        s = s.replace("import androidx.compose.ui.text.buildAnnotatedString", "import androidx.compose.ui.text.buildAnnotatedString\nimport androidx.compose.ui.text.withStyle")
+    if "import androidx.compose.ui.graphics.graphicsLayer" not in s:
+        s = s.replace("import androidx.compose.ui.graphics.Color", "import androidx.compose.ui.graphics.Color\nimport androidx.compose.ui.graphics.graphicsLayer")
+    s = s.replace("Column(alpha = alpha)", "Column(modifier = Modifier.graphicsLayer { this.alpha = alpha })")
+    return s
+edit("app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt", dashboard_final)
+
+def onboarding_final(s):
+    s = s.replace("import androidx.lifecycle.lifecycleScope\n", "")
+    s = s.replace("fun OnboardingScreen(onComplete: () -> Unit) {\n", "fun OnboardingScreen(onComplete: () -> Unit) {\n    val coroutineScope = rememberCoroutineScope()\n")
+    s = s.replace("lifecycleScope.launch {", "coroutineScope.launch {")
+    return s
+edit("app/src/main/java/com/openjarvis/ui/onboarding/OnboardingActivity.kt", onboarding_final)
+
+def floating_final(s):
+    s = s.replace("import androidx.compose.foundation.gestures.detectTransformableState\n", "")
+    s = s.replace("import androidx.compose.foundation.pointerInput\n", "")
+    s = s.replace("import androidx.compose.material.icons.automirrored.filled.KeyboardArrowUp", "import androidx.compose.material.icons.filled.KeyboardArrowUp")
+    s = s.replace("Icons.AutoMirrored.Filled.KeyboardArrowUp", "Icons.Filled.KeyboardArrowUp")
+    if "import androidx.compose.material3.Divider" not in s:
+        s = s.replace("import androidx.compose.material3.Icon\n", "import androidx.compose.material3.Divider\nimport androidx.compose.material3.Icon\n")
+    start = s.find("        transitionSpec = {", s.find("    AnimatedContent("))
+    end = s.find("        label = \"overlay_expand\"", start)
+    if start >= 0 and end >= 0:
+        s = s[:start] + """        transitionSpec = {
+            (expandHorizontally(animationSpec = spring(stiffness = Spring.StiffnessMedium)) +
+                expandVertically(animationSpec = spring(stiffness = Spring.StiffnessMedium)) +
+                fadeIn(animationSpec = tween(150))) togetherWith
+                (shrinkHorizontally(animationSpec = spring(stiffness = Spring.StiffnessMedium)) +
+                    shrinkVertically(animationSpec = spring(stiffness = Spring.StiffnessMedium)) +
+                    fadeOut(animationSpec = tween(100)))
+        },
+""" + s[end:]
+    old = """    var glowAlpha by remember { mutableFloatStateOf(0.15f) }
+
+    LaunchedEffect(Unit) {
+        infiniteTransition.animateFloat(
+            initialValue = 0.15f,
+            targetValue = 0.45f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(3000, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            )
+        ) { glowAlpha = this }
+    }
+"""
+    new = """    val infiniteTransition = rememberInfiniteTransition(label = "glow")
+    val glowAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.15f,
+        targetValue = 0.45f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glow_alpha"
+    )
+"""
+    s = s.replace(old, new)
+    return s
+edit("app/src/main/java/com/openjarvis/ui/overlay/FloatingOverlayWidget.kt", floating_final)
+
+edit("app/src/main/java/com/openjarvis/ui/settings/SettingsScreen.kt",
+     lambda s: s.replace("if (isPassword && !passwordVisible)", "if (isPassword)"))
+
+def voice_manager_final(s):
+    if "fun initialize()" not in s:
+        s = s.replace("    fun isVoiceEnabled(): Boolean", "    fun initialize() { /* Engines initialize in their constructors. */ }\n\n    fun isVoiceEnabled(): Boolean")
+    return s
+edit("app/src/main/java/com/openjarvis/voice/VoiceManager.kt", voice_manager_final)
+
+edit("app/src/main/java/com/openjarvis/voice/AndroidSTTEngine.kt",
+     lambda s: s.replace('            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_CONFIDENCE_THRESHOLD, 0.1f)\n', ""))
+
+def tutorial_final(s):
+    return s.replace("MutableStateFlow(TutorialState.Off)", "MutableStateFlow<TutorialState>(TutorialState.Off)")
+edit("app/src/main/java/com/openjarvis/ui/tutorial/TutorialMode.kt", tutorial_final)
+
+def graphify_final(s):
+    if "suspend fun logProviderFailure" not in s:
+        marker = "    suspend fun getRecentApps(limit: Int = 10): List<AppNode>"
+        method = """    suspend fun logProviderFailure(name: String, message: String) = withContext(Dispatchers.IO) {
+        val existing = providerNodeDao.getByName(name)
+        if (existing == null) {
+            providerNodeDao.insert(ProviderNode(providerName = name, successCount = 0))
+        } else {
+            providerNodeDao.update(existing.copy(lastUsed = System.currentTimeMillis(), useCount = existing.useCount + 1))
+        }
+    }
+
+"""
+        s = s.replace(marker, method + marker)
+    return s
+edit("app/src/main/java/com/openjarvis/graphify/GraphifyRepository.kt", graphify_final)
+
 print("Applied Open Jarvis compile repairs")
