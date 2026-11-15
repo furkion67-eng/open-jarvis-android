@@ -11,8 +11,16 @@ def edit(rel, fn):
 
 def agent(s):
     marker = "\n    suspend fun testConnection(): Result<Long> {"
-    if marker in s and "\n    }\n\n    suspend fun testConnection" not in s:
+    if marker not in s:
+        raise SystemExit("AgentCore.kt: testConnection marker not found")
+    # The packaged source has one extra closing brace at EOF because executeTask()
+    # is left open. Move that brace to the correct point before testConnection().
+    tail = s.rstrip()
+    if tail.endswith("}\n}"):
+        s = tail[:-3] + "}"
         s = s.replace(marker, "\n    }\n\n    suspend fun testConnection(): Result<Long> {", 1)
+    elif not tail.endswith("}"):
+        raise SystemExit("AgentCore.kt: unexpected file ending")
     return s
 
 def mcp(s):
