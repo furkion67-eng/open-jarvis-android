@@ -6,81 +6,42 @@ main = project / "app/src/main/java/com/openjarvis/ui/MainActivity.kt"
 s = main.read_text()
 
 if "openjarvis_startup_crash.txt" not in s:
-    s = s.replace(
-        "import android.widget.Toast\n",
-        "import android.widget.Toast\nimport java.io.File\nimport kotlin.system.exitProcess\n"
-    )
-    s = s.replace(
-        "        super.onCreate(savedInstanceState)\n",
-        """        super.onCreate(savedInstanceState)
+    import_line = "import android.widget.Toast\n"
+    if import_line not in s:
+        raise SystemExit("Toast import anchor not found")
+    s = s.replace(import_line, import_line + "import java.io.File\n", 1)
 
-        // Persist fatal startup exceptions so the next launch can show the exact cause.
+    anchor = "        super.onCreate(savedInstanceState)\n"
+    if anchor not in s:
+        raise SystemExit("onCreate anchor not found")
+    diagnostic = """        super.onCreate(savedInstanceState)
+
+        // Save fatal exceptions; show the full report on the next app launch.
+        val crashReport = File(filesDir, "openjarvis_startup_crash.txt")
         val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
             runCatching {
-                File(filesDir, "openjarvis_startup_crash.txt").writeText(
+                crashReport.writeText(
                     "Thread: ${thread.name}\\n" + android.util.Log.getStackTraceString(error)
                 )
             }
             if (previousHandler != null) previousHandler.uncaughtException(thread, error)
             else {
                 android.os.Process.killProcess(android.os.Process.myPid())
-                exitProcess(10)
             }
         }
-"""
-    )
-    s = s.replace(
-        "        setContent {\n",
-        """        val startupCrashFile = File(filesDir, "openjarvis_startup_crash.txt")
-        val previousCrash = runCatching {
-            if (startupCrashFile.exists()) startupCrashFile.readText() else null
-        }.getOrNull()
 
-        setContent {
-"""
-    )
-    s = s.replace(
-        "            OpenJarvisTheme {\n",
-        """            OpenJarvisTheme {
-                if (previousCrash != null) {
-                    androidx.compose.material3.Surface(modifier = Modifier.fillMaxSize()) {
-                        androidx.compose.foundation.layout.Column(
-                            modifier = Modifier.fillMaxSize().padding(20.dp),
-                            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
-                        ) {
-                            androidx.compose.material3.Text(
-                                "Open Jarvis açılış hatası yakalandı",
-                                style = androidx.compose.material3.MaterialTheme.typography.titleLarge
-                            )
-                            androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
-                            androidx.compose.material3.Text(previousCrash, modifier = Modifier.padding(8.dp))
-                            androidx.compose.foundation.layout.Spacer(Modifier.height(16.dp))
-                            androidx.compose.material3.Button(onClick = {
-                                startupCrashFile.delete()
-                                recreate()
-                            }) {
-                                androidx.compose.material3.Text("Hata kaydını temizle ve yeniden dene")
-                            }
-                        }
-                    }
-                } else {
-"""
-    )
-    # Close the diagnostic else branch immediately before setContent's closing braces.
-    marker = """            }
+        if (crashReport.exists()) {
+            val report = runCatching { crashReport.readText() }.getOrDefault("Crash report could not be read")
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Open Jarvis açılış hatası")
+                .setMessage(report)
+                .setPositiveButton("Kapat", null)
+                .setNeutralButton("Kaydı temizle") { _, _ -> crashReport.delete() }
+                .show()
         }
-    }
-
-    private fun isAccessibilityServiceEnabled"""
-    replacement = """                }
-            }
-        }
-    }
-
-    private fun isAccessibilityServiceEnabled"""
-    if marker not in s:
-        raise SystemExit("Could not locate MainActivity Compose closing block; refusing unsafe patch")
-    s = s.replace(marker, replacement, 1)
+"""
+    s = s.replace(anchor, diagnostic, 1)
     main.write_text(s)
-print("Startup crash diagnostics installed; Android permissions unchanged.")
+
+print("Installed next-launch crash report dialog; Android permissions unchanged.")
