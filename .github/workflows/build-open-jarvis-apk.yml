@@ -29,10 +29,6 @@ jobs:
           echo "Project directory: $PROJECT_DIR"
           ls -la "$PROJECT_DIR"
 
-      - name: Inspect Android Gradle Plugin version
-        run: |
-          grep -R -n "com.android.tools.build:gradle\|com.android.application.*version" source --include='*.gradle' --include='*.gradle.kts' || true
-
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -56,26 +52,8 @@ jobs:
         working-directory: ${{ steps.source.outputs.project_dir }}
         run: |
           touch gradle.properties
-          grep -q '^android.useAndroidX=true
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Open-Jarvis-APK
-          path: ${{ steps.source.outputs.project_dir }}/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 14
- gradle.properties || echo 'android.useAndroidX=true' >> gradle.properties
-          grep -q '^android.enableJetifier=true
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Open-Jarvis-APK
-          path: ${{ steps.source.outputs.project_dir }}/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 14
- gradle.properties || echo 'android.enableJetifier=true' >> gradle.properties
+          printf '\nandroid.useAndroidX=true\nandroid.enableJetifier=true\n' >> gradle.properties
+          cat gradle.properties
 
       - name: Build debug APK
         working-directory: ${{ steps.source.outputs.project_dir }}
