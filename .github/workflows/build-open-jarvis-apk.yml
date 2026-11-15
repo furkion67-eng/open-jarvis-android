@@ -42,6 +42,22 @@ jobs:
           s = s.replace('        agentCore = AgentCore(this)\n', '')
           s = s.replace('                val agentState by agentCore.state.collectAsState()\n', '')
           p.write_text(s)
+          # Keep the launcher/dashboard alive if the local Room database cannot
+          # be opened (for example, an older on-device schema or corrupt DB).
+          dashboard = p.parent / "dashboard" / "DashboardScreen.kt"
+          ds = dashboard.read_text()
+          ds = ds.replace(
+              "        recentTasks = graphifyRepo.getRecentTasks(10)\\n        mostUsedApps = graphifyRepo.getMostUsedApps(4)",
+              """        try {
+                  recentTasks = graphifyRepo.getRecentTasks(10)
+                  mostUsedApps = graphifyRepo.getMostUsedApps(4)
+              } catch (e: Exception) {
+                  android.util.Log.e("OpenJarvis", "Dashboard database load failed", e)
+                  recentTasks = emptyList()
+                  mostUsedApps = emptyList()
+              }"""
+          )
+          dashboard.write_text(ds)
           PY
           ls -la "$PROJECT_DIR"
 
