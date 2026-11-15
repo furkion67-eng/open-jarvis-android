@@ -85,6 +85,7 @@ jobs:
           )
           dashboard.write_text(ds)
           PY
+          python3 scripts/add_startup_diagnostics.py "$PROJECT_DIR"
           ls -la "$PROJECT_DIR"
 
       - name: Audit declared Android permissions (no permission changes)
