@@ -157,4 +157,34 @@ s = s.replace(
         }"""
 )
 manager.write_text(s)
-print("Applied Open Jarvis Kotlin compile repairs")
+
+# The XML theme parent and attributes in res/values/themes.xml are provided by
+# Material Components for Android; Compose Material3 alone does not provide them.
+app_gradle = root / "app/build.gradle"
+if app_gradle.exists():
+    gradle_text = app_gradle.read_text()
+    if "com.google.android.material:material" not in gradle_text:
+        if "dependencies {" not in gradle_text:
+            raise SystemExit("app/build.gradle: dependencies block not found")
+        gradle_text = gradle_text.replace(
+            "dependencies {",
+            "dependencies {\n    implementation 'com.google.android.material:material:1.12.0'",
+            1
+        )
+        app_gradle.write_text(gradle_text)
+else:
+    app_gradle_kts = root / "app/build.gradle.kts"
+    if not app_gradle_kts.exists():
+        raise SystemExit("app Gradle build file not found")
+    gradle_text = app_gradle_kts.read_text()
+    if "com.google.android.material:material" not in gradle_text:
+        if "dependencies {" not in gradle_text:
+            raise SystemExit("app/build.gradle.kts: dependencies block not found")
+        gradle_text = gradle_text.replace(
+            "dependencies {",
+            'dependencies {\n    implementation("com.google.android.material:material:1.12.0")',
+            1
+        )
+        app_gradle_kts.write_text(gradle_text)
+
+print("Applied Open Jarvis Kotlin and Android resource configuration repairs")
