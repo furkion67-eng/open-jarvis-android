@@ -52,6 +52,31 @@ jobs:
         with:
           gradle-version: '8.2'
 
+      - name: Enable AndroidX
+        working-directory: ${{ steps.source.outputs.project_dir }}
+        run: |
+          touch gradle.properties
+          grep -q '^android.useAndroidX=true
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Open-Jarvis-APK
+          path: ${{ steps.source.outputs.project_dir }}/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+ gradle.properties || echo 'android.useAndroidX=true' >> gradle.properties
+          grep -q '^android.enableJetifier=true
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Open-Jarvis-APK
+          path: ${{ steps.source.outputs.project_dir }}/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+ gradle.properties || echo 'android.enableJetifier=true' >> gradle.properties
+
       - name: Build debug APK
         working-directory: ${{ steps.source.outputs.project_dir }}
         run: gradle --no-daemon --stacktrace assembleDebug
