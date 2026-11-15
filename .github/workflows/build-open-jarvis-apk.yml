@@ -59,6 +59,52 @@ jobs:
           )
           dashboard.write_text(ds)
           PY
+          python3 - "$PROJECT_DIR" <<'PY'
+          import pathlib, sys
+          root = pathlib.Path(sys.argv[1])
+          main = root / 'app/src/main/java/com/openjarvis/ui/MainActivity.kt'
+          s = main.read_text()
+          s = s.replace('                var recentTasks by remember { mutableStateOf<List<TaskNode>>(emptyList()) }\n                \n                LaunchedEffect(Unit) {\n                    recentTasks = graphifyRepo.getRecentTasks(10)\n                }\n                \n', '')
+          main.write_text(s)
+          dash = root / 'app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt'
+          s = dash.read_text()
+          s = s.replace('    var isSystemActive by remember { mutableStateOf(true) }\n', '    var isSystemActive by remember { mutableStateOf(true) }\n    var dataLoadError by remember { mutableStateOf<String?>(null) }\n')
+          s = s.replace('''    LaunchedEffect(Unit) {
+                  recentTasks = graphifyRepo.getRecentTasks(10)
+                  mostUsedApps = graphifyRepo.getMostUsedApps(4)
+              }''', '''    LaunchedEffect(graphifyRepo) {
+                  try {
+                      recentTasks = graphifyRepo.getRecentTasks(10)
+                      mostUsedApps = graphifyRepo.getMostUsedApps(4)
+                  } catch (error: Exception) {
+                      dataLoadError = "Local database could not be loaded: ${error.javaClass.simpleName}: ${error.message ?: "no details"}"
+                      android.util.Log.e("OpenJarvisStartup", dataLoadError ?: "Database load failed", error)
+                  }
+              }''')
+          # Show a visible, non-fatal diagnostic on the dashboard rather than crashing the launch coroutine.
+          s = s.replace('''            HeroSection(isSystemActive = isSystemActive)
+            
+            Spacer(modifier = Modifier.height(16.dp))''', '''            HeroSection(isSystemActive = isSystemActive)
+
+            dataLoadError?.let { message ->
+                Spacer(modifier = Modifier.height(12.dp))
+                Surface(
+                    color = VoidColor.Void800,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Startup diagnostic: $message",
+                        color = VoidColor.TextPrimary,
+                        modifier = Modifier.padding(12.dp),
+                        fontSize = 12.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))''')
+          dash.write_text(s)
+          PY
           ls -la "$PROJECT_DIR"
 
       - name: Audit declared Android permissions (no permission changes)
