@@ -143,5 +143,18 @@ s = s.replace("dao.insert(automation)", "dao.insert(automation.toEntity())")
 s = s.replace("dao.update(automation)", "dao.update(automation.toEntity())")
 s = s.replace("val automation = dao.getById(id) ?: return@withContext", "val automation = dao.getById(id)?.toAutomation() ?: return@withContext")
 s = s.replace("dao.update(updated)", "dao.update(updated.toEntity())")
+s = s.replace(
+    """        WorkManager.getInstance(context)
+            .enqueueUniqueWork(automation.id, ExistingWorkPolicy.REPLACE, request)""",
+    """        val workManager = WorkManager.getInstance(context)
+        when (request) {
+            is PeriodicWorkRequest -> workManager.enqueueUniquePeriodicWork(
+                automation.id, ExistingPeriodicWorkPolicy.REPLACE, request
+            )
+            is OneTimeWorkRequest -> workManager.enqueueUniqueWork(
+                automation.id, ExistingWorkPolicy.REPLACE, request
+            )
+        }"""
+)
 manager.write_text(s)
 print("Applied Open Jarvis Kotlin compile repairs")
