@@ -759,3 +759,26 @@ def floating_pass(s):
 edit("app/src/main/java/com/openjarvis/ui/overlay/FloatingOverlayWidget.kt", floating_pass)
 
 print("Applied Open Jarvis compile repair pass 26")
+
+
+# Final cleanup for pass 28 compiler diagnostics.
+def cleanup_screen_reader(s):
+    lines = s.splitlines()
+    seen = set()
+    out = []
+    for line in lines:
+        if line.startswith("import "):
+            if line in seen:
+                continue
+            seen.add(line)
+        out.append(line)
+    return "\n".join(out) + ("\n" if s.endswith("\n") else "")
+
+def cleanup_self_healing(s):
+    s = s.replace("llm.complete(healingPrompt.first, healingPrompt.second).getOrNull().getOrNull()", "llm.complete(healingPrompt.first, healingPrompt.second).getOrNull()")
+    return s
+
+edit("app/src/main/java/com/openjarvis/accessibility/ScreenReader.kt", cleanup_screen_reader)
+edit("app/src/main/java/com/openjarvis/agent/SelfHealingExecutor.kt", cleanup_self_healing)
+
+print("Applied final pass 28 compile cleanup")
