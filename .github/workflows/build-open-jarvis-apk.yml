@@ -29,6 +29,7 @@ jobs:
           test -d "$PROJECT_DIR/app"
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
           echo "Project directory: $PROJECT_DIR"
+          python3 scripts/repair_sources.py "$PROJECT_DIR"
           ls -la "$PROJECT_DIR"
           APP_GRADLE=""
           if [ -f "$PROJECT_DIR/app/build.gradle" ]; then APP_GRADLE="$PROJECT_DIR/app/build.gradle"; fi
