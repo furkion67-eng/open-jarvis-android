@@ -784,13 +784,11 @@ edit("app/src/main/java/com/openjarvis/agent/SelfHealingExecutor.kt", cleanup_se
 print("Applied final pass 28 compile cleanup")
 
 
-# Startup hardening: the launcher previously opened Room and ran two unguarded
-# queries while the splash screen was transitioning. A missing migration or
-# damaged local database could therefore terminate the Activity.
+# Startup hardening: Room access must not be allowed to crash the launcher.
 def guard_launcher_database():
     main = root / "app/src/main/java/com/openjarvis/ui/MainActivity.kt"
     s = main.read_text()
-    s = s.replace("    private lateinit var graphifyRepo: GraphifyRepository\\n", "")
+    s = s.replace("    private lateinit var graphifyRepo: GraphifyRepository\n", "")
     old_init = "        graphifyRepo = GraphifyRepository(this)"
     new_init = """        val graphifyRepo = try {
             GraphifyRepository(applicationContext)
@@ -805,13 +803,13 @@ def guard_launcher_database():
 
     import re
     state_pattern = re.compile(
-        r"(?ms)^\\s*var recentTasks by remember \\{ mutableStateOf<List<TaskNode>>\\(emptyList\\(\\)\\) \\}\\s*"
-        r"^\\s*LaunchedEffect\\(Unit\\) \\{\\s*"
-        r"^\\s*recentTasks = graphifyRepo\\.getRecentTasks\\(10\\)\\s*"
-        r"^\\s*\\}\\s*"
+        r"(?ms)^\s*var recentTasks by remember \{ mutableStateOf<List<TaskNode>>\(emptyList\(\)\) \}\s*"
+        r"^\s*LaunchedEffect\(Unit\) \{\s*"
+        r"^\s*recentTasks = graphifyRepo\.getRecentTasks\(10\)\s*"
+        r"^\s*\}\s*"
     )
     s, _ = state_pattern.subn("", s, count=1)
-    s = s.replace("import com.openjarvis.graphify.nodes.TaskNode\\n", "")
+    s = s.replace("import com.openjarvis.graphify.nodes.TaskNode\n", "")
     main.write_text(s)
 
     dashboard = root / "app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt"
@@ -820,7 +818,8 @@ def guard_launcher_database():
     if "var databaseError by remember" not in ds:
         ds = ds.replace(
             "    var isSystemActive by remember { mutableStateOf(true) }",
-            "    var isSystemActive by remember { mutableStateOf(true) }\\n    var databaseError by remember { mutableStateOf<String?>(null) }"
+            """    var isSystemActive by remember { mutableStateOf(true) }
+    var databaseError by remember { mutableStateOf<String?>(null) }"""
         )
     old_query = """    LaunchedEffect(Unit) {
         recentTasks = graphifyRepo.getRecentTasks(10)
@@ -855,7 +854,13 @@ def guard_launcher_database():
                 )
             }"""
     if warning not in ds:
-        ds = ds.replace("            HeroSection(isSystemActive = isSystemActive)", "            HeroSection(isSystemActive = isSystemActive)\\n\\n" + warning, 1)
+        ds = ds.replace(
+            "            HeroSection(isSystemActive = isSystemActive)",
+            """            HeroSection(isSystemActive = isSystemActive)
+
+""" + warning,
+            1
+        )
     dashboard.write_text(ds)
 
 guard_launcher_database()
