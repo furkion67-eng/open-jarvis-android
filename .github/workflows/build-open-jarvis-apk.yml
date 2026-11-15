@@ -57,7 +57,9 @@ jobs:
 
       - name: Build debug APK
         working-directory: ${{ steps.source.outputs.project_dir }}
-        run: gradle --no-daemon --stacktrace assembleDebug
+        env:
+          GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=1g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1
+        run: gradle --no-daemon --max-workers=1 --stacktrace assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
