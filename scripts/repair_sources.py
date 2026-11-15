@@ -278,4 +278,129 @@ object VoidColor {
 """)
 
 
-print("Applied Open Jarvis Kotlin and Android resource configuration repairs")
+
+# Additional compile repairs from the next CI pass.
+def socket_server(s):
+    # Keep the first companion object, which contains all socket constants.
+    return s.replace("""
+    companion object {
+        const val SOCKET_NAME = "jarvis.port"
+    }
+}""", "\n}", 1)
+
+def notification_listener(s):
+    s = s.replace("import com.openjarvis.graphify.GraphifyRepository", "import com.openjarvis.graphify.GraphifyRepository\nimport com.openjarvis.accessibility.JarvisAccessibilityService")
+    s = s.replace('''        fun shouldProcessNotification(packageName: String): Boolean {
+            return packageName !in PRIVACY_PROTECTED_APPS
+        }
+    }''', '''        private val messagingApps = setOf(
+            "com.whatsapp", "com.google.android.apps.messaging",
+            "com.samsung.android.messaging", "com.instagram.android",
+            "com.facebook.orca", "org.telegram.messenger", "com.slack", "com.discord"
+        )
+        fun shouldProcessNotification(packageName: String): Boolean = packageName !in PRIVACY_PROTECTED_APPS
+    }''')
+    s = s.replace('''        scope.launch {
+            try {
+                graphifyRepo?.logNotification(
+                    "${parsed.packageName}: ${parsed.title}"
+                )
+            } catch (e: Exception) { }
+        }
+''', '')
+    s = s.replace('Notification.EXTRA_SENDER_TEXT', 'Notification.EXTRA_TITLE')
+    # Remove the second companion object at the bottom.
+    s = s.replace('''
+    companion object {
+        private val messagingApps = listOf(
+            "com.whatsapp",
+            "com.google.android.apps.messaging",
+            "com.samsung.android.messaging",
+            "com.instagram.android",
+            "com.facebook.orca",
+            "org.telegram.messenger",
+            "com.slack",
+            "com.discord"
+        )
+    }
+''', '\n')
+    return s
+
+def ai_interactor(s):
+    s = s.replace('private val screenReader = ScreenReader(context)', 'private val screenReader: ScreenReader? get() = JarvisAccessibilityService.instance?.let { ScreenReader(it) }')
+    s = s.replace('''            delay(300)
+''', '')
+    s = s.replace('screenReader.extractAllText()', 'screenReader?.extractAllText() ?: ""')
+    return s
+
+def app_builder(s):
+    s = s.replace('''    enum class FileType {
+        GRADLE, GRADLE_APP, MANIFEST, KOTLIN, XML, PROPERTIES, MARKDOWN
+    }''', '''    enum class FileType {
+        GRADLE, GRADLE_APP, MANIFEST, KOTLIN, XML, PROPERTIES, PROGUARD, MARKDOWN
+    }
+    enum class Complexity { SIMPLE, MEDIUM, COMPLEX }''')
+    s = s.replace('val complexity: AppBuilderMode.Complexity', 'val complexity: AppBuilderMode.Complexity')
+    s = s.replace('\nenum class Complexity { SIMPLE, MEDIUM, COMPLEX }', '')
+    return s
+
+def universal_adapter(s):
+    s = s.replace('prefs.getString("provider_name", "Groq")', 'prefs.getString("provider_name", "Groq") ?: "Groq"')
+    s = s.replace('prefs.getString("provider_base_url", "")', 'prefs.getString("provider_base_url", "") ?: ""')
+    s = s.replace('prefs.getString("provider_api_key", "")', 'prefs.getString("provider_api_key", "") ?: ""')
+    s = s.replace('prefs.getString("provider_model", "")', 'prefs.getString("provider_model", "") ?: ""')
+    s = s.replace('ModelManager.ModelState.ModelLoaded', 'ModelManager.ModelState.Loaded')
+    return s
+
+def groq_provider(s):
+    marker = '\nclass GeminiProvider('
+    return s.split(marker, 1)[0] + '\n' if marker in s else s
+
+def providers(s):
+    s = s.replace('private val baseUrl: String,', 'override val baseUrl: String,')
+    return s
+
+def model_manager(s):
+    s = s.replace('_state.value = ModelState.Loading', '_state.value = ModelState.Loading(tier)')
+    s = s.replace('_state.value = ModelStateLoaded(tier)', '_state.value = ModelState.Loaded(tier)')
+    return s
+
+def mcp_client(s):
+    s = s.replace('put("id", "jarvis")', 'put("id", 1)')
+    return s
+
+def stt(s):
+    return s.replace('            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_CONFIDENCE_THRESHOLD, 0.1f)\n', '')
+
+def settings_screen(s):
+    s = s.replace('showPassword', 'passwordVisible')
+    return s
+
+def dashboard(s):
+    if 'import androidx.compose.ui.graphics.graphicsLayer' not in s:
+        s = s.replace('import androidx.compose.ui.graphics.Color', 'import androidx.compose.ui.graphics.Color\nimport androidx.compose.ui.graphics.graphicsLayer')
+    if 'import androidx.compose.ui.text.withStyle' not in s:
+        s = s.replace('import androidx.compose.ui.text.', 'import androidx.compose.ui.text.withStyle\nimport androidx.compose.ui.text.', 1)
+    s = s.replace('Column(alpha = alpha)', 'Column(modifier = Modifier.graphicsLayer { this.alpha = alpha })')
+    return s
+
+edit("app/src/main/java/com/openjarvis/bridge/SocketServer.kt", socket_server)
+edit("app/src/main/java/com/openjarvis/intelligence/JarvisNotificationListener.kt", notification_listener)
+edit("app/src/main/java/com/openjarvis/intelligence/AIAppInteractor.kt", ai_interactor)
+edit("app/src/main/java/com/openjarvis/builder/AppBuilderMode.kt", app_builder)
+edit("app/src/main/java/com/openjarvis/llm/UniversalAdapter.kt", universal_adapter)
+edit("app/src/main/java/com/openjarvis/llm/providers/GroqProvider.kt", groq_provider)
+edit("app/src/main/java/com/openjarvis/llm/providers/Providers.kt", providers)
+edit("app/src/main/java/com/openjarvis/local/ModelManager.kt", model_manager)
+edit("app/src/main/java/com/openjarvis/mcp/MCPClient.kt", mcp_client)
+edit("app/src/main/java/com/openjarvis/voice/AndroidSTTEngine.kt", stt)
+edit("app/src/main/java/com/openjarvis/ui/settings/SettingsScreen.kt", settings_screen)
+edit("app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt", dashboard)
+
+app_gradle = root / "app/build.gradle"
+g = app_gradle.read_text()
+if "androidx.activity:activity-compose" not in g:
+    g = g.replace("implementation 'androidx.activity:activity-ktx:1.8.2'", "implementation 'androidx.activity:activity-ktx:1.8.2'\n    implementation 'androidx.activity:activity-compose:1.8.2'")
+app_gradle.write_text(g)
+
+print("Applied Open Jarvis compile repairs")
