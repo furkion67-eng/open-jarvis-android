@@ -13,16 +13,14 @@ def agent(s):
     marker = "\n    suspend fun testConnection(): Result<Long> {"
     if marker not in s:
         raise SystemExit("AgentCore.kt: testConnection marker not found")
-    # The packaged source has one extra closing brace at EOF because executeTask()
-    # is left open. Move that brace to the correct point before testConnection().
-    tail = s.rstrip()
-    if tail.endswith("}\n}"):
-        s = tail[:-3] + "}"
+    # executeTask() opens scope.launch { taskMutex.withLock { ... } }.
+    # The packaged file closes those two lambdas but omits executeTask() itself.
+    before = s.split(marker, 1)[0]
+    trailing = before.rstrip().splitlines()[-2:]
+    indents = [len(line) - len(line.lstrip()) for line in trailing]
+    if indents != [4, 4]:
         s = s.replace(marker, "\n    }\n\n    suspend fun testConnection(): Result<Long> {", 1)
-    elif not tail.endswith("}"):
-        raise SystemExit("AgentCore.kt: unexpected file ending")
     return s
-
 def mcp(s):
     s = s.replace("import okhttp3.Request\n", "import okhttp3.Request\nimport okhttp3.MediaType.Companion.toMediaType\nimport okhttp3.RequestBody.Companion.toRequestBody\n")
     old = """okhttp3.RequestBody.create(
