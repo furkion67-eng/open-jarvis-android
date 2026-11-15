@@ -67,16 +67,16 @@ jobs:
         if: always()
         working-directory: ${{ steps.source.outputs.project_dir }}
         run: |
-          for spec in \\
-            "app/src/main/java/com/openjarvis/agent/AgentCore.kt:285:330" \\
-            "app/src/main/java/com/openjarvis/mcp/MCPClient.kt:1:155" \\
-            "app/src/main/java/com/openjarvis/automation/AutomationManager.kt:180:235" \\
-            "app/src/main/java/com/openjarvis/automation/AutomationDB.kt:1:100" \\
-            "app/src/main/java/com/openjarvis/graphify/nodes/TaskNodeDao.kt:1:80"; do
-            file="${spec%%:*}"; rest="${spec#*:}"; start="${rest%%:*}"; end="${rest##*:}"
-            echo "===== $file ($start-$end) ====="
-            if [ -f "$file" ]; then nl -ba "$file" | sed -n "${start},${end}p"; else echo "MISSING FILE"; fi
-          done
+          echo "===== AgentCore.kt ====="
+          sed -n '285,330p' app/src/main/java/com/openjarvis/agent/AgentCore.kt || true
+          echo "===== MCPClient.kt ====="
+          sed -n '1,155p' app/src/main/java/com/openjarvis/mcp/MCPClient.kt || true
+          echo "===== AutomationManager.kt ====="
+          sed -n '180,235p' app/src/main/java/com/openjarvis/automation/AutomationManager.kt || true
+          echo "===== AutomationDB.kt ====="
+          sed -n '1,100p' app/src/main/java/com/openjarvis/automation/AutomationDB.kt || true
+          echo "===== TaskNodeDao.kt ====="
+          sed -n '1,80p' app/src/main/java/com/openjarvis/graphify/nodes/TaskNodeDao.kt || true
 
       - name: Build debug APK
         working-directory: ${{ steps.source.outputs.project_dir }}
