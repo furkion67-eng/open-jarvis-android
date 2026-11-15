@@ -782,3 +782,81 @@ edit("app/src/main/java/com/openjarvis/accessibility/ScreenReader.kt", cleanup_s
 edit("app/src/main/java/com/openjarvis/agent/SelfHealingExecutor.kt", cleanup_self_healing)
 
 print("Applied final pass 28 compile cleanup")
+
+
+# Startup hardening: the launcher previously opened Room and ran two unguarded
+# queries while the splash screen was transitioning. A missing migration or
+# damaged local database could therefore terminate the Activity.
+def guard_launcher_database():
+    main = root / "app/src/main/java/com/openjarvis/ui/MainActivity.kt"
+    s = main.read_text()
+    s = s.replace("    private lateinit var graphifyRepo: GraphifyRepository\\n", "")
+    old_init = "        graphifyRepo = GraphifyRepository(this)"
+    new_init = """        val graphifyRepo = try {
+            GraphifyRepository(applicationContext)
+        } catch (e: Exception) {
+            android.util.Log.e("OpenJarvis", "Graphify database initialization failed", e)
+            null
+        }"""
+    if old_init in s:
+        s = s.replace(old_init, new_init, 1)
+    elif "val graphifyRepo = try {" not in s:
+        raise SystemExit("MainActivity: GraphifyRepository initialization anchor missing")
+
+    import re
+    state_pattern = re.compile(
+        r"(?ms)^\\s*var recentTasks by remember \\{ mutableStateOf<List<TaskNode>>\\(emptyList\\(\\)\\) \\}\\s*"
+        r"^\\s*LaunchedEffect\\(Unit\\) \\{\\s*"
+        r"^\\s*recentTasks = graphifyRepo\\.getRecentTasks\\(10\\)\\s*"
+        r"^\\s*\\}\\s*"
+    )
+    s, _ = state_pattern.subn("", s, count=1)
+    s = s.replace("import com.openjarvis.graphify.nodes.TaskNode\\n", "")
+    main.write_text(s)
+
+    dashboard = root / "app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt"
+    ds = dashboard.read_text()
+    ds = ds.replace("    graphifyRepo: GraphifyRepository,", "    graphifyRepo: GraphifyRepository?,")
+    if "var databaseError by remember" not in ds:
+        ds = ds.replace(
+            "    var isSystemActive by remember { mutableStateOf(true) }",
+            "    var isSystemActive by remember { mutableStateOf(true) }\\n    var databaseError by remember { mutableStateOf<String?>(null) }"
+        )
+    old_query = """    LaunchedEffect(Unit) {
+        recentTasks = graphifyRepo.getRecentTasks(10)
+        mostUsedApps = graphifyRepo.getMostUsedApps(4)
+    }"""
+    new_query = """    LaunchedEffect(graphifyRepo) {
+        val repository = graphifyRepo
+        if (repository == null) {
+            databaseError = "Yerel hafıza veritabanı başlatılamadı."
+            return@LaunchedEffect
+        }
+        try {
+            recentTasks = repository.getRecentTasks(10)
+            mostUsedApps = repository.getMostUsedApps(4)
+            databaseError = null
+        } catch (e: Exception) {
+            android.util.Log.e("OpenJarvis", "Dashboard database load failed", e)
+            databaseError = e.localizedMessage ?: "Veritabanı okunamadı."
+        }
+    }"""
+    if old_query in ds:
+        ds = ds.replace(old_query, new_query, 1)
+    elif "LaunchedEffect(graphifyRepo)" not in ds:
+        raise SystemExit("DashboardScreen: database query anchor missing")
+
+    warning = """            if (databaseError != null) {
+                Text(
+                    text = "Hafıza verisi kullanılamıyor: " + (databaseError ?: ""),
+                    color = VoidColor.TextSecondary,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 12.dp)
+                )
+            }"""
+    if warning not in ds:
+        ds = ds.replace("            HeroSection(isSystemActive = isSystemActive)", "            HeroSection(isSystemActive = isSystemActive)\\n\\n" + warning, 1)
+    dashboard.write_text(ds)
+
+guard_launcher_database()
+print("Applied launcher database startup guard")
