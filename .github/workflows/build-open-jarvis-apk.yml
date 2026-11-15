@@ -21,9 +21,9 @@ jobs:
         id: source
         run: |
           unzip -q "open-jarvis-apk-build-ready(2).zip" -d source
-          find source -maxdepth 4 -name settings.gradle -o -name settings.gradle.kts
-          PROJECT_DIR="$(dirname "$(find source -maxdepth 4 -name settings.gradle -o -name settings.gradle.kts | head -n 1)")"
-          test -n "$PROJECT_DIR"
+          SETTINGS_FILE="$(find source -maxdepth 5 \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
+          test -n "$SETTINGS_FILE"
+          PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
           test -d "$PROJECT_DIR/app"
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
           echo "Project directory: $PROJECT_DIR"
@@ -41,6 +41,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Install Android SDK
         run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
