@@ -63,6 +63,21 @@ jobs:
           printf '\nandroid.useAndroidX=true\nandroid.enableJetifier=true\n' >> gradle.properties
           cat gradle.properties
 
+      - name: Capture failing Kotlin source context
+        if: always()
+        working-directory: ${{ steps.source.outputs.project_dir }}
+        run: |
+          for spec in \\
+            "app/src/main/java/com/openjarvis/agent/AgentCore.kt:285:330" \\
+            "app/src/main/java/com/openjarvis/mcp/MCPClient.kt:1:155" \\
+            "app/src/main/java/com/openjarvis/automation/AutomationManager.kt:180:235" \\
+            "app/src/main/java/com/openjarvis/automation/AutomationDB.kt:1:100" \\
+            "app/src/main/java/com/openjarvis/graphify/nodes/TaskNodeDao.kt:1:80"; do
+            file="${spec%%:*}"; rest="${spec#*:}"; start="${rest%%:*}"; end="${rest##*:}"
+            echo "===== $file ($start-$end) ====="
+            if [ -f "$file" ]; then nl -ba "$file" | sed -n "${start},${end}p"; else echo "MISSING FILE"; fi
+          done
+
       - name: Build debug APK
         working-directory: ${{ steps.source.outputs.project_dir }}
         env:
