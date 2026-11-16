@@ -138,7 +138,7 @@ jobs:
         working-directory: ${{ steps.source.outputs.project_dir }}
         run: |
           touch gradle.properties
-          printf '\nandroid.useAndroidX=true\nandroid.enableJetifier=true\n' >> gradle.properties
+          printf '\nandroid.useAndroidX=true\nandroid.enableJetifier=false\n' >> gradle.properties
           cat gradle.properties
 
       - name: Capture failing Kotlin source context
