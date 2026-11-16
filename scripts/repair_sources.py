@@ -1165,3 +1165,184 @@ def fix_voice_kotlin_newlines(s):
 edit("app/src/main/java/com/openjarvis/ui/SettingsActivity.kt", fix_voice_kotlin_newlines)
 edit("app/src/main/java/com/openjarvis/ui/settings/SettingsScreen.kt", fix_voice_kotlin_newlines)
 print("Fixed literal backslash-n sequences in Kotlin files")
+
+
+# Real voice-command Activity: Android SpeechRecognizer -> AgentCore -> TTS.
+voice_activity = r'''package com.openjarvis.ui
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Bundle
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import com.openjarvis.agent.AgentCore
+import com.openjarvis.agent.AgentState
+import com.openjarvis.ui.theme.OpenJarvisTheme
+import com.openjarvis.voice.VoiceManager
+
+class VoiceCommandActivity : ComponentActivity() {
+    private lateinit var recognizer: SpeechRecognizer
+    private lateinit var agent: AgentCore
+    private lateinit var voice: VoiceManager
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        agent = AgentCore(applicationContext)
+        voice = VoiceManager(applicationContext)
+        recognizer = SpeechRecognizer.createSpeechRecognizer(this)
+        setContent {
+            OpenJarvisTheme {
+                var listening by remember { mutableStateOf(false) }
+                var transcript by remember { mutableStateOf("") }
+                var message by remember { mutableStateOf("Mikrofon hazır") }
+                var command by remember { mutableStateOf("") }
+                val agentState by agent.state.collectAsState()
+                LaunchedEffect(agentState) {
+                    when (val state = agentState) {
+                        is AgentState.Running -> message = state.step
+                        is AgentState.Done -> { message = state.result; voice.speak("İşlem tamamlandı") }
+                        is AgentState.Error -> { message = state.message; voice.speak("Bir hata oluştu: " + state.message) }
+                        is AgentState.Idle -> Unit
+                    }
+                }
+                DisposableEffect(Unit) {
+                    recognizer.setRecognitionListener(object : RecognitionListener {
+                        override fun onReadyForSpeech(params: Bundle?) { listening = true; message = "Dinliyorum..." }
+                        override fun onBeginningOfSpeech() { message = "Konuşmanı algıladım..." }
+                        override fun onRmsChanged(rmsdB: Float) {}
+                        override fun onBufferReceived(buffer: ByteArray?) {}
+                        override fun onEndOfSpeech() { listening = false; message = "Konuşma çözümleniyor..." }
+                        override fun onError(error: Int) {
+                            listening = false
+                            message = when (error) {
+                                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Mikrofon izni gerekli"
+                                SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Konuşma algılanmadı, tekrar dene"
+                                SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Ses tanıma için ağ bağlantısı gerekli"
+                                SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Ses tanıma meşgul, tekrar dene"
+                                else -> "Ses tanıma hatası (" + error + ")"
+                            }
+                        }
+                        override fun onResults(results: Bundle?) {
+                            listening = false
+                            val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim().orEmpty()
+                            if (text.isNotBlank()) {
+                                transcript = text
+                                command = text
+                                message = "Komut Jarvis'e gönderiliyor..."
+                                agent.executeTask(text)
+                            } else message = "Konuşma metne çevrilemedi"
+                        }
+                        override fun onPartialResults(partialResults: Bundle?) {
+                            val partial = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+                            if (!partial.isNullOrBlank()) transcript = partial
+                        }
+                        override fun onEvent(eventType: Int, params: Bundle?) {}
+                    })
+                    onDispose { runCatching { recognizer.destroy() } }
+                }
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    TextButton(onClick = { finish() }) { Text("← Geri") }
+                    Text("JARVIS SESLİ KOMUT", style = MaterialTheme.typography.headlineSmall)
+                    Text(message, style = MaterialTheme.typography.bodyLarge)
+                    if (transcript.isNotBlank()) Text("Algılanan konuşma: " + transcript)
+                    Button(onClick = { startVoiceRecognition() }, enabled = !listening, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (listening) "Dinleniyor..." else "Mikrofona bas ve konuş")
+                    }
+                    OutlinedButton(onClick = { recognizer.cancel(); listening = false; message = "Dinleme durduruldu" }, enabled = listening, modifier = Modifier.fillMaxWidth()) { Text("Dinlemeyi durdur") }
+                    OutlinedTextField(value = command, onValueChange = { command = it }, label = { Text("Komutunu yaz") }, modifier = Modifier.fillMaxWidth())
+                    Button(onClick = { if (command.isNotBlank()) { message = "Komut Jarvis'e gönderiliyor..."; agent.executeTask(command.trim()) } }, enabled = command.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Komutu çalıştır") }
+                    Text("İşlem durumu: " + agentState.toString(), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+
+    private fun startVoiceRecognition() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            android.widget.Toast.makeText(this, "Android mikrofon izni bulunamadı", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            android.widget.Toast.makeText(this, "Bu cihazda konuşma tanıma hizmeti bulunamadı", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "tr-TR")
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "tr-TR")
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+        }
+        runCatching { recognizer.startListening(intent) }.onFailure {
+            android.widget.Toast.makeText(this, "Mikrofon başlatılamadı: " + it.message, android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+}
+'''
+
+def create_voice_activity(s):
+    (root / "app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt").write_text(voice_activity)
+    return s
+edit("app/src/main/java/com/openjarvis/ui/MainActivity.kt", lambda s: s.replace(
+    "onStartOverlay = { startOverlayService() }",
+    "onStartOverlay = { startActivity(Intent(this, VoiceCommandActivity::class.java)) }"
+))
+edit("app/src/main/java/com/openjarvis/ui/MainActivity.kt", create_voice_activity)
+edit("app/src/main/AndroidManifest.xml", lambda s: s.replace(
+    '        <activity\n            android:name=".ui.SettingsActivity"',
+    '        <activity\n            android:name=".ui.VoiceCommandActivity"\n            android:exported="false"\n            android:theme="@style/Theme.OpenJarvis" />\n\n        <activity\n            android:name=".ui.SettingsActivity"'
+))
+
+# Replace permanently-red permission labels with actual Android settings checks.
+def live_permission_rows(s):
+    if "import android.content.ComponentName" not in s:
+        s = s.replace("package com.openjarvis.ui.settings\n", "package com.openjarvis.ui.settings\n\nimport android.content.ComponentName\nimport android.provider.Settings\n")
+    s = s.replace(
+        '''                PermissionRow(
+                    title = "Accessibility",
+                    subtitle = "Required — Tap to enable"
+                )''',
+        '''                val permissionContext = androidx.compose.ui.platform.LocalContext.current
+                val accessibilityEnabled = runCatching {
+                    val enabled = Settings.Secure.getString(permissionContext.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: ""
+                    enabled.split(':').any { it.equals(ComponentName(permissionContext, com.openjarvis.accessibility.JarvisAccessibilityService::class.java).flattenToString(), ignoreCase = true) }
+                }.getOrDefault(false)
+                val overlayEnabled = Settings.canDrawOverlays(permissionContext)
+                PermissionRow(title = "Accessibility", subtitle = if (accessibilityEnabled) "Enabled" else "Required — Tap to enable", granted = accessibilityEnabled)'''
+    )
+    s = s.replace(
+        '''                PermissionRow(
+                    title = "Overlay",
+                    subtitle = "Required — Tap to enable"
+                )''',
+        '''                PermissionRow(title = "Overlay", subtitle = if (overlayEnabled) "Enabled" else "Required — Tap to enable", granted = overlayEnabled)'''
+    )
+    s = s.replace(
+        '''private fun PermissionRow(
+    title: String,
+    subtitle: String
+) {
+    val isGranted by remember { mutableStateOf(false) }''',
+        '''private fun PermissionRow(
+    title: String,
+    subtitle: String,
+    granted: Boolean
+) {'''
+    )
+    s = s.replace("background(VoidColor.Red.copy(alpha = 0.12f))", "background((if (granted) VoidColor.Green else VoidColor.Red).copy(alpha = 0.12f))")
+    s = s.replace("tint = VoidColor.Red,", "tint = if (granted) VoidColor.Green else VoidColor.Red,")
+    s = s.replace("color = VoidColor.Red", "color = if (granted) VoidColor.Green else VoidColor.Red")
+    return s
+edit("app/src/main/java/com/openjarvis/ui/settings/SettingsScreen.kt", live_permission_rows)
+print("Implemented a direct voice command flow and real permission status labels")
