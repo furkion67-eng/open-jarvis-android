@@ -33,10 +33,10 @@ jobs:
               `- Dal: \`${run.head_branch}\``,
               `- Commit: \`${run.head_sha.slice(0, 7)}\``,
               `- Sonuç: \`${run.conclusion}\``,
-              `- [Derleme ayrıntıları ve APK artifact'ları] (${artifactUrl})`,
+              `- [Derleme ayrıntıları ve APK artifact'ları](${artifactUrl})`,
               "",
               "Bu mesaj GitHub Actions tarafından otomatik oluşturuldu."
-            ].join("\n");
+            ].join("\\n");
             for (const pr of prs) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
