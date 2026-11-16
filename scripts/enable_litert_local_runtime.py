@@ -342,4 +342,114 @@ class LlamaProvider(
 }
 """)
 
+
+# Add a visible local-model download/load control to the existing provider settings screen.
+settings = project / "app/src/main/java/com/openjarvis/ui/settings/SettingsScreen.kt"
+settings_text = settings.read_text()
+imports = [
+    "import androidx.compose.ui.platform.LocalContext",
+    "import com.openjarvis.local.DownloadService",
+    "import com.openjarvis.local.ModelManager",
+    "import kotlinx.coroutines.launch",
+]
+package_line = "package com.openjarvis.ui.settings\\n"
+for item in imports:
+    if item not in settings_text:
+        settings_text = settings_text.replace(package_line, package_line + item + "\\n", 1)
+
+function_anchor = ") {\\n    var selectedProvider by remember"
+function_replacement = """) {
+    val context = LocalContext.current
+    val localModelManager = remember(context) { UniversalAdapter.getModelManager(context) }
+    val localModelState by localModelManager.state.collectAsState()
+    val localModelScope = rememberCoroutineScope()
+    var localModelMessage by remember { mutableStateOf<String?>(null) }
+
+    var selectedProvider by remember"""
+if function_anchor not in settings_text:
+    raise SystemExit("Could not locate SettingsScreen function body for local model state")
+settings_text = settings_text.replace(function_anchor, function_replacement, 1)
+
+voice_anchor = """                Spacer(modifier = Modifier.height(32.dp))
+
+                SectionLabel("VOICE")"""
+local_model_card = """                if (selectedProvider == "Local (LlamaCpp)") {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = VoidColor.Void900,
+                        border = BorderStroke(1.dp, VoidColor.BorderSubtle)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text("ON-DEVICE AI MODEL", color = VoidColor.TextPrimary, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "Qwen2.5 0.5B · yaklaşık 277 MB · İnternet olmadan cihazında çalışır",
+                                color = VoidColor.TextDisabled,
+                                fontSize = 12.sp
+                            )
+                            when (val state = localModelState) {
+                                is ModelManager.ModelState.Downloading ->
+                                    Text("İndiriliyor: ${(state.progress * 100).toInt()}%", color = VoidColor.TextPrimary)
+                                is ModelManager.ModelState.Loading ->
+                                    Text("Model başlatılıyor…", color = VoidColor.TextPrimary)
+                                is ModelManager.ModelState.Loaded ->
+                                    Text("Yerel model çalışır durumda", color = VoidColor.TextPrimary)
+                                is ModelManager.ModelState.Downloaded ->
+                                    Text("Model indirildi; başlatılmaya hazır", color = VoidColor.TextPrimary)
+                                else ->
+                                    Text("Model henüz indirilmedi", color = VoidColor.TextDisabled)
+                            }
+                            Button(
+                                onClick = {
+                                    DownloadService.startDownload(
+                                        context,
+                                        ModelManager.ModelTier.MINIMUM.displayName
+                                    )
+                                    localModelMessage = "Model indirme işlemi başlatıldı."
+                                },
+                                enabled = localModelState !is ModelManager.ModelState.Downloading,
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("Ücretsiz yerel modeli indir") }
+                            Button(
+                                onClick = {
+                                    localModelScope.launch {
+                                        val result = localModelManager.loadModel(ModelManager.ModelTier.MINIMUM)
+                                        localModelMessage = result.exceptionOrNull()?.message
+                                            ?: "Yerel model başarıyla başlatıldı."
+                                    }
+                                },
+                                enabled = localModelManager.isModelDownloaded(ModelManager.ModelTier.MINIMUM),
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("Yerel modeli başlat") }
+                            localModelMessage?.let {
+                                Text(it, color = VoidColor.TextDisabled, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                SectionLabel("VOICE")"""
+if voice_anchor not in settings_text:
+    raise SystemExit("Could not locate Voice section anchor in SettingsScreen")
+settings_text = settings_text.replace(voice_anchor, local_model_card, 1)
+settings.write_text(settings_text)
+
+# Android 14 requires this non-runtime permission for the already-declared dataSync download service.
+manifest = project / "app/src/main/AndroidManifest.xml"
+manifest_text = manifest.read_text()
+permission = '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />'
+if permission not in manifest_text:
+    manifest_text = manifest_text.replace(
+        '<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />',
+        '<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\\n    ' + permission,
+        1
+    )
+    manifest.write_text(manifest_text)
+
 print("LiteRT-LM patch written.")
