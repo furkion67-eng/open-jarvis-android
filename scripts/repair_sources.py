@@ -1753,3 +1753,12 @@ def voice_chat_auto(s):
 
 edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", voice_chat_auto)
 print("Connected Turkish chat replies and saved automatic listening mode")
+
+# Kotlin has no chr() function; strip optional Markdown fences with String helpers.
+def fix_voice_reply_cleanup(s):
+    return s.replace(
+        'reply.trim().replace(chr(96).toString(), "").trim()',
+        'reply.trim().removePrefix("\x60\x60\x60").removeSuffix("\x60\x60\x60").trim()'
+    )
+edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", fix_voice_reply_cleanup)
+print("Fixed Kotlin voice reply cleanup")
