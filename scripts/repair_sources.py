@@ -1498,3 +1498,136 @@ edit("app/src/main/java/com/openjarvis/llm/providers/GroqProvider.kt", update_gr
 edit("app/src/main/java/com/openjarvis/ui/settings/SettingsScreen.kt", update_groq_defaults)
 edit("app/src/main/java/com/openjarvis/ui/SettingsActivity.kt", update_groq_defaults)
 print("Applied Turkish TTS, dark voice UI, runtime microphone permission request, and Groq model migration")
+
+
+# Fix microphone permission request path, dark input styling, Turkish TTS, and retired Groq model.
+def patch_voice_activity(s):
+    s = s.replace(
+        "import androidx.activity.compose.setContent",
+        "import androidx.activity.compose.setContent\nimport androidx.activity.compose.rememberLauncherForActivityResult\nimport androidx.activity.result.contract.ActivityResultContracts"
+    )
+    s = s.replace(
+        "import androidx.compose.ui.Modifier\nimport androidx.compose.ui.unit.dp",
+        "import androidx.compose.ui.Modifier\nimport androidx.compose.ui.graphics.Color\nimport androidx.compose.ui.unit.dp"
+    )
+    s = s.replace(
+        '''                var command by remember { mutableStateOf("") }
+                val agentState by agent.state.collectAsState()''',
+        '''                var command by remember { mutableStateOf("") }
+                val micPermissionLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestPermission()
+                ) { granted ->
+                    if (granted) startVoiceRecognition()
+                    else message = "Mikrofon izni verilmedi. Android uygulama ayarlarından izin ver."
+                }
+                val agentState by agent.state.collectAsState()'''
+    )
+    s = s.replace(
+        '''                        is AgentState.Done -> { message = state.result; voice.speak("İşlem tamamlandı") }
+                        is AgentState.Error -> { message = state.message; voice.speak("Bir hata oluştu: " + state.message) }''',
+        '''                        is AgentState.Done -> { message = "İşlem tamamlandı."; voice.speak("Komutunu tamamladım.") }
+                        is AgentState.Error -> {
+                            val friendly = when {
+                                state.message.contains("decommissioned", true) || state.message.contains("no longer supported", true) -> "Yapay zekâ modeli eski. Yeni model ayarlandıktan sonra tekrar dene."
+                                state.message.contains("API key", true) || state.message.contains("401") -> "API anahtarı geçersiz."
+                                state.message.contains("429") || state.message.contains("rate limit", true) -> "İstek sınırına ulaşıldı. Biraz bekle."
+                                state.message.contains("network", true) || state.message.contains("timeout", true) -> "Bağlantı hatası. İnternetini kontrol et."
+                                else -> "İşlem sırasında hata oluştu."
+                            }
+                            message = friendly
+                            voice.speak(friendly)
+                        }'''
+    )
+    s = s.replace(
+        '''                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {''',
+        '''                Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF08070D)) {
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {'''
+    )
+    s = s.replace(
+        '''                    TextButton(onClick = { finish() }) { Text("← Geri") }
+                    Text("JARVIS SESLİ KOMUT", style = MaterialTheme.typography.headlineSmall)
+                    Text(message, style = MaterialTheme.typography.bodyLarge)''',
+        '''                    TextButton(onClick = { finish() }) { Text("← Geri", color = Color(0xFFB36AD0)) }
+                    Text("JARVIS SESLİ KOMUT", style = MaterialTheme.typography.headlineSmall, color = Color.White)
+                    Text(message, style = MaterialTheme.typography.bodyLarge, color = Color.White)'''
+    )
+    s = s.replace(
+        '''                    Button(onClick = { startVoiceRecognition() }, enabled = !listening, modifier = Modifier.fillMaxWidth()) {''',
+        '''                    Button(onClick = {
+                        if (ContextCompat.checkSelfPermission(this@VoiceCommandActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startVoiceRecognition()
+                        else micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }, enabled = !listening, modifier = Modifier.fillMaxWidth()) {'''
+    )
+    s = s.replace(
+        '''                    OutlinedTextField(value = command, onValueChange = { command = it }, label = { Text("Komutunu yaz") }, modifier = Modifier.fillMaxWidth())''',
+        '''                    OutlinedTextField(
+                        value = command,
+                        onValueChange = { command = it },
+                        label = { Text("Komutunu yaz", color = Color(0xFFB8AFC4)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.White),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = Color(0xFFB36AD0),
+                            unfocusedBorderColor = Color(0xFF62586D),
+                            cursorColor = Color(0xFFB36AD0),
+                            focusedLabelColor = Color(0xFFB36AD0),
+                            unfocusedLabelColor = Color(0xFFB8AFC4)
+                        )
+                    )'''
+    )
+    s = s.replace(
+        '''                    Text("İşlem durumu: " + agentState.toString(), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }''',
+        '''                    Text("İşlem durumu: " + when (agentState) {
+                        is AgentState.Idle -> "Hazır"
+                        is AgentState.Running -> "Çalışıyor"
+                        is AgentState.Done -> "Tamamlandı"
+                        is AgentState.Error -> "Hata"
+                    }, style = MaterialTheme.typography.bodySmall, color = Color(0xFFB8AFC4))
+                }
+                }
+            }
+        }'''
+    )
+    s = s.replace(
+        '''            android.widget.Toast.makeText(this, "Android mikrofon izni bulunamadı", android.widget.Toast.LENGTH_LONG).show()
+            return''',
+        '''            android.widget.Toast.makeText(this, "Mikrofon izni istenmeli", android.widget.Toast.LENGTH_LONG).show()
+            return'''
+    )
+    return s
+edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", patch_voice_activity)
+
+def patch_tts_turkish(s):
+    s = s.replace("tts?.language = Locale.US", "tts?.language = Locale.forLanguageTag(\"tr-TR\")")
+    return s
+edit("app/src/main/java/com/openjarvis/voice/AndroidTTSEngine.kt", patch_tts_turkish)
+
+def patch_groq_model(s):
+    s = s.replace(
+        '''        val model = prefs.getString("provider_model", "") ?: ""
+        
+        return when (name) {
+            "Groq" -> GroqProvider(apiKey, model)''',
+        '''        var model = prefs.getString("provider_model", "") ?: ""
+        if (name == "Groq" && (model.isBlank() || model == "llama-3.1-70b-versatile" || model == "llama-3.3-70b-versatile")) {
+            model = "openai/gpt-oss-120b"
+            prefs.edit().putString("provider_model", model).apply()
+        }
+        
+        return when (name) {
+            "Groq" -> GroqProvider(apiKey, model)'''
+    )
+    s = s.replace('"Groq" -> "llama-3.1-70b-versatile"', '"Groq" -> "openai/gpt-oss-120b"')
+    return s
+edit("app/src/main/java/com/openjarvis/llm/UniversalAdapter.kt", patch_groq_model)
+
+def patch_defaults(s):
+    return s.replace('"llama-3.1-70b-versatile"', '"openai/gpt-oss-120b"')
+edit("app/src/main/java/com/openjarvis/ui/SettingsActivity.kt", patch_defaults)
+edit("app/src/main/java/com/openjarvis/ui/settings/SettingsScreen.kt", patch_defaults)
+print("Patched mic permission request, dark text input, Turkish TTS and Groq model migration")
