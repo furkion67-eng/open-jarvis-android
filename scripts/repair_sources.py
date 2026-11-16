@@ -883,7 +883,7 @@ def repair_dashboard_navigation():
     end = s.find("\\nprivate fun formatRelativeTime", start)
     if start < 0 or end < 0:
         raise SystemExit("DashboardScreen: BottomNavBar replacement anchors not found")
-    replacement = r'''@Composable
+    replacement = """@Composable
 private fun BottomNavBar(
     onStartOverlay: () -> Unit,
     tasks: List<TaskNode>,
@@ -891,22 +891,11 @@ private fun BottomNavBar(
     modifier: Modifier = Modifier
 ) {
     var showTasks by remember { mutableStateOf(false) }
-
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        color = VoidColor.Void900
-    ) {
+    Surface(modifier = modifier.fillMaxWidth(), color = VoidColor.Void900) {
         Column {
-            Divider(
-                modifier = Modifier.fillMaxWidth(),
-                thickness = 1.dp,
-                color = VoidColor.BorderSubtle
-            )
+            Divider(modifier = Modifier.fillMaxWidth(), thickness = 1.dp, color = VoidColor.BorderSubtle)
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -950,7 +939,6 @@ private fun BottomNavBar(
             }
         }
     }
-
     if (showTasks) {
         AlertDialog(
             onDismissRequest = { showTasks = false },
@@ -961,33 +949,22 @@ private fun BottomNavBar(
                 } else {
                     Column {
                         tasks.take(10).forEach { task ->
-                            Text(
-                                text = task.command,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.padding(vertical = 6.dp)
-                            )
-                            Text(
-                                text = task.result,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = VoidColor.TextSecondary
-                            )
+                            Text(task.command, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 6.dp))
+                            Text(task.result, style = MaterialTheme.typography.bodySmall, color = VoidColor.TextSecondary)
                         }
                     }
                 }
             },
-            confirmButton = {
-                TextButton(onClick = { showTasks = false }) { Text("Close") }
-            },
+            confirmButton = { TextButton(onClick = { showTasks = false }) { Text("Close") } },
             containerColor = VoidColor.Void900,
             titleContentColor = VoidColor.TextPrimary,
             textContentColor = VoidColor.TextSecondary
         )
     }
 }
-'''
+"""
     s = s[:start] + replacement + s[end:]
     dashboard.write_text(s)
 
 repair_dashboard_navigation()
 print("Applied dashboard navigation repair")
-
