@@ -1631,3 +1631,25 @@ def patch_defaults(s):
 edit("app/src/main/java/com/openjarvis/ui/SettingsActivity.kt", patch_defaults)
 edit("app/src/main/java/com/openjarvis/ui/settings/SettingsScreen.kt", patch_defaults)
 print("Patched mic permission request, dark text input, Turkish TTS and Groq model migration")
+
+
+# Balance the Activity onCreate braces after wrapping the Compose screen in Surface.
+def balance_voice_activity_braces(s):
+    marker = """                }
+            }
+        }
+    }
+
+    private fun startVoiceRecognition()"""
+    replacement = """                }
+            }
+        }
+    }
+    }
+
+    private fun startVoiceRecognition()"""
+    if marker in s:
+        s = s.replace(marker, replacement, 1)
+    return s
+edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", balance_voice_activity_braces)
+print("Balanced VoiceCommandActivity onCreate braces")
