@@ -968,3 +968,73 @@ private fun BottomNavBar(
 
 repair_dashboard_navigation()
 print("Applied dashboard navigation repair")
+
+
+# Persist and restore provider settings in the settings UI.
+def restore_provider_settings_activity(s):
+    old = """                SettingsScreen(
+                    onNavigateBack = { finish() },
+                    onSaveProvider = { name, baseUrl, apiKey, model ->
+                        saveProviderSettings(name, baseUrl, apiKey, model)
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )"""
+    new = """                SettingsScreen(
+                    onNavigateBack = { finish() },
+                    initialProvider = listOf(
+                        prefs.getString("provider_name", "Groq") ?: "Groq",
+                        prefs.getString("provider_base_url", "") ?: "",
+                        prefs.getString("provider_api_key", "") ?: "",
+                        prefs.getString("provider_model", "llama-3.1-70b-versatile") ?: "llama-3.1-70b-versatile"
+                    ),
+                    onSaveProvider = { name, baseUrl, apiKey, model ->
+                        saveProviderSettings(name, baseUrl, apiKey, model)
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )"""
+    if old not in s and "initialProvider = listOf(" not in s:
+        raise SystemExit("SettingsActivity: SettingsScreen call anchor missing")
+    return s.replace(old, new, 1) if old in s else s
+edit("app/src/main/java/com/openjarvis/ui/SettingsActivity.kt", restore_provider_settings_activity)
+
+def restore_provider_settings_screen(s):
+    s = s.replace(
+        """    onNavigateBack: () -> Unit,
+    onSaveProvider: (String, String, String, String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var selectedProvider by remember { mutableStateOf("Groq") }
+    var baseUrl by remember { mutableStateOf("") }
+    var apiKey by remember { mutableStateOf("") }
+    var model by remember { mutableStateOf("llama-3.1-70b-versatile") }""",
+        """    onNavigateBack: () -> Unit,
+    initialProvider: List<String> = listOf("Groq", "", "", "llama-3.1-70b-versatile"),
+    onSaveProvider: (String, String, String, String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var selectedProvider by remember(initialProvider) { mutableStateOf(initialProvider.getOrElse(0) { "Groq" }) }
+    var baseUrl by remember(initialProvider) { mutableStateOf(initialProvider.getOrElse(1) { "" }) }
+    var apiKey by remember(initialProvider) { mutableStateOf(initialProvider.getOrElse(2) { "" }) }
+    var model by remember(initialProvider) { mutableStateOf(initialProvider.getOrElse(3) { "llama-3.1-70b-versatile" }) }"""
+    )
+    s = s.replace(
+        """                TestConnectionButton(
+                    apiKey = apiKey,""",
+        """                TestConnectionButton(
+                    provider = selectedProvider,
+                    apiKey = apiKey,"""
+    )
+    s = s.replace(
+        """private fun TestConnectionButton(
+    apiKey: String,""",
+        """private fun TestConnectionButton(
+    provider: String,
+    apiKey: String,"""
+    )
+    s = s.replace('onSave("Groq", baseUrl, apiKey, model)', 'onSave(provider, baseUrl, apiKey, model)')
+    if "initialProvider: List<String>" not in s:
+        raise SystemExit("SettingsScreen: provider state anchor missing")
+    return s
+edit("app/src/main/java/com/openjarvis/ui/settings/SettingsScreen.kt", restore_provider_settings_screen)
+
+print("Applied provider settings restore/save repair")
