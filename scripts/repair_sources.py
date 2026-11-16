@@ -1038,3 +1038,80 @@ def restore_provider_settings_screen(s):
 edit("app/src/main/java/com/openjarvis/ui/settings/SettingsScreen.kt", restore_provider_settings_screen)
 
 print("Applied provider settings restore/save repair")
+
+
+
+# Persist the voice controls in the same encrypted store used by VoiceManager.
+def voice_activity(s):
+    if "import com.openjarvis.voice.VoiceManager" not in s:
+        s = s.replace(
+            "import com.openjarvis.ui.theme.OpenJarvisTheme",
+            "import com.openjarvis.ui.theme.OpenJarvisTheme\\nimport com.openjarvis.voice.VoiceManager\\nimport com.openjarvis.voice.STTMode"
+        )
+    if "private lateinit var voiceManager" not in s:
+        s = s.replace(
+            "private lateinit var prefs: android.content.SharedPreferences",
+            "private lateinit var prefs: android.content.SharedPreferences\\n    private lateinit var voiceManager: VoiceManager"
+        )
+    if "voiceManager = VoiceManager(applicationContext)" not in s:
+        s = s.replace("        setContent {", "        voiceManager = VoiceManager(applicationContext)\\n\\n        setContent {", 1)
+    anchor = """                    onSaveProvider = { name, baseUrl, apiKey, model ->
+                        saveProviderSettings(name, baseUrl, apiKey, model)
+                    },"""
+    replacement = """                    initialVoiceEnabled = voiceManager.isVoiceEnabled(),
+                    initialSpeakResults = voiceManager.isSpeakResultsEnabled(),
+                    initialSttMode = voiceManager.getSTTMode().name,
+                    onVoiceSettingsChanged = { enabled, speak, mode ->
+                        voiceManager.setVoiceEnabled(enabled)
+                        voiceManager.setSpeakResultsEnabled(speak)
+                        voiceManager.setSTTMode(if (mode == "AUTO_VAD") STTMode.AUTO_VAD else STTMode.PUSH_TO_TALK)
+                    },
+                    onSaveProvider = { name, baseUrl, apiKey, model ->
+                        saveProviderSettings(name, baseUrl, apiKey, model)
+                    },"""
+    if anchor in s:
+        s = s.replace(anchor, replacement, 1)
+    return s
+edit("app/src/main/java/com/openjarvis/ui/SettingsActivity.kt", voice_activity)
+
+def voice_screen(s):
+    if "import com.openjarvis.voice.STTMode" not in s:
+        s = s.replace("import com.openjarvis.llm.UniversalAdapter", "import com.openjarvis.llm.UniversalAdapter\\nimport com.openjarvis.voice.STTMode")
+    s = s.replace(
+        """    initialProvider: List<String> = listOf("Groq", "", "", "llama-3.1-70b-versatile"),
+    onSaveProvider: (String, String, String, String) -> Unit,""",
+        """    initialProvider: List<String> = listOf("Groq", "", "", "llama-3.1-70b-versatile"),
+    initialVoiceEnabled: Boolean = false,
+    initialSpeakResults: Boolean = true,
+    initialSttMode: String = "PUSH_TO_TALK",
+    onVoiceSettingsChanged: (Boolean, Boolean, String) -> Unit = { _, _, _ -> },
+    onSaveProvider: (String, String, String, String) -> Unit,"""
+    )
+    s = s.replace(
+        """    var voiceEnabled by remember { mutableStateOf(false) }
+    var speakResults by remember { mutableStateOf(true) }
+    var speechRate by remember { mutableStateOf(1.05f) }
+    var sttMode by remember { mutableStateOf("Push to Talk") }""",
+        """    var voiceEnabled by remember(initialVoiceEnabled) { mutableStateOf(initialVoiceEnabled) }
+    var speakResults by remember(initialSpeakResults) { mutableStateOf(initialSpeakResults) }
+    var speechRate by remember { mutableStateOf(1.05f) }
+    var sttMode by remember(initialSttMode) { mutableStateOf(if (initialSttMode == "AUTO_VAD") "Auto (VAD)" else "Push to Talk") }"""
+    )
+    s = s.replace("onToggle = { voiceEnabled = !voiceEnabled }", """onToggle = {
+                        voiceEnabled = !voiceEnabled
+                        onVoiceSettingsChanged(voiceEnabled, speakResults, sttMode)
+                    }""")
+    s = s.replace("onToggle = { speakResults = !speakResults }", """onToggle = {
+                            speakResults = !speakResults
+                            onVoiceSettingsChanged(voiceEnabled, speakResults, sttMode)
+                        }""")
+    s = s.replace(
+        """sttMode = if (sttMode == "Push to Talk") "Auto (VAD)" else "Push to Talk"
+                                }""",
+        """sttMode = if (sttMode == "Push to Talk") "Auto (VAD)" else "Push to Talk"
+                                    onVoiceSettingsChanged(voiceEnabled, speakResults, sttMode)
+                                }"""
+    )
+    return s
+edit("app/src/main/java/com/openjarvis/ui/settings/SettingsScreen.kt", voice_screen)
+print("Applied persistent voice settings repair")
