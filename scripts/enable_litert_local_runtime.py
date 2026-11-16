@@ -38,29 +38,31 @@ object LiteRtLmRuntime {
     private var engine: Engine? = null
     private var activeModelPath: String? = null
 
-    suspend fun initialize(modelPath: String) = withContext(Dispatchers.IO) {
-        mutex.withLock {
-            if (engine != null && activeModelPath == modelPath) return@withLock
+    private fun initializeLocked(modelPath: String) {
+        if (engine != null && activeModelPath == modelPath) return
 
-            engine?.close()
-            engine = null
-            activeModelPath = null
+        engine?.close()
+        engine = null
+        activeModelPath = null
 
-            val candidate = Engine(
-                EngineConfig(
-                    modelPath = modelPath,
-                    backend = Backend.CPU()
-                )
+        val candidate = Engine(
+            EngineConfig(
+                modelPath = modelPath,
+                backend = Backend.CPU()
             )
-            try {
-                candidate.initialize()
-                engine = candidate
-                activeModelPath = modelPath
-            } catch (error: Throwable) {
-                candidate.close()
-                throw error
-            }
+        )
+        try {
+            candidate.initialize()
+            engine = candidate
+            activeModelPath = modelPath
+        } catch (error: Throwable) {
+            candidate.close()
+            throw error
         }
+    }
+
+    suspend fun initialize(modelPath: String) = withContext(Dispatchers.IO) {
+        mutex.withLock { initializeLocked(modelPath) }
     }
 
     suspend fun generate(
@@ -70,7 +72,7 @@ object LiteRtLmRuntime {
     ): String = withContext(Dispatchers.IO) {
         mutex.withLock {
             if (engine == null || activeModelPath != modelPath) {
-                initialize(modelPath)
+                initializeLocked(modelPath)
             }
 
             val activeEngine = engine ?: error("Local model engine did not initialize")
