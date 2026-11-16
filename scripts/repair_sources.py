@@ -1762,3 +1762,161 @@ def fix_voice_reply_cleanup(s):
     )
 edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", fix_voice_reply_cleanup)
 print("Fixed Kotlin voice reply cleanup")
+
+
+def patch_tts_completion(s):
+    if "import android.os.Handler" not in s:
+        s = s.replace("import android.content.Context", "import android.content.Context\nimport android.os.Handler\nimport android.os.Looper\nimport java.util.concurrent.ConcurrentHashMap", 1)
+    s = s.replace("    private var pitch = 0.95f", "    private var pitch = 1.0f\n    private val callbacks = ConcurrentHashMap<String, () -> Unit>()")
+    s = s.replace(
+        """                tts?.setSpeechRate(speechRate)
+                tts?.setPitch(pitch)
+                
+                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {}
+                    override fun onDone(utteranceId: String?) {}
+                    override fun onError(utteranceId: String?) {}
+                })""",
+        """                tts?.voices?.filter { it.locale.language.equals("tr", ignoreCase = true) }
+                    ?.maxByOrNull { voice -> (if ("network" !in voice.features) 100 else 0) + voice.quality }
+                    ?.let { tts?.voice = it }
+                tts?.setSpeechRate(speechRate)
+                tts?.setPitch(pitch)
+                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {}
+                    override fun onDone(utteranceId: String?) {
+                        utteranceId?.let { id -> callbacks.remove(id)?.let { cb -> Handler(Looper.getMainLooper()).post { cb() } } }
+                    }
+                    override fun onError(utteranceId: String?) {
+                        utteranceId?.let { id -> callbacks.remove(id)?.let { cb -> Handler(Looper.getMainLooper()).post { cb() } } }
+                    }
+                })"""
+    )
+    s = s.replace("    fun speak(text: String) {", "    fun speak(text: String, onDone: (() -> Unit)? = null) {", 1)
+    s = s.replace(
+        """        val utteranceId = "jarvis_\${UUID.randomUUID()}"
+        tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, utteranceId)""",
+        """        val utteranceId = "jarvis_\${UUID.randomUUID()}"
+        if (onDone != null) callbacks[utteranceId] = onDone
+        val result = tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        if (result == TextToSpeech.ERROR && onDone != null) {
+            callbacks.remove(utteranceId)
+            Handler(Looper.getMainLooper()).post { onDone() }
+        }""",
+        1
+    )
+    s = s.replace("        tts?.stop()\n    }\n\n    fun setSpeechRate", "        tts?.stop()\n        callbacks.clear()\n    }\n\n    fun setSpeechRate", 1)
+    s = s.replace("        tts?.shutdown()", "        callbacks.clear()\n        tts?.shutdown()")
+    return s
+edit("app/src/main/java/com/openjarvis/voice/AndroidTTSEngine.kt", patch_tts_completion)
+
+def patch_voice_manager_callback(s):
+    return s.replace(
+        """    fun speak(text: String) {
+        if (isSpeakResultsEnabled()) {
+            ttsEngine.speak(text)
+        }
+    }""",
+        """    fun speak(text: String, onDone: (() -> Unit)? = null) {
+        if (isSpeakResultsEnabled()) ttsEngine.speak(text, onDone) else onDone?.invoke()
+    }"""
+    )
+edit("app/src/main/java/com/openjarvis/voice/VoiceManager.kt", patch_voice_manager_callback)
+
+def patch_voice_command_handsfree(s):
+    s = s.replace(
+        "val mode = prefs.getString(KEY_STT_MODE, STTMode.PUSH_TO_TALK.name)",
+        "val mode = prefs.getString(KEY_STT_MODE, STTMode.AUTO_VAD.name)"
+    )
+    s = s.replace(
+        """                    Button(onClick = {
+                        if (ContextCompat.checkSelfPermission(this@VoiceCommandActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                            startVoiceRecognition()
+                        } else {
+                            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    }, enabled = !listening, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (listening) "Dinleniyor..." else "Mikrofona bas ve konuş")
+                    }""",
+        """                    if (autoMode) {
+                        Surface(modifier = Modifier.fillMaxWidth(), color = Color(0xFF17352D), shape = MaterialTheme.shapes.large) {
+                            Text(if (listening) "Otomatik dinleme açık · Seni dinliyorum" else "Otomatik dinleme açık · Hazırlanıyor",
+                                modifier = Modifier.padding(18.dp), color = Color(0xFF66D6A4), fontWeight = FontWeight.SemiBold)
+                        }
+                    } else {
+                        Button(onClick = {
+                            if (ContextCompat.checkSelfPermission(this@VoiceCommandActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startVoiceRecognition()
+                            else micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }, enabled = !listening, modifier = Modifier.fillMaxWidth()) {
+                            Text(if (listening) "Dinleniyor..." else "Mikrofona bas ve konuş")
+                        }
+                    }"""
+    )
+    if "private fun speakAndResume(" not in s:
+        s = s.replace(
+            "    private fun startVoiceRecognition() {",
+            """    private fun speakAndResume(text: String) {
+        runCatching { recognizer.cancel() }
+        voice.speak(text) {
+            if (!isFinishing && voice.getSTTMode() == STTMode.AUTO_VAD) {
+                lifecycleScope.launch {
+                    delay(500)
+                    if (!isFinishing) startVoiceRecognition()
+                }
+            }
+        }
+    }
+
+    private fun startVoiceRecognition() {""",
+            1
+        )
+    s = s.replace('voice.speak("Görev tamamlandı.")', 'speakAndResume("Görev tamamlandı.")')
+    s = s.replace('voice.speak(friendly)', 'speakAndResume(friendly)')
+    s = s.replace('voice.speak(clean)', 'speakAndResume(clean)')
+    s = s.replace(
+        """                    if (voice.getSTTMode() == STTMode.AUTO_VAD) {
+                        delay(1800)
+                        if (!isFinishing) startVoiceRecognition()
+                    }
+""",
+        ""
+    )
+    s = s.replace(
+        """                        override fun onResults(results: Bundle?) {
+                            listening = false""",
+        """                        override fun onResults(results: Bundle?) {
+                            listening = false
+                            runCatching { recognizer.cancel() }"""
+    )
+    s = s.replace(
+        'Text("İşlem durumu: " + agentState.toString(), style = MaterialTheme.typography.bodySmall)',
+        """Text("İşlem durumu: " + when (agentState) {
+                        is AgentState.Idle -> "Hazır"
+                        is AgentState.Running -> "Çalışıyor"
+                        is AgentState.Done -> "Tamamlandı"
+                        is AgentState.Error -> "Hata"
+                    }, style = MaterialTheme.typography.bodySmall, color = Color(0xFFB7AFC1))"""
+    )
+    s = s.replace(
+        """            val system = "Sen Open Jarvis'sin. Kullanıcıyla Türkçe konuşan kişisel asistansın. Her zaman doğal, anlaşılır Türkçe cevap ver. Kullanıcı başka dil istemedikçe İngilizce kullanma. Kendini tanıtman istenirse Open Jarvis, kişisel dijital asistanı olduğunu söyle. JSON veya eylem listesi döndürme." """.rstrip(),
+        """            val system = "Sen Open Jarvis'sin. Kullanıcıyla daima Türkçe, doğal ve kısa konuş. Varsayılan olarak 1-3 cümleyle cevap ver. Kullanıcı başka dil istemedikçe İngilizce kullanma. Kendini tanıtman istenirse Open Jarvis, kişisel dijital asistanı olduğunu söyle. Sesinin daha doğal olmasını isterse ses dosyası değiştirdiğini iddia etme; uygulama Türkçe sistem TTS sesini ve konuşma hızını kullanır. JSON veya eylem listesi döndürme." """
+    )
+    s = s.replace(
+        """        val lower = text.lowercase(java.util.Locale.forLanguageTag("tr-TR"))
+        val deviceVerbs""",
+        """        val lower = text.lowercase(java.util.Locale.forLanguageTag("tr-TR"))
+        if (lower.contains("daha normal konuş") || lower.contains("daha doğal konuş") || lower.contains("sesini yavaşlat")) {
+            voice.setSpeechRate(0.96f)
+            updateStatus("Türkçe konuşma hızı daha doğal olacak şekilde ayarlandı.")
+            speakAndResume("Konuşma hızımı daha doğal olacak şekilde ayarladım.")
+            return
+        }
+        val deviceVerbs"""
+    )
+    return s
+edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", patch_voice_command_handsfree)
+
+def patch_auto_mode_default(s):
+    return s.replace('initialSttMode: String = "PUSH_TO_TALK"', 'initialSttMode: String = "AUTO_VAD"')
+edit("app/src/main/java/com/openjarvis/ui/settings/SettingsScreen.kt", patch_auto_mode_default)
+print("Added completion-driven hands-free loop, Turkish voice preference, natural speech rate and automatic default")
