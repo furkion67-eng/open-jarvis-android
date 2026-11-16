@@ -1976,3 +1976,119 @@ def default_auto_and_natural_rate(s):
 edit("app/src/main/java/com/openjarvis/voice/VoiceManager.kt", default_auto_and_natural_rate)
 edit("app/src/main/java/com/openjarvis/voice/AndroidTTSEngine.kt", lambda s: s.replace("private var speechRate = 1.05f", "private var speechRate = 0.96f"))
 print("Fixed real TTS completion callback; AUTO_VAD is fresh-install default; natural speech rate set")
+
+
+def fix_settings_auto_mode_mapping(s):
+    s = s.replace(
+        'voiceManager.setSTTMode(if (mode == "AUTO_VAD") STTMode.AUTO_VAD else STTMode.PUSH_TO_TALK)',
+        'voiceManager.setSTTMode(if (mode == "Auto (VAD)" || mode == "AUTO_VAD") STTMode.AUTO_VAD else STTMode.PUSH_TO_TALK)'
+    )
+    return s
+edit("app/src/main/java/com/openjarvis/ui/SettingsActivity.kt", fix_settings_auto_mode_mapping)
+
+def ensure_tts_completion_callback(s):
+    old = '''        val utteranceId = "jarvis_\${UUID.randomUUID()}"
+        tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, utteranceId)'''
+    new = '''        val utteranceId = "jarvis_\${UUID.randomUUID()}"
+        if (onDone != null) callbacks[utteranceId] = onDone
+        val result = tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        if (result == TextToSpeech.ERROR && onDone != null) {
+            callbacks.remove(utteranceId)
+            Handler(Looper.getMainLooper()).post { onDone() }
+        }'''
+    s = s.replace(old, new, 1)
+    s = s.replace('''        if (clean.isBlank()) return
+        
+        val utteranceId = "jarvis_\${UUID.randomUUID()}"''',
+                  '''        if (clean.isBlank()) {
+            onDone?.invoke()
+            return
+        }
+
+        val utteranceId = "jarvis_\${UUID.randomUUID()}"''', 1)
+    s = s.replace('''        if (!isReady) return
+        
+        val clean = text''',
+                  '''        if (!isReady) {
+            onDone?.invoke()
+            return
+        }
+
+        val clean = text''', 1)
+    return s
+edit("app/src/main/java/com/openjarvis/voice/AndroidTTSEngine.kt", ensure_tts_completion_callback)
+
+def add_persistent_conversation_memory(s):
+    if "import androidx.security.crypto.EncryptedSharedPreferences" not in s:
+        s = s.replace("import androidx.core.content.ContextCompat",
+                      "import androidx.core.content.ContextCompat\nimport androidx.security.crypto.EncryptedSharedPreferences\nimport androidx.security.crypto.MasterKey\nimport android.content.SharedPreferences\nimport org.json.JSONArray\nimport org.json.JSONObject")
+    s = s.replace("    private lateinit var adapter: UniversalAdapter",
+                  "    private lateinit var adapter: UniversalAdapter\n    private lateinit var conversationPrefs: SharedPreferences\n    private var recognitionRetryCount = 0")
+    s = s.replace(
+        "        adapter = UniversalAdapter(applicationContext)",
+        """        adapter = UniversalAdapter(applicationContext)
+        val memoryKey = MasterKey.Builder(this).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
+        conversationPrefs = EncryptedSharedPreferences.create(
+            this, "jarvis_conversation_memory", memoryKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )"""
+    )
+    s = s.replace(
+        '''val system = "Sen Open Jarvis'sin. Kullanıcıyla daima Türkçe, doğal ve kısa konuş. Varsayılan olarak 1-3 cümleyle cevap ver. Kullanıcı başka dil istemedikçe İngilizce kullanma. Kendini tanıtman istenirse Open Jarvis, kişisel dijital asistanı olduğunu söyle. Sesinin daha doğal olmasını isterse ses dosyası değiştirdiğini iddia etme; uygulama Türkçe sistem TTS sesini ve konuşma hızını kullanır. JSON veya eylem listesi döndürme." ''',
+        '''val memoryContext = loadConversationMemory()
+            val system = "Sen Open Jarvis'sin. Kullanıcıyla daima Türkçe, doğal ve kısa konuş. Önceki konuşmalardaki bilgileri ve tercihleri dikkate al; kullanıcı daha önce verdiği bir bilgiyi tekrar sorma. Bilmediğin şeyi hatırlıyormuş gibi yapma. Varsayılan olarak 1-3 cümleyle cevap ver. Kullanıcı başka dil istemedikçe İngilizce kullanma. Kendini tanıtman istenirse Open Jarvis, kişisel dijital asistanı olduğunu söyle. JSON veya eylem listesi döndürme.\\n\\nKALICI KONUŞMA HAFIZASI:\\n" + memoryContext'''
+    )
+    s = s.replace(
+        "                    updateStatus(clean)\n                    speakAndResume(clean)",
+        "                    rememberConversation(text, clean)\n                    updateStatus(clean)\n                    speakAndResume(clean)"
+    )
+    if "private fun loadConversationMemory()" not in s:
+        marker = "    private fun speakAndResume(text: String) {"
+        helpers = '''    private fun loadConversationMemory(): String {
+        return runCatching {
+            val array = JSONArray(conversationPrefs.getString("turns", "[]") ?: "[]")
+            (0 until array.length()).mapNotNull { index ->
+                val item = array.optJSONObject(index) ?: return@mapNotNull null
+                val role = item.optString("role")
+                val content = item.optString("content")
+                if (role.isBlank() || content.isBlank()) null else "$role: $content"
+            }.takeLast(16).joinToString("\\\\n").take(5000)
+        }.getOrDefault("")
+    }
+
+    private fun rememberConversation(userText: String, assistantText: String) {
+        runCatching {
+            val array = JSONArray(conversationPrefs.getString("turns", "[]") ?: "[]")
+            array.put(JSONObject().put("role", "Kullanıcı").put("content", userText.take(1200)))
+            array.put(JSONObject().put("role", "Jarvis").put("content", assistantText.take(1800)))
+            val trimmed = JSONArray()
+            val start = (array.length() - 40).coerceAtLeast(0)
+            for (index in start until array.length()) trimmed.put(array.getJSONObject(index))
+            conversationPrefs.edit().putString("turns", trimmed.toString()).apply()
+        }
+    }
+
+'''
+        s = s.replace(marker, helpers + marker, 1)
+    s = s.replace(
+        "                        override fun onResults(results: Bundle?) {\n                            listening = false",
+        "                        override fun onResults(results: Bundle?) {\n                            listening = false\n                            recognitionRetryCount = 0"
+    )
+    s = s.replace(
+        "                        override fun onError(error: Int) {\n                            listening = false",
+        """                        override fun onError(error: Int) {
+                            listening = false
+                            if (voice.getSTTMode() == STTMode.AUTO_VAD &&
+                                error != SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS &&
+                                recognitionRetryCount < 3 && !isFinishing) {
+                                recognitionRetryCount++
+                                lifecycleScope.launch {
+                                    delay(900)
+                                    if (!isFinishing) startVoiceRecognition()
+                                }
+                            }"""
+    )
+    return s
+edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", add_persistent_conversation_memory)
+print("Fixed Auto(VAD) persistence mapping, TTS completion callback, encrypted conversation memory and bounded auto-listen retries")
