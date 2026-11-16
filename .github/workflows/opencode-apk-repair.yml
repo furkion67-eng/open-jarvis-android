@@ -28,6 +28,38 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Download latest successful APK build diagnostics
+        id: diagnostics
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          RUN_ID="$(gh api "repos/$GH_REPO/actions/workflows/build-open-jarvis-apk.yml/runs?branch=main&per_page=20" --jq '[.workflow_runs[] | select(.conclusion == "success")][0].id // empty')"
+          if [ -z "$RUN_ID" ]; then
+            echo "No successful APK build run is available yet."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          ARTIFACT_ID="$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[] | select(.name == "Open-Jarvis-Source-Debug" and .expired == false) | .id' | head -n 1 || true)"
+          if [ -z "$ARTIFACT_ID" ]; then
+            echo "No unexpired Open-Jarvis-Source-Debug artifact for run $RUN_ID."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mkdir -p .autonomous-diagnostics
+          printf '%s\n' '.autonomous-diagnostics/' >> .git/info/exclude
+          gh api "repos/$GH_REPO/actions/artifacts/$ARTIFACT_ID/zip" > "$RUNNER_TEMP/source-debug-artifact.zip"
+          unzip -oq "$RUNNER_TEMP/source-debug-artifact.zip" -d .autonomous-diagnostics
+          PATCHED_ZIP="$(find .autonomous-diagnostics -maxdepth 2 -name 'open-jarvis-patched-source.zip' -print -quit)"
+          if [ -n "$PATCHED_ZIP" ]; then
+            mkdir -p .autonomous-diagnostics/patched-source
+            unzip -oq "$PATCHED_ZIP" -d .autonomous-diagnostics/patched-source
+          fi
+          printf 'run_id=%s\nartifact_id=%s\n' "$RUN_ID" "$ARTIFACT_ID" > .autonomous-diagnostics/BUILD-INFO.txt
+          echo "available=true" >> "$GITHUB_OUTPUT"
+          echo "Downloaded diagnostic source from APK build run $RUN_ID."
+
       - name: Configure Git identity
         run: |
           git config --global user.name "github-actions[bot]"
@@ -43,35 +75,45 @@ jobs:
           use_github_token: true
           prompt: |
             You are the autonomous software engineering agent for Open Jarvis Android.
-            Each invocation must make one bounded, evidence-based unit of progress. Do not
-            merely report status. Start with open issue #3, the confirmed Android 13 runtime
-            crash after the purple splash screen. Read the issue, inspect source ZIP,
-            workflow patches, previous build logs and available artifacts. Diagnose the
-            root cause, implement a real source-level fix, add or improve tests, and run
-            the strongest feasible validation (Gradle assembleDebug and emulator smoke test
-            if an emulator is available). Preserve every existing Android permission,
-            accessibility capability, service, Turkish localization and app behavior.
-            Never remove or weaken permissions. Do not fake tests, suppress errors, or claim
-            physical-device validation when only CI was used.
+            Every invocation must make one bounded, evidence-based unit of engineering progress.
+            Do not merely report status. Begin by reading open issue #3 and all existing
+            Open Jarvis PRs, branches, recent commits and issue comments. Do not create duplicate
+            PRs: continue the existing relevant PR/branch if one already exists; otherwise create
+            one descriptive branch and PR for the current coherent fix.
 
-            If issue #3 is fully addressed with evidence, select the next highest-priority
-            open issue or a clearly documented missing feature from the repository backlog.
-            Work on only one coherent task per invocation. Update documentation and the
-            relevant GitHub issue with exact changes, test commands, outcomes and remaining
-            limitations.
+            The immediate blocker is issue #3: on Android 13 / TECNO Spark 20 Pro the app closes
+            after the purple splash screen. Inspect the original source archive
+            open-jarvis-apk-build-ready(2).zip, the build workflow and the latest generated
+            diagnostics under .autonomous-diagnostics/ (especially patched-source/ and
+            BUILD-INFO.txt). If diagnostics are missing or stale, state that limitation and use
+            the best available source and CI evidence. Inspect the actual launcher resolution,
+            Compose startup, Room/Graphify initialization, migrations, eager service/provider
+            initialization and Android 13 behavior. Identify a root cause before changing code.
 
-            SAFETY AND RELEASE RULES:
-            - Never push directly to main.
-            - Create a descriptive branch and open or update a pull request.
-            - Do not merge pull requests, publish releases, alter repository secrets,
-              change billing, or deploy externally.
-            - Do not expose API keys, tokens, signing credentials or private data.
-            - Do not modify unrelated projects.
-            - If credentials, device access, or missing evidence block progress, explain
-              the precise blocker in the issue and stop rather than guessing.
-            - Do not claim the APK works on a physical phone without actual device evidence.
-            - Prefer small, reviewable changes and avoid repeating an unchanged failed attempt.
+            Implement a real source-level fix, add or improve focused automated tests, and run
+            the strongest feasible validation. Ensure the APK workflow builds the PR branch.
+            A successful assembleDebug is not proof that the app launches; add an emulator
+            launch/smoke test where feasible. Never claim physical-device validation without
+            actual device evidence. Update the relevant issue/PR with exact files changed,
+            test commands, outcomes, build links and remaining limitations.
 
-            This workflow runs periodically in GitHub-hosted cloud runners; each run is
-            time-limited and independent. Leave a clear handoff in the issue/PR so the next
-            scheduled run can continue from verified progress.
+            After issue #3 is resolved with evidence, select the next highest-priority open
+            issue or a clearly documented missing feature. Work on one coherent task per run,
+            leave a concise handoff for the next scheduled invocation, and avoid repeating an
+            unchanged failed attempt.
+
+            HARD SAFETY AND RELEASE RULES:
+            - Preserve every existing Android permission, accessibility capability, service,
+              Turkish localization and standalone app behavior. Never remove, weaken or silently
+              alter permissions.
+            - Never push directly to main. Use a descriptive branch and pull request.
+            - Do not merge PRs, publish releases, alter repository secrets, change billing,
+              or deploy externally.
+            - Never expose API keys, tokens, signing credentials or private data.
+            - Do not modify the separate JARVIS project or unrelated repositories.
+            - Do not fake tests, suppress errors, or claim an artifact exists without verifying it.
+            - If required credentials, source evidence or device access are unavailable, document
+              the precise blocker and stop rather than guessing.
+
+            This workflow runs periodically in GitHub-hosted cloud runners. Each invocation is
+            time-limited and independent; use issue/PR comments and commits as durable handoff.
