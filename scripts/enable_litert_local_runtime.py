@@ -352,12 +352,12 @@ imports = [
     "import com.openjarvis.local.ModelManager",
     "import kotlinx.coroutines.launch",
 ]
-package_line = "package com.openjarvis.ui.settings\\n"
+package_line = "package com.openjarvis.ui.settings\n"
 for item in imports:
     if item not in settings_text:
-        settings_text = settings_text.replace(package_line, package_line + item + "\\n", 1)
+        settings_text = settings_text.replace(package_line, package_line + item + "\n", 1)
 
-function_anchor = ") {\\n    var selectedProvider by remember"
+function_anchor = ") {\n    var selectedProvider by remember"
 function_replacement = """) {
     val context = LocalContext.current
     val localModelManager = remember(context) { UniversalAdapter.getModelManager(context) }
