@@ -1115,3 +1115,28 @@ def voice_screen(s):
     return s
 edit("app/src/main/java/com/openjarvis/ui/settings/SettingsScreen.kt", voice_screen)
 print("Applied persistent voice settings repair")
+
+
+
+# Normalize escaped line breaks introduced by the voice settings patch.
+def normalize_voice_patch(s):
+    s = s.replace(
+        "import com.openjarvis.ui.theme.OpenJarvisTheme\\\\nimport com.openjarvis.voice.VoiceManager\\\\nimport com.openjarvis.voice.STTMode",
+        "import com.openjarvis.ui.theme.OpenJarvisTheme\\nimport com.openjarvis.voice.VoiceManager\\nimport com.openjarvis.voice.STTMode"
+    )
+    s = s.replace(
+        "private lateinit var prefs: android.content.SharedPreferences\\\\n    private lateinit var voiceManager: VoiceManager",
+        "private lateinit var prefs: android.content.SharedPreferences\\n    private lateinit var voiceManager: VoiceManager"
+    )
+    s = s.replace(
+        "voiceManager = VoiceManager(applicationContext)\\\\n\\\\n        setContent {",
+        "voiceManager = VoiceManager(applicationContext)\\n\\n        setContent {"
+    )
+    s = s.replace(
+        "import com.openjarvis.llm.UniversalAdapter\\\\nimport com.openjarvis.voice.STTMode",
+        "import com.openjarvis.llm.UniversalAdapter\\nimport com.openjarvis.voice.STTMode"
+    )
+    return s
+edit("app/src/main/java/com/openjarvis/ui/SettingsActivity.kt", normalize_voice_patch)
+edit("app/src/main/java/com/openjarvis/ui/settings/SettingsScreen.kt", normalize_voice_patch)
+print("Normalized voice settings Kotlin line breaks")
