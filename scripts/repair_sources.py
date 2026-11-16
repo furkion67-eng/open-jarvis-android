@@ -1668,3 +1668,88 @@ def dedupe_voice_imports(s):
     return "\n".join(out) + "\n"
 edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", dedupe_voice_imports)
 print("Removed duplicate imports from VoiceCommandActivity")
+
+
+# Make voice input conversational by default (Turkish), keep explicit device commands on AgentCore,
+# and start/resume listening automatically when AUTO_VAD is selected in Settings.
+def voice_chat_auto(s):
+    additions = [
+        "import androidx.lifecycle.lifecycleScope",
+        "import kotlinx.coroutines.delay",
+        "import kotlinx.coroutines.launch",
+        "import com.openjarvis.llm.UniversalAdapter",
+        "import com.openjarvis.voice.STTMode"
+    ]
+    for item in additions:
+        if item not in s:
+            s = s.replace("import androidx.activity.ComponentActivity", "import androidx.activity.ComponentActivity\n" + item, 1)
+    s = s.replace("    private lateinit var voice: VoiceManager\n",
+                  "    private lateinit var voice: VoiceManager\n    private lateinit var adapter: UniversalAdapter\n")
+    s = s.replace("        voice = VoiceManager(applicationContext)\n",
+                  "        voice = VoiceManager(applicationContext)\n        adapter = UniversalAdapter(applicationContext)\n")
+    s = s.replace('                var command by remember { mutableStateOf("") }\n',
+                  '                var command by remember { mutableStateOf("") }\n                val autoMode = remember { voice.getSTTMode() == STTMode.AUTO_VAD }\n')
+    s = s.replace(
+        "                val agentState by agent.state.collectAsState()\n",
+        """                val agentState by agent.state.collectAsState()
+                LaunchedEffect(Unit) {
+                    if (autoMode) {
+                        delay(700)
+                        if (ContextCompat.checkSelfPermission(this@VoiceCommandActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startVoiceRecognition()
+                        else micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                }
+"""
+    )
+    s = s.replace("agent.executeTask(text)", "submitCommand(text) { message = it }")
+    s = s.replace("agent.executeTask(command.trim())", "submitCommand(command.trim()) { message = it }")
+    dispatcher = """
+    private fun submitCommand(text: String, updateStatus: (String) -> Unit) {
+        val lower = text.lowercase(java.util.Locale.forLanguageTag("tr-TR"))
+        val deviceVerbs = listOf("aç", "kapat", "başlat", "durdur", "tıkla", "dokun", "kaydır", "geri git", "ana ekrana", "uygulamayı", "uygulama aç", "mesaj gönder", "arama yap", "ekran görüntüsü")
+        if (deviceVerbs.any { lower.contains(it) }) {
+            updateStatus("Komut Jarvis'e gönderiliyor...")
+            agent.executeTask(text)
+            return
+        }
+        lifecycleScope.launch {
+            updateStatus("Jarvis düşünüyor...")
+            val system = "Sen Open Jarvis'sin. Kullanıcıyla Türkçe konuşan kişisel asistansın. Her zaman doğal, anlaşılır Türkçe cevap ver. Kullanıcı başka dil istemedikçe İngilizce kullanma. Kendini tanıtman istenirse Open Jarvis, kişisel dijital asistanı olduğunu söyle. JSON veya eylem listesi döndürme."
+            adapter.complete(system, text).fold(
+                onSuccess = { reply ->
+                    val clean = reply.trim().replace(chr(96).toString(), "").trim()
+                    updateStatus(clean)
+                    voice.speak(clean)
+                    if (voice.getSTTMode() == STTMode.AUTO_VAD) {
+                        delay(1800)
+                        if (!isFinishing) startVoiceRecognition()
+                    }
+                },
+                onFailure = { error ->
+                    val detail = error.message?.takeIf { it.isNotBlank() } ?: error.javaClass.simpleName
+                    val friendly = when {
+                        detail.contains("401") -> "Yapay zekâ API anahtarı geçersiz."
+                        detail.contains("429") -> "İstek sınırına ulaşıldı. Biraz bekleyip tekrar dene."
+                        detail.contains("model", true) -> "Seçili yapay zekâ modeli kullanılamıyor. Ayarlardan desteklenen bir model seç."
+                        detail.contains("timeout", true) || detail.contains("network", true) -> "İnternet bağlantısında sorun var."
+                        else -> "Yapay zekâ bağlantı hatası: " + detail.take(180)
+                    }
+                    updateStatus(friendly)
+                    voice.speak(friendly)
+                    if (voice.getSTTMode() == STTMode.AUTO_VAD) {
+                        delay(1800)
+                        if (!isFinishing) startVoiceRecognition()
+                    }
+                }
+            )
+        }
+    }
+
+"""
+    marker = "    private fun startVoiceRecognition() {"
+    if marker in s and "private fun submitCommand(" not in s:
+        s = s.replace(marker, dispatcher + marker, 1)
+    return s
+
+edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", voice_chat_auto)
+print("Connected Turkish chat replies and saved automatic listening mode")
