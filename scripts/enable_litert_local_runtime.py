@@ -387,9 +387,13 @@ if function_anchor not in settings_text:
     raise SystemExit("Could not locate SettingsScreen function body for local model state")
 settings_text = settings_text.replace(function_anchor, function_replacement, 1)
 
-voice_anchor = """                Spacer(modifier = Modifier.height(32.dp))
-
-                SectionLabel("VOICE")"""
+button_index = settings_text.find("                TestConnectionButton(")
+if button_index < 0:
+    raise SystemExit("Could not locate TestConnectionButton in SettingsScreen")
+voice_anchor = "                Spacer(modifier = Modifier.height(32.dp))"
+voice_index = settings_text.find(voice_anchor, button_index)
+if voice_index < 0:
+    raise SystemExit("Could not locate spacer after TestConnectionButton")
 local_model_card = """                if (selectedProvider == "Local (LlamaCpp)") {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
@@ -452,9 +456,7 @@ local_model_card = """                if (selectedProvider == "Local (LlamaCpp)"
                 Spacer(modifier = Modifier.height(32.dp))
 
                 SectionLabel("VOICE")"""
-if voice_anchor not in settings_text:
-    raise SystemExit("Could not locate Voice section anchor in SettingsScreen")
-settings_text = settings_text.replace(voice_anchor, local_model_card, 1)
+settings_text = settings_text[:voice_index] + local_model_card + settings_text[voice_index:]
 settings.write_text(settings_text)
 
 # Android 14 requires this non-runtime permission for the already-declared dataSync download service.
