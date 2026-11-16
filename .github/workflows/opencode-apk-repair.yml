@@ -1,10 +1,10 @@
-name: OpenCode autonomous APK repair
+name: OpenCode autonomous JARVIS developer
 
 on:
   issue_comment:
     types: [created]
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -14,11 +14,11 @@ permissions:
   actions: read
 
 concurrency:
-  group: opencode-apk-repair
+  group: jarvis-autonomous-developer
   cancel-in-progress: false
 
 jobs:
-  repair:
+  develop:
     if: github.event_name != 'issue_comment' || contains(github.event.comment.body, '/opencode') || contains(github.event.comment.body, '/oc')
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -28,32 +28,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check whether the latest APK build needs repair
-        id: check
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            RUNS="$(gh api "repos/$GH_REPO/actions/workflows/build-open-jarvis-apk.yml/runs?branch=main&per_page=1")"
-            CONCLUSION="$(echo "$RUNS" | jq -r '.workflow_runs[0].conclusion // "unknown"')"
-            if [ "$CONCLUSION" = "failure" ]; then
-              echo "needs_repair=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "needs_repair=false" >> "$GITHUB_OUTPUT"
-            fi
-          else
-            echo "needs_repair=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Configure Git identity
-        if: steps.check.outputs.needs_repair == 'true'
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Run OpenCode
-        if: steps.check.outputs.needs_repair == 'true'
+      - name: Run autonomous development agent
         uses: anomalyco/opencode/github@latest
         env:
           GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
@@ -62,16 +42,36 @@ jobs:
           model: opencode/glm-5.3-flash-free
           use_github_token: true
           prompt: |
-            You are repairing the Android APK build in this repository.
-            Inspect the latest failed "Build Open Jarvis APK" GitHub Actions run and its logs.
-            The source project is packaged in open-jarvis-apk-build-ready(2).zip.
-            Reproduce the build locally in this runner using JDK 17, Android SDK 34 and Gradle 8.2.
-            Fix the actual Kotlin/Gradle/resource errors in the source project. Do not hide errors,
-            weaken tests, or merely append temporary dependencies in the workflow. Preserve the
-            existing app behavior and Turkish-language support.
-            Repackage the corrected source into the ZIP if source files inside the ZIP need edits.
-            Apply the complete fix directly to the main branch and commit it. Do not open a pull request.
-            Fix all compiler errors revealed by the latest build, not just the first error. Group related
-            errors by root cause, preserve existing functionality, and run assembleDebug again before
-            committing. If the build still fails, commit the next genuine source/configuration fixes.
-            Do not claim the APK is ready unless assembleDebug succeeds and the Open-Jarvis-APK artifact exists.
+            You are the autonomous software engineering agent for Open Jarvis Android.
+            Each invocation must make one bounded, evidence-based unit of progress. Do not
+            merely report status. Start with open issue #3, the confirmed Android 13 runtime
+            crash after the purple splash screen. Read the issue, inspect source ZIP,
+            workflow patches, previous build logs and available artifacts. Diagnose the
+            root cause, implement a real source-level fix, add or improve tests, and run
+            the strongest feasible validation (Gradle assembleDebug and emulator smoke test
+            if an emulator is available). Preserve every existing Android permission,
+            accessibility capability, service, Turkish localization and app behavior.
+            Never remove or weaken permissions. Do not fake tests, suppress errors, or claim
+            physical-device validation when only CI was used.
+
+            If issue #3 is fully addressed with evidence, select the next highest-priority
+            open issue or a clearly documented missing feature from the repository backlog.
+            Work on only one coherent task per invocation. Update documentation and the
+            relevant GitHub issue with exact changes, test commands, outcomes and remaining
+            limitations.
+
+            SAFETY AND RELEASE RULES:
+            - Never push directly to main.
+            - Create a descriptive branch and open or update a pull request.
+            - Do not merge pull requests, publish releases, alter repository secrets,
+              change billing, or deploy externally.
+            - Do not expose API keys, tokens, signing credentials or private data.
+            - Do not modify unrelated projects.
+            - If credentials, device access, or missing evidence block progress, explain
+              the precise blocker in the issue and stop rather than guessing.
+            - Do not claim the APK works on a physical phone without actual device evidence.
+            - Prefer small, reviewable changes and avoid repeating an unchanged failed attempt.
+
+            This workflow runs periodically in GitHub-hosted cloud runners; each run is
+            time-limited and independent. Leave a clear handoff in the issue/PR so the next
+            scheduled run can continue from verified progress.
