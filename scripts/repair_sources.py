@@ -1140,3 +1140,28 @@ def normalize_voice_patch(s):
 edit("app/src/main/java/com/openjarvis/ui/SettingsActivity.kt", normalize_voice_patch)
 edit("app/src/main/java/com/openjarvis/ui/settings/SettingsScreen.kt", normalize_voice_patch)
 print("Normalized voice settings Kotlin line breaks")
+
+
+
+# Correct literal backslash-n sequences in the three inserted Kotlin fragments.
+def fix_voice_kotlin_newlines(s):
+    s = s.replace(
+        r"import com.openjarvis.ui.theme.OpenJarvisTheme\nimport com.openjarvis.voice.VoiceManager\nimport com.openjarvis.voice.STTMode",
+        "import com.openjarvis.ui.theme.OpenJarvisTheme\nimport com.openjarvis.voice.VoiceManager\nimport com.openjarvis.voice.STTMode"
+    )
+    s = s.replace(
+        r"private lateinit var prefs: android.content.SharedPreferences\n    private lateinit var voiceManager: VoiceManager",
+        "private lateinit var prefs: android.content.SharedPreferences\n    private lateinit var voiceManager: VoiceManager"
+    )
+    s = s.replace(
+        r"voiceManager = VoiceManager(applicationContext)\n\n        setContent {",
+        "voiceManager = VoiceManager(applicationContext)\n\n        setContent {"
+    )
+    s = s.replace(
+        r"import com.openjarvis.llm.UniversalAdapter\nimport com.openjarvis.voice.STTMode",
+        "import com.openjarvis.llm.UniversalAdapter\nimport com.openjarvis.voice.STTMode"
+    )
+    return s
+edit("app/src/main/java/com/openjarvis/ui/SettingsActivity.kt", fix_voice_kotlin_newlines)
+edit("app/src/main/java/com/openjarvis/ui/settings/SettingsScreen.kt", fix_voice_kotlin_newlines)
+print("Fixed literal backslash-n sequences in Kotlin files")
