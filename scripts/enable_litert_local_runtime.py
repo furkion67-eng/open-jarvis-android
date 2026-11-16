@@ -343,6 +343,23 @@ class LlamaProvider(
 """)
 
 
+
+# LiteRT-LM 0.14.0 uses Kotlin 2.3 metadata. Upgrade the Android toolchain coherently.
+root_gradle = project / "build.gradle"
+root_text = root_gradle.read_text()
+root_text = root_text.replace("com.android.application' version '8.2.0'", "com.android.application' version '8.13.2'")
+root_text = root_text.replace("org.jetbrains.kotlin.android' version '1.9.20'", "org.jetbrains.kotlin.android' version '2.3.0'")
+root_text = root_text.replace("com.google.devtools.ksp' version '1.9.20-1.0.14'", "com.google.devtools.ksp' version '2.3.0'")
+root_gradle.write_text(root_text)
+
+app_gradle = project / "app/build.gradle"
+app_text = app_gradle.read_text()
+app_text = app_text.replace("id 'org.jetbrains.kotlin.plugin.serialization' version '1.9.20'", "id 'org.jetbrains.kotlin.plugin.serialization' version '2.3.0'")
+if "id 'org.jetbrains.kotlin.plugin.compose' version '2.3.0'" not in app_text:
+    app_text = app_text.replace("id 'org.jetbrains.kotlin.android'\\n", "id 'org.jetbrains.kotlin.android'\\n    id 'org.jetbrains.kotlin.plugin.compose' version '2.3.0'\\n", 1)
+app_text = app_text.replace("composeOptions {\\n        kotlinCompilerExtensionVersion '1.5.5'\\n    }\\n", "")
+app_gradle.write_text(app_text)
+
 # Add a visible local-model download/load control to the existing provider settings screen.
 settings = project / "app/src/main/java/com/openjarvis/ui/settings/SettingsScreen.kt"
 settings_text = settings.read_text()
