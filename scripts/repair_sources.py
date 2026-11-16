@@ -865,3 +865,129 @@ def guard_launcher_database():
 
 guard_launcher_database()
 print("Applied launcher database startup guard")
+
+# Navigation repair: expose the floating Jarvis agent and make task history actionable.
+def repair_dashboard_navigation():
+    dashboard = root / "app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt"
+    s = dashboard.read_text()
+    if "import androidx.compose.material.icons.filled.Mic" not in s:
+        s = s.replace(
+            "import androidx.compose.material.icons.filled.Settings",
+            "import androidx.compose.material.icons.filled.Settings\\nimport androidx.compose.material.icons.filled.Mic"
+        )
+    s = s.replace(
+        "BottomNavBar(\\n            onSettingsClick = onOpenSettings,",
+        "BottomNavBar(\\n            onStartOverlay = onStartOverlay,\\n            tasks = recentTasks,\\n            onSettingsClick = onOpenSettings,"
+    )
+    start = s.find("@Composable\\nprivate fun BottomNavBar(")
+    end = s.find("\\nprivate fun formatRelativeTime", start)
+    if start < 0 or end < 0:
+        raise SystemExit("DashboardScreen: BottomNavBar replacement anchors not found")
+    replacement = r'''@Composable
+private fun BottomNavBar(
+    onStartOverlay: () -> Unit,
+    tasks: List<TaskNode>,
+    onSettingsClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var showTasks by remember { mutableStateOf(false) }
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = VoidColor.Void900
+    ) {
+        Column {
+            Divider(
+                modifier = Modifier.fillMaxWidth(),
+                thickness = 1.dp,
+                color = VoidColor.BorderSubtle
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.clickable(onClick = onStartOverlay)
+                ) {
+                    Surface(shape = RoundedCornerShape(24.dp), color = VoidColor.Violet.copy(alpha = 0.08f)) {
+                        Icon(
+                            imageVector = Icons.Filled.Mic,
+                            contentDescription = "Start Jarvis assistant",
+                            tint = VoidColor.Violet,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).size(22.dp)
+                        )
+                    }
+                }
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.clickable { showTasks = true }
+                ) {
+                    Surface(shape = RoundedCornerShape(24.dp), color = VoidColor.Violet.copy(alpha = 0.08f)) {
+                        Icon(
+                            imageVector = Icons.Filled.Task,
+                            contentDescription = "Tasks",
+                            tint = VoidColor.Violet,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).size(22.dp)
+                        )
+                    }
+                }
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.clickable(onClick = onSettingsClick)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Settings,
+                        contentDescription = "Settings",
+                        tint = VoidColor.TextDisabled,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    if (showTasks) {
+        AlertDialog(
+            onDismissRequest = { showTasks = false },
+            title = { Text("Recent tasks") },
+            text = {
+                if (tasks.isEmpty()) {
+                    Text("No tasks have been run yet.")
+                } else {
+                    Column {
+                        tasks.take(10).forEach { task ->
+                            Text(
+                                text = task.command,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(vertical = 6.dp)
+                            )
+                            Text(
+                                text = task.result,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = VoidColor.TextSecondary
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showTasks = false }) { Text("Close") }
+            },
+            containerColor = VoidColor.Void900,
+            titleContentColor = VoidColor.TextPrimary,
+            textContentColor = VoidColor.TextSecondary
+        )
+    }
+}
+'''
+    s = s[:start] + replacement + s[end:]
+    dashboard.write_text(s)
+
+repair_dashboard_navigation()
+print("Applied dashboard navigation repair")
+
