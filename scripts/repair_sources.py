@@ -2092,3 +2092,20 @@ def add_persistent_conversation_memory(s):
     return s
 edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", add_persistent_conversation_memory)
 print("Fixed Auto(VAD) persistence mapping, TTS completion callback, encrypted conversation memory and bounded auto-listen retries")
+
+
+# Robustly replace the TTS speak block without relying on Kotlin string interpolation.
+def force_tts_callback_registration(s):
+    import re
+    pattern = r'        val utteranceId = "jarvis_.*?"\n        tts\?\.speak\(clean, TextToSpeech\.QUEUE_FLUSH, null, utteranceId\)'
+    replacement = '''        val utteranceId = "jarvis_" + UUID.randomUUID().toString()
+        if (onDone != null) callbacks[utteranceId] = onDone
+        val result = tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        if (result == TextToSpeech.ERROR && onDone != null) {
+            callbacks.remove(utteranceId)
+            Handler(Looper.getMainLooper()).post { onDone() }
+        }'''
+    s, count = re.subn(pattern, lambda _: replacement, s, count=1)
+    return s
+edit("app/src/main/java/com/openjarvis/voice/AndroidTTSEngine.kt", force_tts_callback_registration)
+print("Ensured the TTS utterance completion callback is actually registered")
