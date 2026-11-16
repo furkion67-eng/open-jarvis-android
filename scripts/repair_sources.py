@@ -1346,3 +1346,155 @@ def live_permission_rows(s):
     return s
 edit("app/src/main/java/com/openjarvis/ui/settings/SettingsScreen.kt", live_permission_rows)
 print("Implemented a direct voice command flow and real permission status labels")
+
+
+# Fix v0.1 voice UX: runtime mic permission request, dark screen/input, Turkish TTS,
+# and migrate the retired Groq model without touching the saved API key.
+def voice_activity_fixes(s):
+    s = s.replace(
+        "import androidx.core.content.ContextCompat",
+        "import androidx.core.content.ContextCompat"
+    )
+    s = s.replace(
+        "import androidx.compose.material3.*",
+        "import androidx.compose.material3.*\nimport androidx.compose.ui.graphics.Color\nimport androidx.compose.ui.text.TextStyle\nimport androidx.compose.ui.text.font.FontWeight"
+    )
+    s = s.replace(
+        "import androidx.compose.ui.unit.dp",
+        "import androidx.compose.ui.unit.dp\nimport androidx.compose.ui.text.input.ImeAction\nimport androidx.compose.foundation.text.KeyboardOptions"
+    )
+    s = s.replace(
+        "import androidx.compose.runtime.*",
+        "import androidx.compose.runtime.*\nimport androidx.activity.compose.rememberLauncherForActivityResult\nimport androidx.activity.result.contract.ActivityResultContracts"
+    )
+    s = s.replace(
+        '''                var command by remember { mutableStateOf("") }
+                val agentState by agent.state.collectAsState()''',
+        '''                var command by remember { mutableStateOf("") }
+                val micPermissionLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestPermission()
+                ) { granted ->
+                    if (granted) startVoiceRecognition()
+                    else message = "Mikrofon izni verilmedi. Android uygulama ayarlarından Mikrofon iznini aç."
+                }
+                val agentState by agent.state.collectAsState()'''
+    )
+    s = s.replace(
+        '''                        is AgentState.Done -> { message = state.result; voice.speak("İşlem tamamlandı") }
+                        is AgentState.Error -> { message = state.message; voice.speak("Bir hata oluştu: " + state.message) }''',
+        '''                        is AgentState.Done -> { message = "Görev tamamlandı"; voice.speak("Görev tamamlandı.") }
+                        is AgentState.Error -> {
+                            val friendly = if (state.message.contains("decommissioned", ignoreCase = true) ||
+                                state.message.contains("no longer supported", ignoreCase = true)) {
+                                "Seçili yapay zekâ modeli artık desteklenmiyor. Yeni model ayarlandıktan sonra tekrar dene."
+                            } else state.message
+                            message = friendly
+                            voice.speak(friendly)
+                        }'''
+    )
+    s = s.replace(
+        '''                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {''',
+        '''                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = Color(0xFF09080F),
+                    contentColor = Color(0xFFF4F0FA)
+                ) {
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {'''
+    )
+    s = s.replace(
+        '''                    Button(onClick = { startVoiceRecognition() }, enabled = !listening, modifier = Modifier.fillMaxWidth()) {''',
+        '''                    Button(onClick = {
+                        if (ContextCompat.checkSelfPermission(this@VoiceCommandActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                            startVoiceRecognition()
+                        } else {
+                            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    }, enabled = !listening, modifier = Modifier.fillMaxWidth()) {'''
+    )
+    s = s.replace(
+        '''                    OutlinedTextField(value = command, onValueChange = { command = it }, label = { Text("Komutunu yaz") }, modifier = Modifier.fillMaxWidth())''',
+        '''                    OutlinedTextField(
+                        value = command,
+                        onValueChange = { command = it },
+                        label = { Text("Komutunu yaz", color = Color(0xFFB987D7)) },
+                        placeholder = { Text("Örn: YouTube'u aç", color = Color(0xFF8E8798)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = false,
+                        minLines = 2,
+                        textStyle = TextStyle(color = Color(0xFFF4F0FA), fontWeight = FontWeight.Medium),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color(0xFFF4F0FA),
+                            unfocusedTextColor = Color(0xFFF4F0FA),
+                            focusedContainerColor = Color(0xFF171420),
+                            unfocusedContainerColor = Color(0xFF171420),
+                            focusedBorderColor = Color(0xFFB36BD0),
+                            unfocusedBorderColor = Color(0xFF51485C),
+                            cursorColor = Color(0xFFB36BD0),
+                            focusedLabelColor = Color(0xFFB36BD0),
+                            unfocusedLabelColor = Color(0xFFB7AFC1)
+                        )
+                    )'''
+    )
+    s = s.replace(
+        '''                }
+            }
+        }
+    }
+
+    private fun startVoiceRecognition()''',
+        '''                }
+                }
+            }
+        }
+    }
+
+    private fun startVoiceRecognition()'''
+    )
+    # Request permission instead of immediately showing a misleading denial toast.
+    s = s.replace(
+        '''        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            android.widget.Toast.makeText(this, "Android mikrofon izni bulunamadı", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }''',
+        '''        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 2001)
+            return
+        }'''
+    )
+    return s
+edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", voice_activity_fixes)
+
+def turkish_tts(s):
+    s = s.replace("tts?.language = Locale.US", """val turkish = Locale.forLanguageTag("tr-TR")
+                val languageResult = tts?.setLanguage(turkish) ?: TextToSpeech.LANG_NOT_SUPPORTED
+                if (languageResult == TextToSpeech.LANG_MISSING_DATA || languageResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    isReady = false
+                }""")
+    return s
+edit("app/src/main/java/com/openjarvis/voice/AndroidTTSEngine.kt", turkish_tts)
+
+def migrate_groq_model(s):
+    s = s.replace("private val prefs = EncryptedSharedPreferences.create(", "private val prefs = EncryptedSharedPreferences.create(")
+    anchor = """    fun getActiveProvider(): LLMProvider {
+        val name"""
+    replacement = """    init {
+        val savedModel = prefs.getString("provider_model", "") ?: ""
+        if (savedModel == "llama-3.1-70b-versatile" || savedModel == "llama-3.3-70b-versatile") {
+            prefs.edit().putString("provider_model", "openai/gpt-oss-120b").apply()
+        }
+    }
+
+    fun getActiveProvider(): LLMProvider {
+        val name"""
+    s = s.replace(anchor, replacement)
+    s = s.replace('"Groq" -> "llama-3.1-70b-versatile"', '"Groq" -> "openai/gpt-oss-120b"')
+    return s
+edit("app/src/main/java/com/openjarvis/llm/UniversalAdapter.kt", migrate_groq_model)
+
+def update_groq_defaults(s):
+    return s.replace("llama-3.1-70b-versatile", "openai/gpt-oss-120b")
+edit("app/src/main/java/com/openjarvis/llm/providers/GroqProvider.kt", update_groq_defaults)
+edit("app/src/main/java/com/openjarvis/ui/settings/SettingsScreen.kt", update_groq_defaults)
+edit("app/src/main/java/com/openjarvis/ui/SettingsActivity.kt", update_groq_defaults)
+print("Applied Turkish TTS, dark voice UI, runtime microphone permission request, and Groq model migration")
