@@ -1653,3 +1653,18 @@ def balance_voice_activity_braces(s):
     return s
 edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", balance_voice_activity_braces)
 print("Balanced VoiceCommandActivity onCreate braces")
+
+
+# Deduplicate imports in the generated voice screen; repeated patch passes had added two copies.
+def dedupe_voice_imports(s):
+    seen = set()
+    out = []
+    for line in s.splitlines():
+        if line.startswith("import "):
+            if line in seen:
+                continue
+            seen.add(line)
+        out.append(line)
+    return "\n".join(out) + "\n"
+edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", dedupe_voice_imports)
+print("Removed duplicate imports from VoiceCommandActivity")
