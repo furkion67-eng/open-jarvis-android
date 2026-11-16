@@ -873,14 +873,14 @@ def repair_dashboard_navigation():
     if "import androidx.compose.material.icons.filled.Mic" not in s:
         s = s.replace(
             "import androidx.compose.material.icons.filled.Settings",
-            "import androidx.compose.material.icons.filled.Settings\\nimport androidx.compose.material.icons.filled.Mic"
+            "import androidx.compose.material.icons.filled.Settings\nimport androidx.compose.material.icons.filled.Mic"
         )
     s = s.replace(
-        "BottomNavBar(\\n            onSettingsClick = onOpenSettings,",
-        "BottomNavBar(\\n            onStartOverlay = onStartOverlay,\\n            tasks = recentTasks,\\n            onSettingsClick = onOpenSettings,"
+        "BottomNavBar(\n            onSettingsClick = onOpenSettings,",
+        "BottomNavBar(\n            onStartOverlay = onStartOverlay,\n            tasks = recentTasks,\n            onSettingsClick = onOpenSettings,"
     )
-    start = s.find("@Composable\\nprivate fun BottomNavBar(")
-    end = s.find("\\nprivate fun formatRelativeTime", start)
+    start = s.find("@Composable\nprivate fun BottomNavBar(")
+    end = s.find("\nprivate fun formatRelativeTime", start)
     if start < 0 or end < 0:
         raise SystemExit("DashboardScreen: BottomNavBar replacement anchors not found")
     replacement = """@Composable
