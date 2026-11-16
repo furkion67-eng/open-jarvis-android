@@ -1920,3 +1920,59 @@ def patch_auto_mode_default(s):
     return s.replace('initialSttMode: String = "PUSH_TO_TALK"', 'initialSttMode: String = "AUTO_VAD"')
 edit("app/src/main/java/com/openjarvis/ui/settings/SettingsScreen.kt", patch_auto_mode_default)
 print("Added completion-driven hands-free loop, Turkish voice preference, natural speech rate and automatic default")
+
+
+def fix_tts_callback_and_auto_default(s):
+    s = s.replace(
+        """        val utteranceId = "jarvis_\${UUID.randomUUID()}"
+        tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, utteranceId)""",
+        """        val utteranceId = "jarvis_\${UUID.randomUUID()}"
+        if (onDone != null) callbacks[utteranceId] = onDone
+        val result = tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        if (result == TextToSpeech.ERROR && onDone != null) {
+            callbacks.remove(utteranceId)
+            Handler(Looper.getMainLooper()).post { onDone() }
+        }"""
+    )
+    s = s.replace(
+        """        if (!isReady) return
+        
+        val clean = text""",
+        """        if (!isReady) {
+            onDone?.invoke()
+            return
+        }
+
+        val clean = text""",
+        1
+    )
+    s = s.replace(
+        """        if (clean.isBlank()) return
+        
+        val utteranceId = "jarvis_\${UUID.randomUUID()}"
+        tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, utteranceId)""",
+        """        if (clean.isBlank()) {
+            onDone?.invoke()
+            return
+        }
+
+        val utteranceId = "jarvis_\${UUID.randomUUID()}"
+        if (onDone != null) callbacks[utteranceId] = onDone
+        val result = tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        if (result == TextToSpeech.ERROR && onDone != null) {
+            callbacks.remove(utteranceId)
+            Handler(Looper.getMainLooper()).post { onDone() }
+        }"""
+    )
+    return s
+edit("app/src/main/java/com/openjarvis/voice/AndroidTTSEngine.kt", fix_tts_callback_and_auto_default)
+
+def default_auto_and_natural_rate(s):
+    s = s.replace("STTMode.PUSH_TO_TALK.name)", "STTMode.AUTO_VAD.name)")
+    s = s.replace("STTMode.PUSH_TO_TALK\n", "STTMode.AUTO_VAD\n")
+    s = s.replace("STTMode.PUSH_TO_TALK\n", "STTMode.AUTO_VAD\n")
+    s = s.replace("getSpeechRate(): Float = prefs.getFloat(KEY_SPEECH_RATE, 1.05f)", "getSpeechRate(): Float = prefs.getFloat(KEY_SPEECH_RATE, 0.96f)")
+    return s
+edit("app/src/main/java/com/openjarvis/voice/VoiceManager.kt", default_auto_and_natural_rate)
+edit("app/src/main/java/com/openjarvis/voice/AndroidTTSEngine.kt", lambda s: s.replace("private var speechRate = 1.05f", "private var speechRate = 0.96f"))
+print("Fixed real TTS completion callback; AUTO_VAD is fresh-install default; natural speech rate set")
