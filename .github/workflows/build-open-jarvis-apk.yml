@@ -3,7 +3,7 @@ name: Build Open Jarvis APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, "feature/approval-toggle" ]
+    branches: [ main, "feature/approval-toggle", "feature/litert-local-runtime" ]
   pull_request:
     branches: [ main ]
 
@@ -40,6 +40,7 @@ jobs:
           p.write_text(s)
           PY
           python3 scripts/repair_sources.py "$PROJECT_DIR"
+          python3 scripts/enable_litert_local_runtime.py "$PROJECT_DIR"
           # Avoid constructing AgentCore during launcher startup: it eagerly opens
           # encrypted provider preferences and is not used by MainActivity's dashboard.
           python3 - "$PROJECT_DIR/app/src/main/java/com/openjarvis/ui/MainActivity.kt" <<'PY'
