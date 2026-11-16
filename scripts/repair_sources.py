@@ -2109,3 +2109,24 @@ def force_tts_callback_registration(s):
     return s
 edit("app/src/main/java/com/openjarvis/voice/AndroidTTSEngine.kt", force_tts_callback_registration)
 print("Ensured the TTS utterance completion callback is actually registered")
+
+
+# Remove an invalid callback reference accidentally inserted into speakQueued().
+def fix_speak_queued_callback_scope(s):
+    start = s.find("fun speakQueued(text: String)")
+    if start >= 0:
+        end = s.find("\n    fun stop()", start)
+        if end > start:
+            block = s[start:end]
+            block = block.replace("""        if (!isReady) {
+            onDone?.invoke()
+            return
+        }""", """        if (!isReady) return""")
+            block = block.replace("""        if (clean.isBlank()) {
+            onDone?.invoke()
+            return
+        }""", """        if (clean.isBlank()) return""")
+            s = s[:start] + block + s[end:]
+    return s
+edit("app/src/main/java/com/openjarvis/voice/AndroidTTSEngine.kt", fix_speak_queued_callback_scope)
+print("Fixed speakQueued callback scope compile error")
