@@ -1,6 +1,0 @@
-=== Scenario A: cold launch on a fresh install ===
-fresh-launch: launcher process alive (pid=8169) after 20s
-=== Scenario B: launch with legacy graphify.db (issue #3 device state) ===
-Error: in prepare, table legacy_marker already exists
-  CREATE TABLE legacy_marker (id INTEGER PRIMARY KEY); PRAGMA user_version=1;
-               ^--- error here

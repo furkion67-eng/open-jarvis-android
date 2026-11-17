@@ -54,6 +54,9 @@ launch_and_verify "fresh-launch"
 echo "=== Scenario B: launch with legacy graphify.db (issue #3 device state) ==="
 adb shell am force-stop "$APP_PKG"
 adb logcat -c >/dev/null 2>&1 || true
+# Remove any stale legacy.db from a previous run of this script; sqlite3
+# would otherwise fail with "table legacy_marker already exists".
+rm -f legacy.db
 sqlite3 legacy.db "CREATE TABLE legacy_marker (id INTEGER PRIMARY KEY); PRAGMA user_version=1;"
 adb push legacy.db /data/local/tmp/legacy.db >/dev/null
 adb shell chmod 644 /data/local/tmp/legacy.db
