@@ -20,6 +20,9 @@ if "openjarvis_startup_crash.txt" not in s:
         val crashReport = File(filesDir, "openjarvis_startup_crash.txt")
         val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            // Surface the exact stack in logcat too, so adb logcat on a physical
+            // device shows "OpenJarvisCrash" entries for this runtime blocker.
+            android.util.Log.e("OpenJarvisCrash", "Fatal exception on thread " + thread.name, error)
             runCatching {
                 crashReport.writeText(
                     "Thread: ${thread.name}\\n" + android.util.Log.getStackTraceString(error)

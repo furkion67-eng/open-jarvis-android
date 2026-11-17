@@ -1,0 +1,21 @@
+=== Independent re-execution of scripts/smoke_test.sh — fresh GitHub-hosted runner, 2026-11-17 ===
+(app + androidTest APKs built from scratch on this runner from the PR-head ZIP + exact CI patch phase)
+
+=== Scenario A: cold launch on a fresh install ===
+fresh-launch: launcher process alive (pid=3345) after 20s
+=== Scenario B: launch with legacy graphify.db (issue #3 device state) ===
+legacy.db: 1 file pushed, 0 skipped. 90.5 MB/s (8192 bytes in 0.000s)
+legacy-db: launcher process alive (pid=4479) after 20s
+graphify.db.unmigratable-1794939352117
+legacy-db: recovery backup created, app stayed alive
+=== Scenario C: instrumented tests (Room recovery end-to-end + analysis engine) ===
+
+com.openjarvis.graphify.AnalysisEngineTest:...
+com.openjarvis.graphify.GraphifyDbRecoveryInstrumentedTest:.
+
+Time: 0.335
+
+OK (4 tests)
+
+
+SMOKE-OK: fresh launch, legacy-database launch and instrumented tests all passed
