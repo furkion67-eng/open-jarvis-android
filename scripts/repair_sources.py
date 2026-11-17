@@ -2130,3 +2130,88 @@ def fix_speak_queued_callback_scope(s):
     return s
 edit("app/src/main/java/com/openjarvis/voice/AndroidTTSEngine.kt", fix_speak_queued_callback_scope)
 print("Fixed speakQueued callback scope compile error")
+
+
+# Issue #5: deterministic local actions (SMS / call / app / WhatsApp) surface an
+# AwaitingConfirmation / NeedsInput state from AgentCore; the voice screen must
+# render the Turkish confirmation dialog and route confirm/cancel/input back to
+# AgentCore. All anchors below target the content produced by earlier passes.
+def voice_confirmation_flow(s):
+    if "pendingConfirmation" in s:
+        return s
+    state_anchor = "                val agentState by agent.state.collectAsState()"
+    if state_anchor not in s:
+        raise SystemExit("VoiceCommandActivity: agentState anchor not found")
+    s = s.replace(
+        state_anchor,
+        state_anchor + "\n                var pendingConfirmation by remember { mutableStateOf<AgentState.AwaitingConfirmation?>(null) }",
+        1
+    )
+
+    running_anchor = "                        is AgentState.Running -> message = state.step"
+    if running_anchor in s:
+        s = s.replace(
+            running_anchor,
+            "                        is AgentState.Running -> { message = state.step; pendingConfirmation = null }",
+            1
+        )
+
+    done_anchor = '                        is AgentState.Done -> { message = "Görev tamamlandı"; speakAndResume("Görev tamamlandı.") }'
+    if done_anchor not in s:
+        raise SystemExit("VoiceCommandActivity: Done branch anchor not found")
+    s = s.replace(
+        done_anchor,
+        done_anchor + "\n" +
+        "                        is AgentState.NeedsInput -> {\n" +
+        "                            message = state.prompt\n" +
+        "                            pendingConfirmation = null\n" +
+        "                            speakAndResume(state.prompt)\n" +
+        "                        }\n" +
+        "                        is AgentState.AwaitingConfirmation -> {\n" +
+        "                            message = state.title + \": \" + state.detail\n" +
+        "                            speakAndResume(state.title)\n" +
+        "                            pendingConfirmation = state\n" +
+        "                        }",
+        1
+    )
+
+    dialog_anchor = "                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {"
+    if dialog_anchor not in s:
+        raise SystemExit("VoiceCommandActivity: Column anchor not found")
+    dialog_block = """                pendingConfirmation?.let { pending ->
+                    AlertDialog(
+                        onDismissRequest = { pendingConfirmation = null; agent.cancelPendingAction() },
+                        title = { Text(pending.title) },
+                        text = { Text(pending.detail) },
+                        confirmButton = {
+                            TextButton(onClick = { pendingConfirmation = null; agent.confirmPendingAction() }) {
+                                Text(pending.confirmLabel)
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { pendingConfirmation = null; agent.cancelPendingAction() }) {
+                                Text(pending.cancelLabel)
+                            }
+                        }
+                    )
+                }
+"""
+    s = s.replace(dialog_anchor, dialog_block + dialog_anchor, 1)
+
+    # The "İşlem durumu" status label must also cover the new states.
+    status_anchor = """                        is AgentState.Error -> "Hata"
+                    }, style = MaterialTheme.typography.bodySmall, color = Color(0xFFB7AFC1))"""
+    if status_anchor in s:
+        s = s.replace(
+            status_anchor,
+            """                        is AgentState.Error -> "Hata"
+                        is AgentState.NeedsInput -> "Girdi bekleniyor"
+                        is AgentState.AwaitingConfirmation -> "Onay bekleniyor"
+                    }, style = MaterialTheme.typography.bodySmall, color = Color(0xFFB7AFC1))""",
+            1
+        )
+    else:
+        raise SystemExit("VoiceCommandActivity: status label anchor not found")
+    return s
+edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", voice_confirmation_flow)
+print("Added Turkish confirmation flow for local device actions (issue #5)")
