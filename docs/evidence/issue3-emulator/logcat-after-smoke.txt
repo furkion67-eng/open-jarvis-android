@@ -1,0 +1,431 @@
+--------- beginning of main
+11-17 03:16:59.785  1552  2001 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface lockscreen with targets# 0
+11-17 03:16:59.786  1552  2001 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface home with targets# 0
+11-17 03:16:59.798   340   374 W TransactionTracing: Could not find layer handle 0x7281af189b90
+11-17 03:16:59.798   340   374 W TransactionTracing: Could not find layer handle 0x7281af185930
+--------- beginning of system
+11-17 03:16:59.800   485   509 V WindowManager: Unknown focus tokens, dropping reportFocusChanged
+11-17 03:16:59.800   485   509 W ActivityManager: setHasOverlayUi called on unknown pid: 8438
+11-17 03:16:59.802   967   967 D CarrierSvcBindHelper: onHandleForceStop: [com.openjarvis]
+11-17 03:16:59.802   485  2032 V ActivityManager: Got obituary of 8438:com.openjarvis
+11-17 03:16:59.806   967   967 D CarrierSvcBindHelper: No carrier app for: 0
+11-17 03:16:59.811   933  1234 D BtGatt.ScanManager: uid 10120 isForeground true scanMode -1
+11-17 03:16:59.811   933  1234 D BtGatt.ScanManager: uid 10120 isForeground true scanMode -1
+11-17 03:16:59.838  1490  1490 I GoogleInputMethodService: GoogleInputMethodService.onFinishInput():3227 
+11-17 03:16:59.853  1490  1490 I GoogleInputMethodService: GoogleInputMethodService.updateDeviceLockedStatus():2087 repeatCheckTimes = 0, unlocked = true
+11-17 03:16:59.853  1490  1490 I GoogleInputMethodService: GoogleInputMethodService.onStartInput():1877 onStartInput(EditorInfo{inputType=0x0(NULL) imeOptions=0x0 privateImeOptions=null actionName=UNSPECIFIED actionLabel=null actionId=0 initialSelStart=-1 initialSelEnd=-1 initialCapsMode=0x0 hintText=null label=null packageName=com.google.android.apps.nexuslauncher fieldId=-1 fieldName=null extras=null}, false)
+11-17 03:16:59.853  1490  1490 I GoogleInputMethodService: GoogleInputMethodService.shouldHideHeaderOnInitialState():4008 ShouldHideHeaderOnInitialState = false
+11-17 03:16:59.854  1490  1490 I GoogleInputMethodService: GoogleInputMethodService.updateDeviceLockedStatus():2087 repeatCheckTimes = 2, unlocked = true
+11-17 03:16:59.867   340   374 W TransactionTracing: Could not find layer handle 0x7281af189530
+11-17 03:16:59.906   740   816 D EGL_emulation: app_time_stats: avg=1469.77ms min=12.33ms max=16886.37ms count=12
+11-17 03:16:59.980  1696  1696 I A       : Created gRPC endpoint to "search" for service class com.google.android.apps.search.googleapp.search.suggest.plugins.onesearch.server.OneSearchSuggestService
+11-17 03:16:59.984  1696  2408 I A       : Using proto config with mendel
+11-17 03:16:59.984  1696  2408 W A       : Queue length for executor EventBus is now 11. Perhaps some tasks are too long, or the pool is too small.
+11-17 03:17:00.088  1696  2408 I A       : Using proto config with mendel
+11-17 03:17:00.097   340   374 W TransactionTracing: Could not find layer handle 0x7281af188f90
+11-17 03:17:00.097   340   374 W TransactionTracing: Could not find layer handle 0x7281af188f90
+11-17 03:17:00.147   740   816 D EGL_emulation: app_time_stats: avg=612.98ms min=5.04ms max=18477.74ms count=31
+11-17 03:17:00.213  1552  2001 I AiAiEcho: Predicting[0]: 
+11-17 03:17:00.213  1552  2001 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata: 
+11-17 03:17:00.214  1552  2001 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface lockscreen with targets# 0
+11-17 03:17:00.214  1552  2001 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface home with targets# 0
+11-17 03:17:00.250   485   553 I ActivityTaskManager: START u0 {flg=0x10000000 cmp=com.openjarvis/.ui.MainActivity} from uid 0
+11-17 03:17:00.251   485   553 D CompatibilityChangeReporter: Compat change id reported: 265464455; UID 10174; state: DISABLED
+11-17 03:17:00.251   485   553 D CompatibilityChangeReporter: Compat change id reported: 265452344; UID 10174; state: DISABLED
+11-17 03:17:00.251   485   553 D CompatibilityChangeReporter: Compat change id reported: 266124927; UID 10174; state: DISABLED
+11-17 03:17:00.251   485   553 D CompatibilityChangeReporter: Compat change id reported: 265451093; UID 10174; state: DISABLED
+11-17 03:17:00.251   485   553 D CompatibilityChangeReporter: Compat change id reported: 265456536; UID 10174; state: DISABLED
+11-17 03:17:00.251   485   553 D CompatibilityChangeReporter: Compat change id reported: 255940284; UID 10174; state: DISABLED
+11-17 03:17:00.251   485   553 D CompatibilityChangeReporter: Compat change id reported: 236283604; UID 10174; state: DISABLED
+11-17 03:17:00.251   485   553 D CompatibilityChangeReporter: Compat change id reported: 263959004; UID 10174; state: DISABLED
+11-17 03:17:00.252   485   553 D CompatibilityChangeReporter: Compat change id reported: 264304459; UID 10174; state: DISABLED
+11-17 03:17:00.252   485   553 D CompatibilityChangeReporter: Compat change id reported: 264301586; UID 10174; state: DISABLED
+11-17 03:17:00.252   485   553 D CompatibilityChangeReporter: Compat change id reported: 254631730; UID 10174; state: DISABLED
+11-17 03:17:00.252   485   553 D CompatibilityChangeReporter: Compat change id reported: 273509367; UID 10174; state: DISABLED
+11-17 03:17:00.252   485   553 D CompatibilityChangeReporter: Compat change id reported: 263259275; UID 10174; state: DISABLED
+11-17 03:17:00.252   485   553 D CompatibilityChangeReporter: Compat change id reported: 194480991; UID 10174; state: ENABLED
+11-17 03:17:00.253   485   553 D CompatibilityChangeReporter: Compat change id reported: 174042980; UID 10174; state: DISABLED
+11-17 03:17:00.306   485   553 D CompatibilityChangeReporter: Compat change id reported: 184838306; UID 10174; state: DISABLED
+11-17 03:17:00.306   485   553 D CompatibilityChangeReporter: Compat change id reported: 185004937; UID 10174; state: DISABLED
+11-17 03:17:00.306   485   553 D CompatibilityChangeReporter: Compat change id reported: 181136395; UID 10174; state: DISABLED
+11-17 03:17:00.306   485   553 D CompatibilityChangeReporter: Compat change id reported: 174042936; UID 10174; state: DISABLED
+11-17 03:17:00.309   485   553 D CompatibilityChangeReporter: Compat change id reported: 197654537; UID 10174; state: ENABLED
+11-17 03:17:00.311   485   553 D CompatibilityChangeReporter: Compat change id reported: 205907456; UID 10174; state: ENABLED
+11-17 03:17:00.313   485   509 D CompatibilityChangeReporter: Compat change id reported: 135634846; UID 10174; state: DISABLED
+11-17 03:17:00.315   485   518 D CompatibilityChangeReporter: Compat change id reported: 143937733; UID 10174; state: ENABLED
+11-17 03:17:00.335   287   287 D Zygote  : Forked child process 8547
+11-17 03:17:00.336   970   970 D MainContentCaptureSession: Flushing 1 event(s) for act:com.google.android.apps.nexuslauncher/.NexusLauncherActivity [state=2 (ACTIVE), disabled=false], reason=FULL
+11-17 03:17:00.338   340   340 I BpBinder: onLastStrongRef automatically unlinking death recipients: <uncached descriptor>
+11-17 03:17:00.363   740   809 D SplashScreenView: Build android.window.SplashScreenView{b7e6939 V.E...... ......ID 0,0-0,0}
+11-17 03:17:00.363   740   809 D SplashScreenView: Icon: view: android.widget.ImageView{3f85b7e V.ED..... ......I. 0,0-0,0 #10204dd android:id/splashscreen_icon_view} drawable: com.android.wm.shell.startingsurface.SplashscreenIconDrawableFactory$ImmobileIconDrawable@e1388df size: 440
+11-17 03:17:00.363   740   809 D SplashScreenView: Branding: view: android.view.View{d7f692c G.ED..... ......I. 0,0-0,0 #10204dc android:id/splashscreen_branding_view} drawable: null size w: 0 h: 0
+11-17 03:17:00.425   485   518 W ActivityManager: Slow operation: 112ms so far, now at startProcess: returned from zygote!
+11-17 03:17:00.425   485   518 W ActivityManager: Slow operation: 113ms so far, now at startProcess: done updating battery stats
+11-17 03:17:00.425   485   518 W ActivityManager: Slow operation: 113ms so far, now at startProcess: building log message
+11-17 03:17:00.425   485   518 I ActivityManager: Start proc 8547:com.openjarvis/u0a174 for next-top-activity {com.openjarvis/com.openjarvis.ui.MainActivity}
+11-17 03:17:00.425   485   518 W ActivityManager: Slow operation: 113ms so far, now at startProcess: starting to update pids map
+11-17 03:17:00.425   485   518 W ActivityManager: Slow operation: 113ms so far, now at startProcess: done updating pids map
+11-17 03:17:00.439  8547  8547 I com.openjarvis: Late-enabling -Xcheck:jni
+11-17 03:17:00.474   485   806 W ActivityTaskManager: takeTaskSnapshot: taskId=13 not found or not visible
+11-17 03:17:00.497   740   816 W Parcel  : Expecting binder but got null!
+11-17 03:17:00.497   485   806 D CompatibilityChangeReporter: Compat change id reported: 168419799; UID 10174; state: DISABLED
+11-17 03:17:00.497   485   806 D CompatibilityChangeReporter: Compat change id reported: 273564678; UID 10174; state: DISABLED
+11-17 03:17:00.499  8547  8547 I com.openjarvis: Using CollectorTypeCC GC.
+11-17 03:17:00.506   485   806 D CoreBackPreview: Window{a4292b2 u0 Splash Screen com.openjarvis}: Setting back callback OnBackInvokedCallbackInfo{mCallback=android.window.IOnBackInvokedCallback$Stub$Proxy@e0d5580, mPriority=0}
+11-17 03:17:00.514  8547  8547 W com.openjarvis: Unexpected CPU variant for x86: x86_64.
+11-17 03:17:00.514  8547  8547 W com.openjarvis: Known variants: atom, sandybridge, silvermont, kabylake, default
+11-17 03:17:00.529  6905  6913 I adbd    : jdwp connection from 8547
+11-17 03:17:00.558  8547  8547 D CompatibilityChangeReporter: Compat change id reported: 171979766; UID 10174; state: ENABLED
+11-17 03:17:00.571  8547  8547 W ziparchive: Unable to open '/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.dm': No such file or directory
+11-17 03:17:00.571  8547  8547 W ziparchive: Unable to open '/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.dm': No such file or directory
+11-17 03:17:00.993   340   374 W TransactionTracing: Could not find layer handle 0x7281af18a310
+11-17 03:17:01.173   340   374 W TransactionTracing: Could not find layer handle 0x7281af189710
+11-17 03:17:01.173   340   374 W TransactionTracing: Could not find layer handle 0x7281af189710
+11-17 03:17:01.173   340   374 W TransactionTracing: Could not find layer handle 0x7281af189710
+11-17 03:17:01.173   340   374 W TransactionTracing: Could not find layer handle 0x7281af187eb0
+11-17 03:17:01.173   340   374 W TransactionTracing: Could not find layer handle 0x7281af189050
+11-17 03:17:01.173   340   374 W TransactionTracing: Could not find layer handle 0x7281af189710
+11-17 03:17:01.173   340   374 W TransactionTracing: Could not find layer handle 0x7281af189050
+11-17 03:17:01.173   340   374 W TransactionTracing: Could not find layer handle 0x7281af187eb0
+11-17 03:17:01.173   340   374 W TransactionTracing: Could not find layer handle 0x7281af189710
+11-17 03:17:01.174   340   374 W TransactionTracing: Could not find layer handle 0x7281af189050
+11-17 03:17:01.174   340   374 W TransactionTracing: Could not find layer handle 0x7281af187eb0
+11-17 03:17:01.209   740   816 D EGL_emulation: app_time_stats: avg=49.79ms min=4.20ms max=124.14ms count=20
+11-17 03:17:01.626  8547  8547 D nativeloader: Configuring classloader-namespace for other apk /data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk. target_sdk_version=34, uses_libraries=, library_path=/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/lib/x86_64:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!/lib/x86_64, permitted_path=/data:/mnt/expand:/data/user/0/com.openjarvis
+11-17 03:17:01.631  8547  8547 V GraphicsEnvironment: ANGLE Developer option for 'com.openjarvis' set to: 'default'
+11-17 03:17:01.632  8547  8547 V GraphicsEnvironment: ANGLE GameManagerService for com.openjarvis: false
+11-17 03:17:01.632  8547  8547 V GraphicsEnvironment: Neither updatable production driver nor prerelease driver is supported.
+11-17 03:17:01.633  8547  8547 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-17 03:17:01.634  8547  8547 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-17 03:17:01.643  8547  8547 D WM-WrkMgrInitializer: Initializing WorkManager with default configuration.
+11-17 03:17:01.751  8547  8547 D WM-PackageManagerHelper: Skipping component enablement for androidx.work.impl.background.systemjob.SystemJobService
+11-17 03:17:01.751  8547  8547 D WM-Schedulers: Created SystemJobScheduler and enabled SystemJobService
+11-17 03:17:01.767  8547  8567 D libEGL  : loaded /vendor/lib64/egl/libEGL_emulation.so
+11-17 03:17:01.768  8547  8567 D libEGL  : loaded /vendor/lib64/egl/libGLESv1_CM_emulation.so
+11-17 03:17:01.769  8547  8567 D libEGL  : loaded /vendor/lib64/egl/libGLESv2_emulation.so
+11-17 03:17:01.807  8547  8564 D CompatibilityChangeReporter: Compat change id reported: 160794467; UID 10174; state: ENABLED
+11-17 03:17:01.861  8547  8547 W GraphifyDB: Backed up un-migratable graphify.db: graphify.db.unmigratable-1794885421836
+11-17 03:17:01.916  8547  8547 D CompatibilityChangeReporter: Compat change id reported: 237531167; UID 10174; state: DISABLED
+11-17 03:17:01.919  8547  8565 W Parcel  : Expecting binder but got null!
+11-17 03:17:01.921   485  2131 D CoreBackPreview: Window{9e70447 u0 com.openjarvis/com.openjarvis.ui.MainActivity}: Setting back callback OnBackInvokedCallbackInfo{mCallback=android.window.IOnBackInvokedCallback$Stub$Proxy@f1d8d9d, mPriority=0}
+11-17 03:17:02.050  8547  8547 W com.openjarvis: Method java.lang.Object androidx.compose.runtime.snapshots.SnapshotStateMap.mutate(kotlin.jvm.functions.Function1) failed lock verification and will run slower.
+11-17 03:17:02.050  8547  8547 W com.openjarvis: Common causes for lock verification issues are non-optimized dex code
+11-17 03:17:02.050  8547  8547 W com.openjarvis: and incorrect proguard optimizations.
+11-17 03:17:02.051  8547  8547 W com.openjarvis: Method void androidx.compose.runtime.snapshots.SnapshotStateMap.update(kotlin.jvm.functions.Function1) failed lock verification and will run slower.
+11-17 03:17:02.051  8547  8547 W com.openjarvis: Method boolean androidx.compose.runtime.snapshots.SnapshotStateMap.removeIf$runtime_release(kotlin.jvm.functions.Function1) failed lock verification and will run slower.
+11-17 03:17:02.107  8547  8547 W com.openjarvis: Method boolean androidx.compose.runtime.snapshots.SnapshotStateList.conditionalUpdate(kotlin.jvm.functions.Function1) failed lock verification and will run slower.
+11-17 03:17:02.107  8547  8547 W com.openjarvis: Method java.lang.Object androidx.compose.runtime.snapshots.SnapshotStateList.mutate(kotlin.jvm.functions.Function1) failed lock verification and will run slower.
+11-17 03:17:02.107  8547  8547 W com.openjarvis: Method void androidx.compose.runtime.snapshots.SnapshotStateList.update(kotlin.jvm.functions.Function1) failed lock verification and will run slower.
+11-17 03:17:02.213   740   816 D EGL_emulation: app_time_stats: avg=19.63ms min=3.15ms max=71.77ms count=45
+11-17 03:17:02.267   340   374 W TransactionTracing: Could not find layer handle 0x7281af188450
+11-17 03:17:02.267   340   374 W TransactionTracing: Could not find layer handle 0x7281af188e70
+11-17 03:17:02.269  8547  8565 D HostConnection: HostComposition ext ANDROID_EMU_CHECKSUM_HELPER_v1 ANDROID_EMU_native_sync_v2 ANDROID_EMU_dma_v1 ANDROID_EMU_direct_mem ANDROID_EMU_host_composition_v1 ANDROID_EMU_host_composition_v2 ANDROID_EMU_vulkan ANDROID_EMU_deferred_vulkan_commands ANDROID_EMU_vulkan_null_optional_strings ANDROID_EMU_vulkan_create_resources_with_requirements ANDROID_EMU_YUV_Cache ANDROID_EMU_vulkan_ignored_handles ANDROID_EMU_has_shared_slots_host_memory_allocator ANDROID_EMU_vulkan_free_memory_sync ANDROID_EMU_vulkan_shader_float16_int8 ANDROID_EMU_vulkan_async_queue_submit ANDROID_EMU_vulkan_queue_submit_with_commands ANDROID_EMU_sync_buffer_data ANDROID_EMU_vulkan_async_qsri ANDROID_EMU_read_color_buffer_dma ANDROID_EMU_hwc_multi_configs ANDROID_EMU_hwc_color_transform GL_OES_EGL_image_external_essl3 GL_OES_vertex_array_object GL_KHR_texture_compression_astc_ldr ANDROID_EMU_host_side_tracing ANDROID_EMU_gles_max_version_3_0 
+11-17 03:17:02.295  8547  8565 W OpenGLRenderer: Failed to initialize 101010-2 format, error = EGL_SUCCESS
+11-17 03:17:02.296  8547  8565 D EGL_emulation: eglCreateContext: 0x7eba6e06d610: maj 3 min 0 rcv 3
+11-17 03:17:02.298  8547  8565 D EGL_emulation: eglMakeCurrent: 0x7eba6e06d610: ver 3 0 (tinfo 0x7ebc92001080) (first time)
+11-17 03:17:02.298   740   816 D EGL_emulation: app_time_stats: avg=456.93ms min=10.80ms max=2097.66ms count=5
+11-17 03:17:02.347   127   127 I hwservicemanager: getTransport: Cannot find entry android.hardware.graphics.mapper@4.0::IMapper/default in either framework or device VINTF manifest.
+11-17 03:17:02.347  8547  8565 I Gralloc4: mapper 4.x is not supported
+11-17 03:17:02.362   127   127 I hwservicemanager: getTransport: Cannot find entry android.hardware.graphics.allocator@4.0::IAllocator/default in either framework or device VINTF manifest.
+11-17 03:17:02.367   126   126 I servicemanager: Could not find android.hardware.graphics.allocator.IAllocator/default in the VINTF manifest.
+11-17 03:17:02.369  8547  8565 W Gralloc4: allocator 4.x is not supported
+11-17 03:17:02.386  8547  8565 D HostConnection: HostComposition ext ANDROID_EMU_CHECKSUM_HELPER_v1 ANDROID_EMU_native_sync_v2 ANDROID_EMU_dma_v1 ANDROID_EMU_direct_mem ANDROID_EMU_host_composition_v1 ANDROID_EMU_host_composition_v2 ANDROID_EMU_vulkan ANDROID_EMU_deferred_vulkan_commands ANDROID_EMU_vulkan_null_optional_strings ANDROID_EMU_vulkan_create_resources_with_requirements ANDROID_EMU_YUV_Cache ANDROID_EMU_vulkan_ignored_handles ANDROID_EMU_has_shared_slots_host_memory_allocator ANDROID_EMU_vulkan_free_memory_sync ANDROID_EMU_vulkan_shader_float16_int8 ANDROID_EMU_vulkan_async_queue_submit ANDROID_EMU_vulkan_queue_submit_with_commands ANDROID_EMU_sync_buffer_data ANDROID_EMU_vulkan_async_qsri ANDROID_EMU_read_color_buffer_dma ANDROID_EMU_hwc_multi_configs ANDROID_EMU_hwc_color_transform GL_OES_EGL_image_external_essl3 GL_OES_vertex_array_object GL_KHR_texture_compression_astc_ldr ANDROID_EMU_host_side_tracing ANDROID_EMU_gles_max_version_3_0 
+11-17 03:17:02.576   485   506 W ziparchive: Unable to open '/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.dm': No such file or directory
+11-17 03:17:02.578   485   506 I ActivityTaskManager: Displayed com.openjarvis/.ui.MainActivity: +2s324ms
+11-17 03:17:02.601  8547  8560 I OpenGLRenderer: Davey! duration=817ms; Flags=1, FrameTimelineVsyncId=15779, IntendedVsync=1116270509530, Vsync=1116420509524, InputEventId=0, HandleInputStart=1116421635721, AnimationStart=1116421637897, PerformTraversalsStart=1116421706079, DrawStart=1116885893871, FrameDeadline=1116287176196, FrameInterval=1116421617423, FrameStartTime=16666666, SyncQueued=1116895949566, SyncStart=1116896235553, IssueDrawCommandsStart=1116896434968, SwapBuffers=1116995680594, FrameCompleted=1117088523925, DequeueBufferDuration=2356, QueueBufferDuration=387217, GpuCompleted=1117088523925, SwapBuffersCompleted=1117070132211, DisplayPresentTime=0, CommandSubmissionCompleted=1116995680594, 
+11-17 03:17:02.610  8547  8547 I Choreographer: Skipped 38 frames!  The application may be doing too much work on its main thread.
+11-17 03:17:02.623   485   553 D CompatibilityChangeReporter: Compat change id reported: 214016041; UID 10174; state: ENABLED
+11-17 03:17:02.629  1490  1490 I GoogleInputMethodService: GoogleInputMethodService.onFinishInput():3227 
+11-17 03:17:02.631  1490  1490 I GoogleInputMethodService: GoogleInputMethodService.updateDeviceLockedStatus():2087 repeatCheckTimes = 0, unlocked = true
+11-17 03:17:02.631  1490  1490 I GoogleInputMethodService: GoogleInputMethodService.onStartInput():1877 onStartInput(EditorInfo{inputType=0x0(NULL) imeOptions=0x0 privateImeOptions=null actionName=UNSPECIFIED actionLabel=null actionId=0 initialSelStart=-1 initialSelEnd=-1 initialCapsMode=0x0 hintText=null label=null packageName=com.openjarvis fieldId=-1 fieldName=null extras=null}, false)
+11-17 03:17:02.631  1490  1490 I GoogleInputMethodService: GoogleInputMethodService.shouldHideHeaderOnInitialState():4008 ShouldHideHeaderOnInitialState = false
+11-17 03:17:02.633  1490  1490 I GoogleInputMethodService: GoogleInputMethodService.updateDeviceLockedStatus():2087 repeatCheckTimes = 2, unlocked = true
+11-17 03:17:02.638  5270  5345 I FontLog : Received query Noto Color Emoji Compat, URI content://com.google.android.gms.fonts [CONTEXT service_id=132 ]
+11-17 03:17:02.641  5270  5345 I FontLog : Query [emojicompat-emoji-font] resolved to {Noto Color Emoji Compat, wdth 100.0, wght 400, ital 0.0, bestEffort false} [CONTEXT service_id=132 ]
+11-17 03:17:02.657  5270  5345 I FontLog : Fetch {Noto Color Emoji Compat, wdth 100.0, wght 400, ital 0.0, bestEffort false} end status Status{statusCode=SUCCESS, resolution=null} [CONTEXT service_id=132 ]
+11-17 03:17:02.707   970  1975 D OneSearchSuggestProvider: Shut down the binder channel
+11-17 03:17:02.707  5270  5285 I FontLog : Pulling font file for id = 7, cache size = 6 [CONTEXT service_id=132 ]
+11-17 03:17:02.733   340   374 W TransactionTracing: Could not find layer handle 0x7281af189fb0
+11-17 03:17:02.734   970  7185 I s.nexuslauncher: oneway function results for code 2 on binder at 0x7eb9fe0c2af0 will be dropped but finished with status UNKNOWN_TRANSACTION
+11-17 03:17:02.741  1696  2408 I PBSessionCacheImpl: Deleted sessionId[7460881767189056] from persistence.
+11-17 03:17:02.748  5270  8478 I FontLog : Pulling font file for id = 7, cache size = 6 [CONTEXT service_id=132 ]
+11-17 03:17:02.787  1696  2408 W SearchServiceCore: Abort, client detached.
+11-17 03:17:03.130   485   553 D CoreBackPreview: Window{a4292b2 u0 Splash Screen com.openjarvis EXITING}: Setting back callback null
+11-17 03:17:03.130   485   806 W InputManager-JNI: Input channel object 'a4292b2 Splash Screen com.openjarvis (client)' was disposed without first being removed with the input manager!
+11-17 03:17:03.348   740   816 D EGL_emulation: app_time_stats: avg=122.70ms min=8.97ms max=340.10ms count=8
+11-17 03:17:07.044  8547  8577 D ProfileInstaller: Installing profile for com.openjarvis
+11-17 03:17:08.772   933  1234 D BtGatt.ScanManager: uid 10120 isForeground true scanMode -1
+11-17 03:17:08.772   933  1234 D BtGatt.ScanManager: uid 10120 isForeground true scanMode -1
+11-17 03:17:09.255   485   569 I ActivityManager: Killing 4785:com.google.android.projection.gearhead:shared/u0a108 (adj 985): empty #17
+11-17 03:17:09.257   485   519 I libprocessgroup: Successfully killed process cgroup uid 10108 pid 4785 in 0ms
+11-17 03:17:09.259   287   287 I Zygote  : Process 4785 exited due to signal 9 (Killed)
+11-17 03:17:10.970  5270  8358 I CastDatabase: Saving the database
+11-17 03:17:10.973  5270  8358 I SQLiteCastStore: [CastNetworkInfo] saved: 0, skipped: 0, [CastDeviceInfo]: saved 0, skipped 0, [Paired Guest Mode DeviceInfo] saved: 0, skipped: 0. [ProbedNetworks]: saved 0, skipped: 0, [ProbedSocketAddress]: saved 0, skipped: 0, [Network-Device pairs]: saved: 0
+11-17 03:17:12.902   310   310 E android.hardware.power.stats@1.0-service-mock: Failed to getEnergyData
+11-17 03:17:20.402  8582  8582 W ProcessState: Extra binder thread started, but 0 threads requested. Do not use *startThreadPool when zero threads are requested.
+11-17 03:17:20.410   127   127 I hwservicemanager: getTransport: Cannot find entry android.hardware.graphics.mapper@4.0::IMapper/default in either framework or device VINTF manifest.
+11-17 03:17:20.410  8582  8583 I Gralloc4: mapper 4.x is not supported
+11-17 03:17:20.437  8582  8583 D HostConnection: HostComposition ext ANDROID_EMU_CHECKSUM_HELPER_v1 ANDROID_EMU_native_sync_v2 ANDROID_EMU_dma_v1 ANDROID_EMU_direct_mem ANDROID_EMU_host_composition_v1 ANDROID_EMU_host_composition_v2 ANDROID_EMU_vulkan ANDROID_EMU_deferred_vulkan_commands ANDROID_EMU_vulkan_null_optional_strings ANDROID_EMU_vulkan_create_resources_with_requirements ANDROID_EMU_YUV_Cache ANDROID_EMU_vulkan_ignored_handles ANDROID_EMU_has_shared_slots_host_memory_allocator ANDROID_EMU_vulkan_free_memory_sync ANDROID_EMU_vulkan_shader_float16_int8 ANDROID_EMU_vulkan_async_queue_submit ANDROID_EMU_vulkan_queue_submit_with_commands ANDROID_EMU_sync_buffer_data ANDROID_EMU_vulkan_async_qsri ANDROID_EMU_read_color_buffer_dma ANDROID_EMU_hwc_multi_configs ANDROID_EMU_hwc_color_transform GL_OES_EGL_image_external_essl3 GL_OES_vertex_array_object GL_KHR_texture_compression_astc_ldr ANDROID_EMU_host_side_tracing ANDROID_EMU_gles_max_version_3_0 
+--------- beginning of kernel
+11-17 03:17:20.852     0     0 I logd    : logdr: UID=0 GID=0 PID=8585 n tail=0 logMask=10 pid=0 start=0ns deadline=0ns
+11-17 03:17:20.867     0     0 I logd    : logdr: UID=0 GID=0 PID=8588 n tail=0 logMask=99 pid=0 start=0ns deadline=0ns
+11-17 03:17:20.607  6918  6918 I abb     : StartCommandInProcess(73657474696e67730067657400676c6f settings.get.glo [truncated])
+11-17 03:17:20.594  8591  8591 W ls      : type=1400 audit(0.0:48): avc: denied { ioctl } for path="socket:[76812]" dev="sockfs" ino=76812 ioctlcmd=0x5401 scontext=u:r:runas_app:s0:c174,c256,c512,c768 tcontext=u:r:su:s0 tclass=unix_stream_socket permissive=0 app=com.openjarvis
+11-17 03:17:20.594  8591  8591 W ls      : type=1400 audit(0.0:49): avc: denied { ioctl } for path="socket:[76812]" dev="sockfs" ino=76812 ioctlcmd=0x5401 scontext=u:r:runas_app:s0:c174,c256,c512,c768 tcontext=u:r:su:s0 tclass=unix_stream_socket permissive=0 app=com.openjarvis
+11-17 03:17:20.618  6918  6918 I abb     : StartCommandInProcess(7061636b61676500696e7374616c6c00 package.install. [truncated])
+11-17 03:17:20.594  8591  8591 W ls      : type=1400 audit(0.0:50): avc: denied { ioctl } for path="socket:[76812]" dev="sockfs" ino=76812 ioctlcmd=0x5401 scontext=u:r:runas_app:s0:c174,c256,c512,c768 tcontext=u:r:su:s0 tclass=unix_stream_socket permissive=0 app=com.openjarvis
+11-17 03:17:20.594  8591  8591 W ls      : type=1400 audit(0.0:51): avc: denied { ioctl } for path="socket:[76814]" dev="sockfs" ino=76814 ioctlcmd=0x5401 scontext=u:r:runas_app:s0:c174,c256,c512,c768 tcontext=u:r:su:s0 tclass=unix_stream_socket permissive=0 app=com.openjarvis
+11-17 03:17:20.650   485   591 W PackageParsing: No actions in intent-filter at /data/app/vmdl1673508006.tmp/base.apk Binary XML file line #33
+11-17 03:17:20.650   485   591 W PackageParsing: No actions in intent-filter at /data/app/vmdl1673508006.tmp/base.apk Binary XML file line #41
+11-17 03:17:20.650   485   591 W PackageParsing: No actions in intent-filter at /data/app/vmdl1673508006.tmp/base.apk Binary XML file line #49
+11-17 03:17:20.652   485   540 I PackageManager: Integrity check passed for file:///data/app/vmdl1673508006.tmp
+11-17 03:17:20.653   485   540 W PackageParsing: No actions in intent-filter at /data/app/vmdl1673508006.tmp/base.apk Binary XML file line #33
+11-17 03:17:20.653   485   540 W PackageParsing: No actions in intent-filter at /data/app/vmdl1673508006.tmp/base.apk Binary XML file line #41
+11-17 03:17:20.653   485   540 W PackageParsing: No actions in intent-filter at /data/app/vmdl1673508006.tmp/base.apk Binary XML file line #49
+11-17 03:17:20.655   485   517 I ActivityManager: Force stopping com.openjarvis.test appid=10175 user=-1: installPackageLI
+11-17 03:17:20.659   485   540 I PackageManager: Update package com.openjarvis.test code path from /data/app/~~WtBQkNbxXnWw65jPQ18RWg==/com.openjarvis.test-e9PwNa8R97lJe0JNkZ9ghg== to /data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==; Retain data and using new
+11-17 03:17:20.659   485   517 D CompatibilityChangeReporter: Compat change id reported: 181136395; UID 10174; state: DISABLED
+11-17 03:17:20.960     0     0 I logd    : start watching /data/system/packages.list ...
+11-17 03:17:20.963     0     0 I logd    : ReadPackageList, total packages: 183
+11-17 03:17:20.676   485   540 D PackageManager: Instant App installer not found with android.intent.action.INSTALL_INSTANT_APP_PACKAGE
+11-17 03:17:20.676   485   540 D PackageManager: Clear ephemeral installer activity
+11-17 03:17:20.679   485   517 D CompatibilityChangeReporter: Compat change id reported: 174042936; UID 10174; state: DISABLED
+11-17 03:17:20.685   485   540 I ActivityManager: Force stopping com.openjarvis.test appid=10175 user=0: pkg removed
+11-17 03:17:20.696   485   540 D PackageInstallerSession: Marking session 1673508006 as applied
+11-17 03:17:20.696   422   561 E installd: Couldn't opendir /data/app/vmdl1673508006.tmp: No such file or directory
+11-17 03:17:20.696   422   561 E installd: Failed to delete /data/app/vmdl1673508006.tmp: No such file or directory
+11-17 03:17:20.700  1568  1568 W MediaProvider: WorkProfileOwnerApps cache is empty
+11-17 03:17:20.715   485   587 I InputReader: Reconfiguring input devices, changes=KEYBOARD_LAYOUTS | 
+11-17 03:17:20.717   933   933 V MediaPlayerList: mPackageChangedBroadcastReceiver: action: android.intent.action.PACKAGE_REMOVED
+11-17 03:17:20.718   933   933 V MediaPlayerList: mPackageChangedBroadcastReceiver: action: android.intent.action.PACKAGE_REMOVED
+11-17 03:17:20.718   740   740 D ControlsListingControllerImpl: ServiceConfig reloaded, count: 0
+11-17 03:17:20.726  1592  1592 I GsaVoiceInteractionSrv: O received Intent { act=android.intent.action.PACKAGE_REMOVED dat=package: flg=0x4000010 (has extras) }
+11-17 03:17:20.740   485   719 I SdkSandboxManager: No SDKs used. Skipping SDK data reconcilation for CallingInfo{mUid=10175, mPackageName='com.openjarvis.test'}
+11-17 03:17:20.742   485   587 I InputReader: Reconfiguring input devices, changes=KEYBOARD_LAYOUTS | 
+11-17 03:17:20.744   933   933 V MediaPlayerList: mPackageChangedBroadcastReceiver: action: android.intent.action.PACKAGE_ADDED
+11-17 03:17:20.744   933   933 D MediaPlayerList: Name of package changed: com.openjarvis.test
+11-17 03:17:20.744   740   740 D ControlsListingControllerImpl: ServiceConfig reloaded, count: 0
+11-17 03:17:20.748   967   967 D CarrierSvcBindHelper: onPackageUpdateFinished: com.openjarvis.test
+11-17 03:17:20.749   967   967 D CarrierSvcBindHelper: No carrier app for: 0
+11-17 03:17:20.749   967   967 D CarrierSvcBindHelper: onPackageModified: com.openjarvis.test
+11-17 03:17:20.749   967   967 D CarrierSvcBindHelper: No carrier app for: 0
+11-17 03:17:20.749   933   933 V MediaPlayerList: mPackageChangedBroadcastReceiver: action: android.intent.action.PACKAGE_ADDED
+11-17 03:17:20.749   933   933 D MediaPlayerList: Name of package changed: com.openjarvis.test
+11-17 03:17:20.753   485   719 I SdkSandboxManager: No SDKs used. Skipping SDK data reconcilation for CallingInfo{mUid=10175, mPackageName='com.openjarvis.test'}
+11-17 03:17:20.754   485   587 I InputReader: Reconfiguring input devices, changes=KEYBOARD_LAYOUTS | 
+11-17 03:17:20.755   967   967 D ImsResolver: maybeAddedImsService, packageName: com.openjarvis.test
+11-17 03:17:20.759   485   517 W BroadcastQueue: Background execution not allowed: receiving Intent { act=android.intent.action.PACKAGE_REMOVED dat=package: flg=0x4000010 (has extras) } to com.google.android.gms/.games.chimera.GamesSystemBroadcastReceiverProxy
+11-17 03:17:20.760   485   517 W BroadcastQueue: Background execution not allowed: receiving Intent { act=android.intent.action.PACKAGE_REMOVED dat=package: flg=0x4000010 (has extras) } to com.google.android.gms/.chimera.GmsIntentOperationService$PersistentTrustedReceiver
+11-17 03:17:20.764  3553  8602 I ProvidersCache: Provider returned no roots. Possibly naughty: com.google.android.apps.docs.storage
+11-17 03:17:20.765   740   740 D ControlsListingControllerImpl: ServiceConfig reloaded, count: 0
+11-17 03:17:20.775   485   517 W BroadcastQueue: Background execution not allowed: receiving Intent { act=android.intent.action.PACKAGE_REMOVED dat=package: flg=0x4000010 (has extras) } to com.google.android.googlequicksearchbox/com.google.android.apps.gsa.googlequicksearchbox.GelStubAppWatcher
+11-17 03:17:20.775   485   517 W BroadcastQueue: Background execution not allowed: receiving Intent { act=android.intent.action.PACKAGE_ADDED dat=package: flg=0x4000010 (has extras) } to com.google.android.packageinstaller/com.android.packageinstaller.PackageInstalledReceiver
+11-17 03:17:20.775   485   517 W BroadcastQueue: Background execution not allowed: receiving Intent { act=android.intent.action.PACKAGE_ADDED dat=package: flg=0x4000010 (has extras) } to com.google.android.gms/.games.chimera.GamesSystemBroadcastReceiverProxy
+11-17 03:17:20.775   485   517 W BroadcastQueue: Background execution not allowed: receiving Intent { act=android.intent.action.PACKAGE_ADDED dat=package: flg=0x4000010 (has extras) } to com.google.android.gms/.gass.chimera.PackageChangeBroadcastReceiver
+11-17 03:17:20.775   485   517 W BroadcastQueue: Background execution not allowed: receiving Intent { act=android.intent.action.PACKAGE_ADDED dat=package: flg=0x4000010 (has extras) } to com.google.android.gms/.chimera.GmsIntentOperationService$PersistentTrustedReceiver
+11-17 03:17:20.775   485   517 W BroadcastQueue: Background execution not allowed: receiving Intent { act=android.intent.action.PACKAGE_ADDED dat=package: flg=0x4000010 (has extras) } to com.google.android.googlequicksearchbox/com.google.android.apps.gsa.googlequicksearchbox.GelStubAppWatcher
+11-17 03:17:20.775   485   517 W BroadcastQueue: Background execution not allowed: receiving Intent { act=android.intent.action.PACKAGE_REPLACED dat=package: flg=0x4000010 (has extras) } to com.google.android.gms/.gass.chimera.PackageChangeBroadcastReceiver
+11-17 03:17:20.775   485   517 W BroadcastQueue: Background execution not allowed: receiving Intent { act=android.intent.action.PACKAGE_REPLACED dat=package: flg=0x4000010 (has extras) } to com.google.android.gms/.chimera.GmsIntentOperationService$PersistentTrustedReceiver
+11-17 03:17:20.775   485   517 W BroadcastQueue: Background execution not allowed: receiving Intent { act=android.intent.action.PACKAGE_REPLACED dat=package: flg=0x4000010 (has extras) } to com.google.android.googlequicksearchbox/com.google.android.apps.gsa.googlequicksearchbox.GelStubAppWatcher
+11-17 03:17:20.779  8597  8597 D AndroidRuntime: >>>>>> START com.android.internal.os.RuntimeInit uid 0 <<<<<<
+11-17 03:17:20.783  8597  8597 I AndroidRuntime: Using default boot image
+11-17 03:17:20.783  8597  8597 I AndroidRuntime: Leaving lock profiling enabled
+11-17 03:17:20.784  1592  1592 I GsaVoiceInteractionSrv: O received Intent { act=android.intent.action.PACKAGE_ADDED dat=package: flg=0x4000010 (has extras) }
+11-17 03:17:20.786  1592  1592 I GsaVoiceInteractionSrv: O received Intent { act=android.intent.action.PACKAGE_REPLACED dat=package: flg=0x4000010 (has extras) }
+11-17 03:17:20.787  8597  8597 I app_process: Core platform API reporting enabled, enforcing=false
+11-17 03:17:20.787  8597  8597 I app_process: Using CollectorTypeCC GC.
+11-17 03:17:20.800   485   485 I Telecom : CarModeTracker: Package com.openjarvis.test is not tracked.: SSH.oR@AjU
+11-17 03:17:20.800   485   485 I Telecom : InCallController: updateCarModeForConnections: car mode apps: : SSH.oR@AjU
+11-17 03:17:20.801   485   485 I Telecom : DefaultDialerCache: Refreshing default dialer for user 0: now com.google.android.dialer: DDC.oR@AjY
+11-17 03:17:20.802   485   485 V BackupManagerConstants: getFullBackupIntervalMilliseconds(...) returns 86400000
+11-17 03:17:20.802   485   485 V BackupManagerConstants: getFullBackupRequiredNetworkType(...) returns 2
+11-17 03:17:20.802   485   485 V BackupManagerConstants: getFullBackupRequireCharging(...) returns true
+11-17 03:17:20.833  5270  8614 I Fitness : FitCleanupIntentOperation received Intent android.intent.action.PACKAGE_REMOVED [CONTEXT service_id=17 ]
+11-17 03:17:20.841   485   537 E VerityUtils: Failed to measure fs-verity, errno 1: /data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/base.apk
+11-17 03:17:20.860   485   485 W AlarmManager: Package com.openjarvis.test, uid 10175 lost permission to set exact alarms!
+11-17 03:17:20.866  5270  8626 I ProximityAuth: [RecentAppsMediator] Package added: (user=UserHandle{0}) com.openjarvis.test
+11-17 03:17:20.870  4756  4770 I PermissionControllerServiceImpl: Updating user sensitive for uid 10175
+11-17 03:17:20.870  1696  2408 W SearchServiceCore: Abort, client detached.
+11-17 03:17:20.870  1696  2408 W SearchServiceCore: Abort, client detached.
+11-17 03:17:20.871  1696  2408 W SearchServiceCore: Abort, client detached.
+11-17 03:17:20.879  5270  8626 I FontLog : Package com.openjarvis.test has no metadata [CONTEXT service_id=132 ]
+11-17 03:17:20.882  5359  8622 W SQLiteLog: (28) double-quoted string literal: "com.openjarvis.test"
+11-17 03:17:20.905  8597  8597 D app_process: Time zone APEX ICU file found: /apex/com.android.tzdata/etc/icu/icu_tzdata.dat
+11-17 03:17:20.905  8597  8597 D app_process: I18n APEX ICU file found: /apex/com.android.i18n/etc/icu/icudt70l.dat
+11-17 03:17:20.909  8597  8597 W app_process: Unexpected CPU variant for x86: x86_64.
+11-17 03:17:20.909  8597  8597 W app_process: Known variants: atom, sandybridge, silvermont, kabylake, default
+11-17 03:17:20.916  5359  8629 I Auth    : [SupervisedAccountIntentOperation] onHandleIntent(): android.intent.action.PACKAGE_ADDED
+11-17 03:17:20.918   485   537 E VerityUtils: Failed to measure fs-verity, errno 1: /data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/base.apk
+11-17 03:17:20.929  8597  8597 D AndroidRuntime: Calling main entry com.android.commands.am.Am
+11-17 03:17:20.930   485   503 I ActivityManager: Force stopping com.openjarvis appid=10174 user=0: start instr
+11-17 03:17:20.931   485   503 I ActivityManager: Killing 8547:com.openjarvis/u0a174 (adj 0): stop com.openjarvis due to start instr
+11-17 03:17:20.931   485   503 W ActivityTaskManager: Force removing ActivityRecord{b013981 u0 com.openjarvis/.ui.MainActivity} t13 f}}: app died, no saved state
+11-17 03:17:20.933   485   519 I libprocessgroup: Successfully killed process cgroup uid 10174 pid 8547 in 0ms
+11-17 03:17:20.934   485   503 W InputManager-JNI: Input channel object '9e70447 com.openjarvis/com.openjarvis.ui.MainActivity (client)' was disposed without first being removed with the input manager!
+11-17 03:17:20.944   340   374 W TransactionTracing: Could not find layer handle 0x7281af188930
+11-17 03:17:20.944   340   374 W TransactionTracing: Could not find layer handle 0x7281af188930
+11-17 03:17:20.946   485   503 D CompatibilityChangeReporter: Compat change id reported: 135634846; UID 10174; state: DISABLED
+11-17 03:17:20.946   485   518 D CompatibilityChangeReporter: Compat change id reported: 143937733; UID 10174; state: ENABLED
+11-17 03:17:20.947   967   995 I m.android.phone: Background young concurrent copying GC freed 78402(3230KB) AllocSpace objects, 0(0B) LOS objects, 41% free, 4297KB/7334KB, paused 44us,8us total 198.991ms
+11-17 03:17:20.950  5359  5359 D BoundBrokerSvc: onBind: Intent { act=com.google.android.gms.common.BIND_SHARED_PREFS pkg=com.google.android.gms }
+11-17 03:17:20.950  5359  5359 D BoundBrokerSvc: Loading bound service for intent: Intent { act=com.google.android.gms.common.BIND_SHARED_PREFS pkg=com.google.android.gms }
+11-17 03:17:20.951   287   287 D Zygote  : Forked child process 8650
+11-17 03:17:20.951   485   518 I ActivityManager: Start proc 8650:com.openjarvis/u0a174 for added application com.openjarvis
+11-17 03:17:20.955   340   340 I BpBinder: onLastStrongRef automatically unlinking death recipients: <uncached descriptor>
+11-17 03:17:20.967   933  1234 D BtGatt.ScanManager: uid 10120 isForeground true scanMode -1
+11-17 03:17:20.967   933  1234 D BtGatt.ScanManager: uid 10120 isForeground true scanMode -1
+11-17 03:17:20.975  8650  8650 I com.openjarvis: Late-enabling -Xcheck:jni
+11-17 03:17:20.979   287   287 I Zygote  : Process 8547 exited due to signal 9 (Killed)
+11-17 03:17:20.979   485  1360 V ActivityManager: Got obituary of 8547:com.openjarvis
+11-17 03:17:21.266     0     0 I binder  : undelivered transaction 814487, process died.
+11-17 03:17:20.982   485   509 V WindowManager: Unknown focus tokens, dropping reportFocusChanged
+11-17 03:17:20.983   485   509 W ActivityManager: setHasOverlayUi called on unknown pid: 8547
+11-17 03:17:20.987  5270  5332 W ChimeraUtils: Module com.google.android.gms.nearby_en missing resource null(0)
+11-17 03:17:20.988  5359  5359 D BoundBrokerSvc: onUnbind: Intent { act=com.google.android.gms.common.BIND_SHARED_PREFS pkg=com.google.android.gms }
+11-17 03:17:20.988   340   340 E BpTransactionCompletedListener: Failed to transact (-32)
+11-17 03:17:20.992   340   374 W TransactionTracing: Could not find layer handle 0x7281af188990
+11-17 03:17:20.992   340   374 W TransactionTracing: Could not find layer handle 0x7281af187d90
+11-17 03:17:20.999  5270  5332 W ChimeraUtils: Module com.google.android.gms.nearby_en missing resource null(0)
+11-17 03:17:21.014   970   970 D MainContentCaptureSession: Flushing 1 event(s) for act:com.google.android.apps.nexuslauncher/.NexusLauncherActivity [state=2 (ACTIVE), disabled=false], reason=FULL
+11-17 03:17:21.020   485  1598 W AppSearchIcing: icing-search-engine.cc:217: Error: 5, Message: Document (com.google.android.googlequicksearchbox$OneSearchZeroStateGoogleSuggestions/default, zp) not found.
+11-17 03:17:21.022  5359  5464 I Icing   : IndexChimeraService.getServiceInterface callingPackage=com.google.android.gms componentName=AppsCorpus serviceId=36
+11-17 03:17:21.051  8650  8650 I com.openjarvis: Using CollectorTypeCC GC.
+11-17 03:17:21.066   970  1975 D OneSearchSuggestProvider: Created the binder channel successfully for end point service =com.google.android.apps.search.googleapp.search.suggest.plugins.onesearch.server.OneSearchSuggestService , mChannel=Q0{delegate=L0{logId=25, target=directaddress:///AndroidComponentAddress%5BIntent%20%7B%20act=grpc.io.action.BIND%20cmp=com.google.android.googlequicksearchbox/com.google.android.apps.search.googleapp.search.suggest.plugins.onesearch.server.OneSearchSuggestService%20%7D%5D}} , mOneSearchConnection=y1.J@a0f1c5e
+11-17 03:17:21.083   740   816 D EGL_emulation: app_time_stats: avg=2949.38ms min=4.03ms max=17621.39ms count=6
+11-17 03:17:21.083  1552  2001 I AiAiEcho: Predicting[0]: 
+11-17 03:17:21.083  1552  2001 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata: 
+11-17 03:17:21.084  1552  2001 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface lockscreen with targets# 0
+11-17 03:17:21.087  8650  8650 W com.openjarvis: Unexpected CPU variant for x86: x86_64.
+11-17 03:17:21.087  8650  8650 W com.openjarvis: Known variants: atom, sandybridge, silvermont, kabylake, default
+11-17 03:17:21.088  1490  1490 I GoogleInputMethodService: GoogleInputMethodService.onFinishInput():3227 
+11-17 03:17:21.105  1490  1490 I GoogleInputMethodService: GoogleInputMethodService.updateDeviceLockedStatus():2087 repeatCheckTimes = 0, unlocked = true
+11-17 03:17:21.105  1490  1490 I GoogleInputMethodService: GoogleInputMethodService.onStartInput():1877 onStartInput(EditorInfo{inputType=0x0(NULL) imeOptions=0x0 privateImeOptions=null actionName=UNSPECIFIED actionLabel=null actionId=0 initialSelStart=-1 initialSelEnd=-1 initialCapsMode=0x0 hintText=null label=null packageName=com.google.android.apps.nexuslauncher fieldId=-1 fieldName=null extras=null}, false)
+11-17 03:17:21.105  1490  1490 I GoogleInputMethodService: GoogleInputMethodService.shouldHideHeaderOnInitialState():4008 ShouldHideHeaderOnInitialState = false
+11-17 03:17:21.139  1490  1490 I GoogleInputMethodService: GoogleInputMethodService.updateDeviceLockedStatus():2087 repeatCheckTimes = 2, unlocked = true
+11-17 03:17:21.150   740   777 W Looper  : Slow dispatch took 46ms wmshell.main h=android.os.Handler c=com.android.wm.shell.common.DisplayController$DisplayWindowListenerImpl$$ExternalSyntheticLambda1@cb0a02e m=0
+11-17 03:17:21.155  1552  2001 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface home with targets# 0
+11-17 03:17:21.186  1696  1696 I A       : Created gRPC endpoint to "search" for service class com.google.android.apps.search.googleapp.search.suggest.plugins.onesearch.server.OneSearchSuggestService
+11-17 03:17:21.220  1696  2408 I A       : Using proto config with mendel
+11-17 03:17:21.220  1696  2408 W A       : Queue length for executor EventBus is now 11. Perhaps some tasks are too long, or the pool is too small.
+11-17 03:17:21.239   485  1049 D CompatibilityChangeReporter: Compat change id reported: 168419799; UID 10174; state: DISABLED
+11-17 03:17:21.239   485  1049 D CompatibilityChangeReporter: Compat change id reported: 273564678; UID 10174; state: DISABLED
+11-17 03:17:21.242  5270  5270 D BoundBrokerSvc: onBind: Intent { act=com.google.android.gms.icing.LIGHTWEIGHT_INDEX_SERVICE dat=chimera-action:/... cmp=com.google.android.gms/.chimera.PersistentApiService }
+11-17 03:17:21.242  5270  5270 D BoundBrokerSvc: Loading bound service for intent: Intent { act=com.google.android.gms.icing.LIGHTWEIGHT_INDEX_SERVICE dat=chimera-action:/... cmp=com.google.android.gms/.chimera.PersistentApiService }
+11-17 03:17:21.263  6905  6913 I adbd    : jdwp connection from 8650
+11-17 03:17:21.318  1696  2408 I A       : Using proto config with mendel
+11-17 03:17:21.343  5359  5359 D BoundBrokerSvc: onBind: Intent { act=com.google.android.gms.feedback.internal.IFeedbackService dat=chimera-action:/... cmp=com.google.android.gms/.chimera.GmsBoundBrokerService }
+11-17 03:17:21.343  5359  5359 D BoundBrokerSvc: Loading bound service for intent: Intent { act=com.google.android.gms.feedback.internal.IFeedbackService dat=chimera-action:/... cmp=com.google.android.gms/.chimera.GmsBoundBrokerService }
+11-17 03:17:21.345  8650  8650 D CompatibilityChangeReporter: Compat change id reported: 171979766; UID 10174; state: ENABLED
+11-17 03:17:21.352  8650  8650 W ActivityThread: Package uses different ABI(s) than its instrumentation: package[com.openjarvis]: x86_64, null instrumentation[com.openjarvis.test]: null, null
+11-17 03:17:21.368  8650  8650 W com.openjarvis: ClassLoaderContext classpath size mismatch. expected=0, found=1 (PCL[] | PCL[/system/framework/android.test.runner.jar*2649186567])
+11-17 03:17:21.390  8650  8650 W com.openjarvis: ClassLoaderContext classpath size mismatch. expected=0, found=2 (PCL[] | PCL[/system/framework/android.test.runner.jar*2649186567:/system/framework/android.test.mock.jar*4109917914])
+11-17 03:17:21.391  8650  8650 W ziparchive: Unable to open '/data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/base.dm': No such file or directory
+11-17 03:17:21.397  8650  8650 W ziparchive: Unable to open '/data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/base.dm': No such file or directory
+11-17 03:17:21.452  5359  5464 I Icing   : IndexChimeraService.getServiceInterface callingPackage=com.google.android.gms componentName=null serviceId=30
+11-17 03:17:21.481   740   816 D EGL_emulation: app_time_stats: avg=1201.06ms min=3.13ms max=18358.04ms count=16
+11-17 03:17:21.538   485  1049 D CompatibilityChangeReporter: Compat change id reported: 161252188; UID 10174; state: DISABLED
+11-17 03:17:21.559  8650  8650 W ziparchive: Unable to open '/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.dm': No such file or directory
+11-17 03:17:21.581  8650  8650 W ziparchive: Unable to open '/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.dm': No such file or directory
+11-17 03:17:21.669  5359  5416 I Icing   : Usage reports ok 1, Failed Usage reports 0, indexed 0, rejected 0
+11-17 03:17:21.744  5359  5416 I Icing   : Usage reports ok 0, Failed Usage reports 0, indexed 0, rejected 0
+11-17 03:17:21.756  5359  5416 I Icing   : Indexing com.google.android.gms-apps from com.google.android.gms
+11-17 03:17:21.763  5359  5416 I Icing   : Indexing done com.google.android.gms-apps
+11-17 03:17:21.776  5359  5416 I Icing   : Indexing com.google.android.gms-apps from com.google.android.gms
+11-17 03:17:21.783  5359  5416 I Icing   : Indexing done com.google.android.gms-apps
+11-17 03:17:21.979   485   553 W Binder  : Caught a RuntimeException from the binder stub implementation.
+11-17 03:17:21.979   485   553 W Binder  : java.lang.ArrayIndexOutOfBoundsException: Array index out of range: 0
+11-17 03:17:21.979   485   553 W Binder  : 	at android.util.ArraySet.valueAt(ArraySet.java:422)
+11-17 03:17:21.979   485   553 W Binder  : 	at com.android.server.contentcapture.ContentCapturePerUserService$ContentCaptureServiceRemoteCallback.updateContentCaptureOptions(ContentCapturePerUserService.java:733)
+11-17 03:17:21.979   485   553 W Binder  : 	at com.android.server.contentcapture.ContentCapturePerUserService$ContentCaptureServiceRemoteCallback.setContentCaptureWhitelist(ContentCapturePerUserService.java:646)
+11-17 03:17:21.979   485   553 W Binder  : 	at android.service.contentcapture.IContentCaptureServiceCallback$Stub.onTransact(IContentCaptureServiceCallback.java:115)
+11-17 03:17:21.979   485   553 W Binder  : 	at android.os.Binder.execTransactInternal(Binder.java:1285)
+11-17 03:17:21.979   485   553 W Binder  : 	at android.os.Binder.execTransact(Binder.java:1244)
+11-17 03:17:21.981   485  1049 W Binder  : Caught a RuntimeException from the binder stub implementation.
+11-17 03:17:21.981   485  1049 W Binder  : java.lang.ArrayIndexOutOfBoundsException: Array index out of range: 0
+11-17 03:17:21.981   485  1049 W Binder  : 	at android.util.ArraySet.valueAt(ArraySet.java:422)
+11-17 03:17:21.981   485  1049 W Binder  : 	at com.android.server.contentcapture.ContentCapturePerUserService$ContentCaptureServiceRemoteCallback.updateContentCaptureOptions(ContentCapturePerUserService.java:733)
+11-17 03:17:21.981   485  1049 W Binder  : 	at com.android.server.contentcapture.ContentCapturePerUserService$ContentCaptureServiceRemoteCallback.setContentCaptureWhitelist(ContentCapturePerUserService.java:646)
+11-17 03:17:21.981   485  1049 W Binder  : 	at android.service.contentcapture.IContentCaptureServiceCallback$Stub.onTransact(IContentCaptureServiceCallback.java:115)
+11-17 03:17:21.981   485  1049 W Binder  : 	at android.os.Binder.execTransactInternal(Binder.java:1285)
+11-17 03:17:21.981   485  1049 W Binder  : 	at android.os.Binder.execTransact(Binder.java:1244)
+11-17 03:17:22.348   485   685 D ConnectivityService: releasing NetworkRequest [ REQUEST id=167, [ Transports: CELLULAR Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VPN&NOT_VCN_MANAGED Uid: 10119 RequestorUid: 10119 RequestorPkg: com.google.android.googlequicksearchbox UnderlyingNetworks: Null] ] (release request)
+11-17 03:17:22.348   485   685 I ConnectivityService: Update capabilities for net 101 : -FOREGROUND
+11-17 03:17:22.356   286   931 I netd    : networkSetPermissionForNetwork(101, 1) <7.73ms>
+11-17 03:17:22.513   740   816 D EGL_emulation: app_time_stats: avg=34.09ms min=10.01ms max=68.44ms count=27
+11-17 03:17:22.747  8650  8650 D nativeloader: Configuring classloader-namespace for other apk /system/framework/android.test.runner.jar:/system/framework/android.test.mock.jar:/system/framework/android.test.base.jar:/data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/base.apk:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk. target_sdk_version=34, uses_libraries=, library_path=/data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/lib/x86_64:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/lib/x86_64:/data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/base.apk!/lib/x86_64:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!/lib/x86_64, permitted_path=/data:/mnt/expand:/data/user/0/com.openjarvis
+11-17 03:17:22.760  8650  8650 V GraphicsEnvironment: ANGLE Developer option for 'com.openjarvis' set to: 'default'
+11-17 03:17:22.760  8650  8650 V GraphicsEnvironment: ANGLE GameManagerService for com.openjarvis: false
+11-17 03:17:22.760  8650  8650 V GraphicsEnvironment: Neither updatable production driver nor prerelease driver is supported.
+11-17 03:17:22.765  8650  8650 D ApplicationLoaders: Returning zygote-cached class loader: /system/framework/android.test.base.jar
+11-17 03:17:22.766  8650  8650 D nativeloader: Configuring classloader-namespace for other apk /system/framework/android.test.mock.jar. target_sdk_version=34, uses_libraries=ALL, library_path=/data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/lib/x86_64:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/lib/x86_64, permitted_path=/data:/mnt/expand
+11-17 03:17:22.766  8650  8650 D ApplicationLoaders: Returning zygote-cached class loader: /system/framework/android.test.base.jar
+11-17 03:17:22.767  8650  8650 W com.openjarvis: ClassLoaderContext shared library size mismatch. Expected=0, found=2 (PCL[] | PCL[]{PCL[/system/framework/android.test.base.jar*2876549756]#PCL[/system/framework/android.test.mock.jar*4109917914]})
+11-17 03:17:22.767  8650  8650 D nativeloader: Configuring classloader-namespace for other apk /system/framework/android.test.runner.jar. target_sdk_version=34, uses_libraries=ALL, library_path=/data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/lib/x86_64:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/lib/x86_64, permitted_path=/data:/mnt/expand
+11-17 03:17:22.768  8650  8650 W com.openjarvis: ClassLoaderContext shared library size mismatch. Expected=0, found=3 (PCL[] | PCL[]{PCL[/system/framework/android.test.base.jar*2876549756]#PCL[/system/framework/android.test.mock.jar*4109917914]#PCL[/system/framework/android.test.runner.jar*2649186567]{PCL[/system/framework/android.test.base.jar*2876549756]#PCL[/system/framework/android.test.mock.jar*4109917914]}};PCL[/system/framework/android.test.runner.jar*2649186567:/system/framework/android.test.mock.jar*4109917914:/system/framework/android.test.base.jar*2876549756:/data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/base.apk*614291134:/data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/base.apk!classes2.dex*3685301772:/data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/base.apk!classes3.dex*3805262946:/data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/base.apk!classes4.dex*2491148420:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk*2927191125:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes2.dex*1338358430:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes3.dex*1017987468:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes4.dex*2375609009:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes5.dex*386486285:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes6.dex*414806531:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes7.dex*1711051531:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes8.dex*2288310185:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes9.dex*457169907:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes10.dex*3817295802:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes11.dex*1544417199:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes12.dex*2929338374:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes13.dex*707934937:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes14.dex*2229615484:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes15.dex*2467478996:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes16.dex*1212009253])
+11-17 03:17:22.770  8650  8650 W com.openjarvis: ClassLoaderContext classpath size mismatch. expected=0, found=1 (PCL[] | PCL[/system/framework/android.test.runner.jar*2649186567]{PCL[/system/framework/android.test.base.jar*2876549756]#PCL[/system/framework/android.test.mock.jar*4109917914]#PCL[/system/framework/android.test.runner.jar*2649186567]{PCL[/system/framework/android.test.base.jar*2876549756]#PCL[/system/framework/android.test.mock.jar*4109917914]}};PCL[/system/framework/android.test.runner.jar*2649186567:/system/framework/android.test.mock.jar*4109917914:/system/framework/android.test.base.jar*2876549756:/data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/base.apk*614291134:/data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/base.apk!classes2.dex*3685301772:/data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/base.apk!classes3.dex*3805262946:/data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/base.apk!classes4.dex*2491148420:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk*2927191125:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes2.dex*1338358430:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes3.dex*1017987468:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes4.dex*2375609009:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes5.dex*386486285:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes6.dex*414806531:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes7.dex*1711051531:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes8.dex*2288310185:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes9.dex*457169907:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes10.dex*3817295802:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes11.dex*1544417199:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes12.dex*2929338374:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes13.dex*707934937:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes14.dex*2229615484:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes15.dex*2467478996:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes16.dex*1212009253])
+11-17 03:17:22.770  8650  8650 W com.openjarvis: ClassLoaderContext classpath size mismatch. expected=0, found=2 (PCL[] | PCL[/system/framework/android.test.runner.jar*2649186567:/system/framework/android.test.mock.jar*4109917914]{PCL[/system/framework/android.test.base.jar*2876549756]#PCL[/system/framework/android.test.mock.jar*4109917914]#PCL[/system/framework/android.test.runner.jar*2649186567]{PCL[/system/framework/android.test.base.jar*2876549756]#PCL[/system/framework/android.test.mock.jar*4109917914]}};PCL[/system/framework/android.test.runner.jar*2649186567:/system/framework/android.test.mock.jar*4109917914:/system/framework/android.test.base.jar*2876549756:/data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/base.apk*614291134:/data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/base.apk!classes2.dex*3685301772:/data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/base.apk!classes3.dex*3805262946:/data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/base.apk!classes4.dex*2491148420:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk*2927191125:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes2.dex*1338358430:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes3.dex*1017987468:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes4.dex*2375609009:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes5.dex*386486285:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes6.dex*414806531:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes7.dex*1711051531:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes8.dex*2288310185:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes9.dex*457169907:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes10.dex*3817295802:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes11.dex*1544417199:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes12.dex*2929338374:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes13.dex*707934937:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes14.dex*2229615484:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes15.dex*2467478996:/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.apk!classes16.dex*1212009253])
+11-17 03:17:22.770  8650  8650 W ziparchive: Unable to open '/data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/base.dm': No such file or directory
+11-17 03:17:22.770  8650  8650 W ziparchive: Unable to open '/data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/base.dm': No such file or directory
+11-17 03:17:22.785  8650  8650 W ziparchive: Unable to open '/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.dm': No such file or directory
+11-17 03:17:22.785  8650  8650 W ziparchive: Unable to open '/data/app/~~83dSRbKWC0ZTY3_ZhX6A3Q==/com.openjarvis-BVKhmgPi6S-4Y90dEgNhCA==/base.dm': No such file or directory
+11-17 03:17:23.151  8650  8650 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-17 03:17:23.152  8650  8650 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-17 03:17:23.152  8650  8650 I MonitoringInstr: newApplication called!
+11-17 03:17:23.160  8650  8650 D WM-WrkMgrInitializer: Initializing WorkManager with default configuration.
+11-17 03:17:23.179  8650  8650 D WM-PackageManagerHelper: Skipping component enablement for androidx.work.impl.background.systemjob.SystemJobService
+11-17 03:17:23.179  8650  8650 D WM-Schedulers: Created SystemJobScheduler and enabled SystemJobService
+11-17 03:17:23.188  8650  8650 I MonitoringInstr: Instrumentation started!
+11-17 03:17:23.191  8650  8650 I AndroidJUnitRunner: onCreate Bundle[{}]
+11-17 03:17:23.192  8650  8650 V TestEventClient: No service name argument was given (testDiscoveryService, testRunEventService or orchestratorService)
+11-17 03:17:23.196  8650  8671 D CompatibilityChangeReporter: Compat change id reported: 160794467; UID 10174; state: ENABLED
+11-17 03:17:23.196  8650  8672 D AndroidJUnitRunner: onStart is called.
+11-17 03:17:23.196  8650  8650 I MonitoringInstr: No JSBridge.
+11-17 03:17:23.198   485  1049 D CompatibilityChangeReporter: Compat change id reported: 161145287; UID 10174; state: DISABLED
+11-17 03:17:23.200  8650  8672 D TestRequestBuilder: Using class path scanning to discover tests
+11-17 03:17:23.201  8650  8672 I TestRequestBuilder: Scanning classpath to find tests in paths [/data/app/~~t0AAzMgivJIxV9FnhGZsng==/com.openjarvis.test-WTEDqJEhSFNZNJcNpNMqUA==/base.apk]
+11-17 03:17:23.201  8650  8672 W com.openjarvis: Opening an oat file without a class loader. Are you using the deprecated DexFile APIs?
+11-17 03:17:23.236  8650  8672 D AndroidJUnitRunner: Use the raw file system for managing file I/O.
+11-17 03:17:23.237  8650  8672 D TestExecutor: Adding listener androidx.test.internal.runner.listener.LogRunListener
+11-17 03:17:23.237  8650  8672 D TestExecutor: Adding listener androidx.test.internal.runner.listener.InstrumentationResultPrinter
+11-17 03:17:23.237  8650  8672 D TestExecutor: Adding listener androidx.test.internal.runner.listener.ActivityFinisherRunListener
+11-17 03:17:23.237  8650  8672 D TestExecutor: Adding listener androidx.test.internal.runner.listener.TraceRunListener
+11-17 03:17:23.238  8650  8672 I TestRunner: run started: 4 tests
+11-17 03:17:23.238  8650  8672 I TestRunner: started: confidenceDecaysAfterSevenDaysStale(com.openjarvis.graphify.AnalysisEngineTest)
+11-17 03:17:23.275  8650  8672 I TestRunner: finished: confidenceDecaysAfterSevenDaysStale(com.openjarvis.graphify.AnalysisEngineTest)
+11-17 03:17:23.277  8650  8672 I TestRunner: started: contactFuzzyMatchWithinDistanceTwo(com.openjarvis.graphify.AnalysisEngineTest)
+11-17 03:17:23.282  8650  8672 I TestRunner: finished: contactFuzzyMatchWithinDistanceTwo(com.openjarvis.graphify.AnalysisEngineTest)
+11-17 03:17:23.283  8650  8672 I TestRunner: started: threeIdenticalSequencesCreatePatternNodeWithPositiveConfidence(com.openjarvis.graphify.AnalysisEngineTest)
+11-17 03:17:23.319  8650  8672 I TestRunner: finished: threeIdenticalSequencesCreatePatternNodeWithPositiveConfidence(com.openjarvis.graphify.AnalysisEngineTest)
+11-17 03:17:23.319  8650  8672 I TestRunner: started: legacyDatabaseIsBackedUpAndRoomCreatesFreshSchema(com.openjarvis.graphify.GraphifyDbRecoveryInstrumentedTest)
+11-17 03:17:23.328  8650  8672 W GraphifyDB: Backed up un-migratable graphify.db: graphify.db.unmigratable-1794885443328, graphify.db-journal.unmigratable-1794885443328
+11-17 03:17:23.341  8650  8672 I TestRunner: finished: legacyDatabaseIsBackedUpAndRoomCreatesFreshSchema(com.openjarvis.graphify.GraphifyDbRecoveryInstrumentedTest)
+11-17 03:17:23.341  8650  8672 I TestRunner: run finished: 4 tests, 0 failed, 0 ignored
+11-17 03:17:23.343   485  1049 I ActivityManager: Force stopping com.openjarvis appid=10174 user=0: finished inst
+11-17 03:17:23.344   485  1049 I ActivityManager: Killing 8650:com.openjarvis/u0a174 (adj 0): stop com.openjarvis due to finished inst
+11-17 03:17:23.346  8597  8597 I app_process: System.exit called, status: 0
+11-17 03:17:23.346  8597  8597 I AndroidRuntime: VM exiting with result code 0.
+11-17 03:17:23.352   485   519 I libprocessgroup: Successfully killed process cgroup uid 10174 pid 8650 in 6ms
+11-17 03:17:23.365   485   503 V ActivityManager: Got obituary of 8650:com.openjarvis
+11-17 03:17:23.650     0     0 I binder  : undelivered TRANSACTION_COMPLETE
+11-17 03:17:23.652     0     0 I binder  : undelivered transaction 817598, process died.
+11-17 03:17:23.365   287   287 I Zygote  : Process 8650 exited due to signal 9 (Killed)
+11-17 03:17:23.708   740   816 D EGL_emulation: app_time_stats: avg=656.43ms min=112.57ms max=2241.40ms count=4
+11-17 03:17:36.574  5359  5359 D BoundBrokerSvc: onUnbind: Intent { act=com.google.android.gms.feedback.internal.IFeedbackService dat=chimera-action:/... cmp=com.google.android.gms/.chimera.GmsBoundBrokerService }
+11-17 03:17:36.690  5270  5270 D BoundBrokerSvc: onUnbind: Intent { act=com.google.android.gms.icing.LIGHTWEIGHT_INDEX_SERVICE dat=chimera-action:/... cmp=com.google.android.gms/.chimera.PersistentApiService }
+11-17 03:17:39.761     0     0 W healthd : battery l=100 v=5000 t=25.0 h=2 st=2 c=900000 fc=3000000 cc=10 chg=a
+11-17 03:17:44.705   485   569 D CompatibilityChangeReporter: Compat change id reported: 218533173; UID 10174; state: ENABLED
+11-17 03:17:52.690  3341  3462 W TimedProcessReaper: Memory state is: 125
+11-17 03:17:53.286   485   553 D WifiNl80211Manager: Scan result ready event
+11-17 03:17:53.286   485   553 D WifiNative: Scan result ready event
+11-17 03:17:53.706   740   816 D EGL_emulation: app_time_stats: avg=29997.93ms min=29997.93ms max=29997.93ms count=1
+11-17 03:18:00.002  1552  2001 I AiAiEcho: Predicting[0]: 
+11-17 03:18:00.003  1552  2001 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata: 
+11-17 03:18:00.003  1552  2001 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface lockscreen with targets# 0
+11-17 03:18:00.004  1552  2001 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface home with targets# 0
+11-17 03:18:00.008   740   816 D EGL_emulation: app_time_stats: avg=6301.35ms min=6301.35ms max=6301.35ms count=1
+11-17 03:18:25.011  5270  8638 I AlarmManager: setExactAndAllowWhileIdle [name: GCM_HB_ALARM type: 2 triggerAtMillis: 1259509]
+11-17 03:18:25.011   485   553 D CompatibilityChangeReporter: Compat change id reported: 171306433; UID 10120; state: ENABLED
+11-17 03:18:25.011   485   553 D CompatibilityChangeReporter: Compat change id reported: 218533173; UID 10120; state: ENABLED
+11-17 03:18:25.013  5270  8638 E WakeLock: GCM_HB_ALARM release without a matched acquire!
+11-17 03:18:25.014  5270  5270 D BoundBrokerSvc: onBind: Intent { act=com.google.android.gms.scheduler.ACTION_PROXY_SCHEDULE dat=chimera-action:/... cmp=com.google.android.gms/.chimera.PersistentApiService }
+11-17 03:18:25.015  5270  5270 D BoundBrokerSvc: Loading bound service for intent: Intent { act=com.google.android.gms.scheduler.ACTION_PROXY_SCHEDULE dat=chimera-action:/... cmp=com.google.android.gms/.chimera.PersistentApiService }
