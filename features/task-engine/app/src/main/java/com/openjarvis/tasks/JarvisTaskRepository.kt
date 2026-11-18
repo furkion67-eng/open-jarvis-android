@@ -32,16 +32,16 @@ class JarvisTaskRepository(
         return id
     }
 
-    /** Accepting a plan never starts an unregistered action or grants a side-effect approval. */
+    /** A plan-review tap is accepted once and never grants an external side-effect approval. */
     suspend fun acceptPlan(id: String) {
-        val task = dao.findById(id) ?: return
-        if (!JarvisTaskStateMachine.canTransition(
-                JarvisTaskStatus.fromStorage(task.status),
-                JarvisTaskStatus.WAITING_FOR_NETWORK
-            )
-        ) return
-
-        dao.update(task.copy(checkpoint = "plan_reviewed", updatedAt = System.currentTimeMillis()))
+        val accepted = dao.acceptPlanCheckpoint(
+            id = id,
+            expectedStatus = JarvisTaskStatus.WAITING_FOR_USER.storageValue,
+            expectedCheckpoint = JarvisTaskCheckpoint.PLAN_CREATED,
+            acceptedCheckpoint = JarvisTaskCheckpoint.PLAN_REVIEWED,
+            acceptedAt = System.currentTimeMillis()
+        )
+        if (accepted != 1) return
         orchestrator.execute(id)
     }
 
@@ -49,27 +49,35 @@ class JarvisTaskRepository(
         val task = dao.findById(id) ?: return
         when (JarvisTaskStatus.fromStorage(task.status)) {
             JarvisTaskStatus.WAITING_FOR_NETWORK -> {
-                dao.update(task.copy(retryCount = task.retryCount + 1, updatedAt = System.currentTimeMillis()))
-                orchestrator.execute(id)
-            }
-            JarvisTaskStatus.FAILED -> {
-                if (!JarvisTaskStateMachine.canTransition(
-                        JarvisTaskStatus.FAILED,
-                        JarvisTaskStatus.QUEUED
-                    )
-                ) return
-                dao.update(
-                    task.copy(
-                        status = JarvisTaskStatus.QUEUED.storageValue,
-                        currentStep = "Yeniden sıraya alındı",
+                if (task.planAcceptedAt == null) {
+                    val requeued = dao.requeueUnacceptedWaitingTask(
+                        id = id,
+                        expectedStatus = JarvisTaskStatus.WAITING_FOR_NETWORK.storageValue,
+                        queuedStatus = JarvisTaskStatus.QUEUED.storageValue,
+                        currentStep = "Güvenli biçimde yeniden planlanıyor",
                         progressPercent = JarvisTaskStatus.QUEUED.defaultProgress,
-                        retryCount = task.retryCount + 1,
-                        errorCode = null,
-                        errorMessage = null,
                         updatedAt = System.currentTimeMillis()
                     )
+                    if (requeued == 1) orchestrator.prepare(id)
+                } else {
+                    val counted = dao.incrementAcceptedTaskRetryIfCurrent(
+                        id = id,
+                        expectedStatus = JarvisTaskStatus.WAITING_FOR_NETWORK.storageValue,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    if (counted == 1) orchestrator.execute(id)
+                }
+            }
+            JarvisTaskStatus.FAILED -> {
+                val requeued = dao.requeueFailedIfCurrent(
+                    id = id,
+                    failedStatus = JarvisTaskStatus.FAILED.storageValue,
+                    queuedStatus = JarvisTaskStatus.QUEUED.storageValue,
+                    currentStep = "Yeniden sıraya alındı",
+                    progressPercent = JarvisTaskStatus.QUEUED.defaultProgress,
+                    updatedAt = System.currentTimeMillis()
                 )
-                orchestrator.prepare(id)
+                if (requeued == 1) orchestrator.prepare(id)
             }
             else -> Unit
         }
@@ -79,14 +87,12 @@ class JarvisTaskRepository(
         val task = dao.findById(id) ?: return
         val status = JarvisTaskStatus.fromStorage(task.status)
         if (!JarvisTaskStateMachine.canTransition(status, JarvisTaskStatus.CANCELLED)) return
-        dao.update(
-            task.copy(
-                status = JarvisTaskStatus.CANCELLED.storageValue,
-                currentStep = "Kullanıcı tarafından iptal edildi",
-                errorCode = null,
-                errorMessage = null,
-                updatedAt = System.currentTimeMillis()
-            )
+        dao.cancelIfCurrent(
+            id = id,
+            expectedStatus = status.storageValue,
+            cancelledStatus = JarvisTaskStatus.CANCELLED.storageValue,
+            currentStep = "Kullanıcı tarafından iptal edildi",
+            updatedAt = System.currentTimeMillis()
         )
     }
 

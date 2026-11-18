@@ -7,6 +7,8 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -40,11 +42,15 @@ class JarvisTaskPersistenceInstrumentedTest {
         val planned = dao.findById(id)!!
         assertEquals(JarvisTaskStatus.WAITING_FOR_USER.storageValue, planned.status)
         assertTrue(planned.outputSummary!!.contains("gerçek cihaz"))
+        assertEquals(JarvisTaskCheckpoint.PLAN_CREATED, planned.checkpoint)
+        assertNull(planned.planAcceptedAt)
         assertFalse(planned.requiresApproval)
 
         repository.acceptPlan(id)
         val accepted = dao.findById(id)!!
         assertEquals(JarvisTaskStatus.WAITING_FOR_NETWORK.storageValue, accepted.status)
+        assertEquals(JarvisTaskCheckpoint.PLAN_REVIEWED, accepted.checkpoint)
+        assertNotNull(accepted.planAcceptedAt)
         assertEquals("EXECUTOR_NOT_CONFIGURED", accepted.errorCode)
         assertTrue(accepted.errorMessage!!.contains("başlatılmadı"))
         assertFalse(accepted.status == JarvisTaskStatus.SUCCEEDED.storageValue)
@@ -78,16 +84,24 @@ class JarvisTaskPersistenceInstrumentedTest {
         assertEquals(JarvisTaskStatus.WAITING_FOR_NETWORK.storageValue, recovered.status)
         assertEquals("APP_RESTARTED", recovered.errorCode)
         assertTrue(recovered.errorMessage!!.contains("otomatik yürütülmedi"))
+
+        repository.retry("interrupted-task")
+        val replanned = dao.findById("interrupted-task")!!
+        assertEquals(JarvisTaskStatus.WAITING_FOR_USER.storageValue, replanned.status)
+        assertEquals(JarvisTaskCheckpoint.PLAN_CREATED, replanned.checkpoint)
+        assertNull(replanned.planAcceptedAt)
     }
 
     @Test
     fun retryWithoutBackendDoesNotClaimProgress() = runBlocking {
         val id = repository.createTask("Bir araştırma özeti hazırla")
         repository.acceptPlan(id)
+        val acceptedKey = dao.findById(id)!!.idempotencyKey
         repository.retry(id)
         val retried = dao.findById(id)!!
         assertEquals(JarvisTaskStatus.WAITING_FOR_NETWORK.storageValue, retried.status)
         assertEquals(1, retried.retryCount)
+        assertEquals(acceptedKey, retried.idempotencyKey)
         assertTrue(retried.errorMessage!!.contains("yapılandırılmadı"))
     }
 
@@ -103,6 +117,8 @@ class JarvisTaskPersistenceInstrumentedTest {
                 ownerAgent = "local.plan-preview",
                 requiresApproval = true,
                 approvalGranted = false,
+                checkpoint = JarvisTaskCheckpoint.PLAN_REVIEWED,
+                planAcceptedAt = now,
                 createdAt = now,
                 updatedAt = now,
                 idempotencyKey = "approval-gated-key"

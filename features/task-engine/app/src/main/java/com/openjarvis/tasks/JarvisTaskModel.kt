@@ -31,8 +31,15 @@ data class JarvisTaskEntity(
     val idempotencyKey: String,
     val executionMode: String = "local_plan_preview",
     val estimatedCostMicros: Long = 0L,
-    val actualCostMicros: Long = 0L
+    val actualCostMicros: Long = 0L,
+    /** Null until the user explicitly accepts the current plan preview. */
+    val planAcceptedAt: Long? = null
 )
+
+object JarvisTaskCheckpoint {
+    const val PLAN_CREATED = "plan_created"
+    const val PLAN_REVIEWED = "plan_reviewed"
+}
 
 enum class JarvisTaskStatus(
     val storageValue: String,
