@@ -106,7 +106,7 @@ object AppLaunchMessages {
         is AppLaunchResult.NotInstalled -> result.target.displayName + " cihazda yüklü görünmüyor."
         is AppLaunchResult.NoLaunchActivity -> result.target.displayName + " yüklü, ancak açılabilir bir ekranı bulunmuyor."
         is AppLaunchResult.IntentNotResolvable -> result.target.displayName + " için Android açılış hedefi çözümlenemedi."
-        is AppLaunchResult.BackgroundRestricted -> "Android, JARVIS arka plandayken uygulama açmayı engelledi. JARVIS'i ekranda açıp komutu yeniden ver veya üstte görünme iznini kontrol et."
+        is AppLaunchResult.BackgroundRestricted -> "Android, JARVIS arka plandayken uygulama açmayı engelledi. JARVIS'i ön plana alıp komutu yeniden ver."
         is AppLaunchResult.LaunchFailed -> result.target.displayName + " açılamadı. Android başlatma isteğini reddetti."
     }
 }
