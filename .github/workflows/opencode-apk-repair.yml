@@ -93,7 +93,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Start OpenCode in read-only plan mode
-        uses: anomalyco/opencode/github@77fc88c8ade8e5a620ebbe1197f3a572d29ae91a
+        uses: ./.github/actions/opencode
         env:
           GITHUB_TOKEN: ${{ github.token }}
         with:
@@ -171,9 +171,10 @@ jobs:
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Run autonomous development agent
-        uses: anomalyco/opencode/github@77fc88c8ade8e5a620ebbe1197f3a572d29ae91a
+        uses: ./.github/actions/opencode
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
         with:
           model: ${{ needs.preflight.outputs.model }}
           use_github_token: true
