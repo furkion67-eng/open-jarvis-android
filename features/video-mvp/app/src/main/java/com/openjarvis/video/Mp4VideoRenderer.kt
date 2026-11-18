@@ -68,6 +68,14 @@ class Mp4VideoRenderer(context: Context) {
         if (!outputDir.exists() && !outputDir.mkdirs()) {
             throw VideoRenderException("JARVIS video klasörü oluşturulamadı.")
         }
+        val requiredBytes = spec.estimatedOutputBytes + VideoRenderSpec.MIN_FREE_SPACE_MARGIN_BYTES
+        val availableBytes = runCatching { StatFs(outputDir.absolutePath).availableBytes }.getOrElse {
+            throw VideoRenderException("Cihaz depolama alanı kontrol edilemedi.", it)
+        }
+        if (availableBytes < requiredBytes) {
+            val requiredMb = (requiredBytes + 1024L * 1024L - 1L) / (1024L * 1024L)
+            throw VideoRenderException("Yeterli boş alan yok. Yaklaşık ${requiredMb} MB boş alan bırak.")
+        }
         val output = File(outputDir, "jarvis-${System.currentTimeMillis()}-${UUID.randomUUID()}.mp4")
         var codec: MediaCodec? = null
         var inputSurface: Surface? = null
