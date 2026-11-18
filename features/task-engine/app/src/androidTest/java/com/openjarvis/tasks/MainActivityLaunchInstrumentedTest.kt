@@ -41,10 +41,16 @@ class MainActivityLaunchInstrumentedTest {
                 !finishing
 
         fun describe(): String =
-            "lifecycle=\$lifecycleState, attached=\$attached, laidOut=\$laidOut, " +
-                "shown=\$shown, windowVisible=\$windowVisible, globalVisible=\$globalVisible, " +
-                "globalRectNonEmpty=\$globalRectNonEmpty, windowFocus=\$windowFocus, " +
-                "finishing=\$finishing, rect=\$rect"
+            "lifecycle=" + lifecycleState +
+                ", attached=" + attached +
+                ", laidOut=" + laidOut +
+                ", shown=" + shown +
+                ", windowVisible=" + windowVisible +
+                ", globalVisible=" + globalVisible +
+                ", globalRectNonEmpty=" + globalRectNonEmpty +
+                ", windowFocus=" + windowFocus +
+                ", finishing=" + finishing +
+                ", rect=" + rect
     }
 
     @Test
@@ -79,8 +85,8 @@ class MainActivityLaunchInstrumentedTest {
             }
 
             assertTrue(
-                "MainActivity did not reach a foreground, globally visible RESUMED window within 10s " +
-                    "(\${state.describe()})",
+                "MainActivity did not reach a foreground, globally visible RESUMED window within 10s (" +
+                    state.describe() + ")",
                 state.isForegroundAndVisible
             )
 
@@ -89,7 +95,8 @@ class MainActivityLaunchInstrumentedTest {
             SystemClock.sleep(2_000)
             state = captureWindowSnapshot(instrumentation, activity)
             assertTrue(
-                "MainActivity did not remain foregrounded and globally visible (\${state.describe()})",
+                "MainActivity did not remain foregrounded and globally visible (" +
+                    state.describe() + ")",
                 state.isForegroundAndVisible
             )
         } finally {
