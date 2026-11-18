@@ -6,8 +6,7 @@ import java.util.UUID
 
 class JarvisTaskRepository(
     private val dao: JarvisTaskDao,
-    private val orchestrator: JarvisTaskOrchestrator,
-    private val registry: JarvisTaskCapabilityRegistry
+    private val orchestrator: JarvisTaskOrchestrator
 ) {
     fun observeRecentTasks(limit: Int = 8): Flow<List<JarvisTaskEntity>> = dao.observeRecent(limit)
 
@@ -120,7 +119,7 @@ class JarvisTaskRepository(
         fun getInstance(context: Context): JarvisTaskRepository {
             val dao = JarvisTaskDatabase.getInstance(context).taskDao()
             val registry = JarvisTaskCapabilityRegistry.localPreviewOnly()
-            return JarvisTaskRepository(dao, JarvisTaskOrchestrator(dao, registry), registry)
+            return JarvisTaskRepository(dao, JarvisTaskOrchestrator(dao, registry))
         }
     }
 }

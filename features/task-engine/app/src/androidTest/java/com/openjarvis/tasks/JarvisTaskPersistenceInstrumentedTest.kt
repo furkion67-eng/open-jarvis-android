@@ -26,7 +26,7 @@ class JarvisTaskPersistenceInstrumentedTest {
             .build()
         dao = database.taskDao()
         val registry = JarvisTaskCapabilityRegistry.localPreviewOnly()
-        repository = JarvisTaskRepository(dao, JarvisTaskOrchestrator(dao, registry), registry)
+        repository = JarvisTaskRepository(dao, JarvisTaskOrchestrator(dao, registry))
     }
 
     @After
@@ -59,7 +59,7 @@ class JarvisTaskPersistenceInstrumentedTest {
     }
 
     @Test
-    fun interruptedRunningTaskIsPausedInsteadOfReplayed() = runBlocking {
+    fun interruptedQueuedTaskIsPausedInsteadOfReplayed() = runBlocking {
         val now = System.currentTimeMillis()
         dao.insert(
             JarvisTaskEntity(
@@ -88,6 +88,31 @@ class JarvisTaskPersistenceInstrumentedTest {
         val retried = dao.findById(id)!!
         assertEquals(JarvisTaskStatus.WAITING_FOR_NETWORK.storageValue, retried.status)
         assertEquals(1, retried.retryCount)
-        assertTrue(retried.errorMessage!!.contains("kayıtlı değil"))
+        assertTrue(retried.errorMessage!!.contains("yapılandırılmadı"))
+    }
+
+    @Test
+    fun planReviewDoesNotGrantActionApproval() = runBlocking {
+        val now = System.currentTimeMillis()
+        val id = "approval-gated-task"
+        dao.insert(
+            JarvisTaskEntity(
+                id = id,
+                goal = "Bir SMS gönder",
+                status = JarvisTaskStatus.WAITING_FOR_USER.storageValue,
+                ownerAgent = "local.plan-preview",
+                requiresApproval = true,
+                approvalGranted = false,
+                createdAt = now,
+                updatedAt = now,
+                idempotencyKey = "approval-gated-key"
+            )
+        )
+        val registry = JarvisTaskCapabilityRegistry.localPreviewOnly()
+        JarvisTaskOrchestrator(dao, registry).execute(id)
+        val paused = dao.findById(id)!!
+        assertEquals(JarvisTaskStatus.WAITING_FOR_USER.storageValue, paused.status)
+        assertEquals("APPROVAL_REQUIRED", paused.errorCode)
+        assertFalse(paused.approvalGranted)
     }
 }

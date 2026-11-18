@@ -1,6 +1,5 @@
 package com.openjarvis.tasks
 
-/** Planning output is not an execution receipt and must never be displayed as task completion. */
 data class JarvisTaskPlan(
     val summary: String,
     val steps: List<String>,
@@ -14,10 +13,9 @@ interface JarvisTaskCapability {
     suspend fun buildPlan(goal: String): JarvisTaskPlan
 }
 
-/** The only capability shipped in this slice prepares a local plan; it performs no side effects. */
+/** This capability only drafts a plan; it performs no device or cloud side effects. */
 class LocalPlanPreviewCapability : JarvisTaskCapability {
     override val id: String = "local.plan-preview"
-
     override fun supports(goal: String): Boolean = goal.isNotBlank()
 
     override suspend fun buildPlan(goal: String): JarvisTaskPlan = JarvisTaskPlan(
@@ -137,7 +135,7 @@ class JarvisTaskOrchestrator(
         if (status != JarvisTaskStatus.WAITING_FOR_USER && status != JarvisTaskStatus.WAITING_FOR_NETWORK) return
 
         if (task.requiresApproval && !task.approvalGranted) {
-            if (status != JarvisTaskStatus.WAITING_FOR_USER &&
+            if (status == JarvisTaskStatus.WAITING_FOR_USER ||
                 JarvisTaskStateMachine.canTransition(status, JarvisTaskStatus.WAITING_FOR_USER)
             ) {
                 dao.update(
@@ -162,7 +160,7 @@ class JarvisTaskOrchestrator(
                     progressPercent = JarvisTaskStatus.WAITING_FOR_NETWORK.defaultProgress,
                     requiresNetwork = true,
                     errorCode = "EXECUTOR_NOT_CONFIGURED",
-                    errorMessage = "Bu yetenek için çalıştırılabilir ajan veya bulut bağlantısı yapılandırılmadı; hiçbir gerçek işlem yapılmadı.",
+                    errorMessage = "Bu yetenek için çalıştırılabilir ajan veya bulut bağlantısı yapılandırılmadı; hiçbir gerçek işlem başlatılmadı.",
                     updatedAt = System.currentTimeMillis()
                 )
             )
