@@ -2407,7 +2407,7 @@ def patch_voice_command_turkish(s):
     )
 
     old_ui_anchor = """                    OutlinedButton(onClick = { recognizer.cancel(); listening = false; message = "Dinleme durduruldu" }, enabled = listening, modifier = Modifier.fillMaxWidth()) { Text("Dinlemeyi durdur") }"""
-    permission_button = """                    if (!microphonePermissionGranted) {
+    permission_button = """                    if (autoMode && !microphonePermissionGranted) {
                         OutlinedButton(
                             onClick = { micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
                             modifier = Modifier.fillMaxWidth()
