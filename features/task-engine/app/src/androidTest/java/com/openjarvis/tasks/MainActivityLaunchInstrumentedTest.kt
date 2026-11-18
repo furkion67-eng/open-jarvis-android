@@ -1,76 +1,91 @@
 package com.openjarvis.tasks
 
 import android.content.Intent
+import android.graphics.Rect
 import android.os.SystemClock
 import android.view.View
-import androidx.test.platform.app.InstrumentationRegistry
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
+import androidx.lifecycle.Lifecycle
+import androidx.test.core.app.ActivityScenario
+import com.openjarvis.ui.MainActivity
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Confirms the launcher Activity reaches and keeps an attached, visible window. */
+/**
+ * Verifies that the actual launcher Activity reaches RESUMED and owns a laid-out,
+ * globally visible window. ActivityScenario avoids asserting against a stale
+ * ActivityMonitor instance while another Activity is on top.
+ */
 class MainActivityLaunchInstrumentedTest {
     @Test
     fun launcherActivityStartsAndRemainsVisible() {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val monitor = instrumentation.addMonitor("com.openjarvis.ui.MainActivity", null, false)
-        var activity: android.app.Activity? = null
-        try {
-            val intent = Intent(Intent.ACTION_MAIN)
-                .setClassName("com.openjarvis", "com.openjarvis.ui.MainActivity")
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-            instrumentation.startActivitySync(intent)
-            activity = instrumentation.waitForMonitorWithTimeout(monitor, 10_000)
-            assertNotNull("MainActivity did not start", activity)
+        val intent = Intent(Intent.ACTION_MAIN)
+            .setClassName("com.openjarvis", "com.openjarvis.ui.MainActivity")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
 
-            val launchedActivity = activity!!
+        val scenario = ActivityScenario.launch<MainActivity>(intent)
+        try {
             val deadline = SystemClock.uptimeMillis() + 10_000
             var visible = false
             var windowState = "not inspected"
 
-            // Activity launch completion does not guarantee that WindowManager has
-            // attached and drawn the decor view. Poll on the main thread instead
-            // of asserting isShown immediately after waitForIdleSync().
+            // ActivityScenario.launch waits for the Activity lifecycle to reach
+            // RESUMED. Continue polling until its decor is attached, laid out,
+            // shown and has a non-empty global visible rectangle.
             while (SystemClock.uptimeMillis() < deadline && !visible) {
-                instrumentation.waitForIdleSync()
-                instrumentation.runOnMainSync {
-                    val decor = launchedActivity.window.decorView
-                    visible = !launchedActivity.isFinishing &&
+                scenario.onActivity { activity ->
+                    val decor = activity.window.decorView
+                    val globalRect = Rect()
+                    val globalVisible = decor.getGlobalVisibleRect(globalRect)
+                    val lifecycleState = scenario.state
+                    visible = lifecycleState.isAtLeast(Lifecycle.State.RESUMED) &&
+                        !activity.isFinishing &&
                         decor.isAttachedToWindow &&
+                        decor.isLaidOut &&
                         decor.isShown &&
-                        decor.windowVisibility == View.VISIBLE
-                    windowState = "attached=${decor.isAttachedToWindow}, " +
+                        decor.windowVisibility == View.VISIBLE &&
+                        globalVisible &&
+                        !globalRect.isEmpty
+                    windowState = "lifecycle=$lifecycleState, " +
+                        "attached=${decor.isAttachedToWindow}, laidOut=${decor.isLaidOut}, " +
                         "shown=${decor.isShown}, visibility=${decor.windowVisibility}, " +
-                        "windowFocus=${launchedActivity.hasWindowFocus()}, " +
-                        "finishing=${launchedActivity.isFinishing}"
+                        "globalVisible=$globalVisible, globalRect=$globalRect, " +
+                        "windowFocus=${activity.hasWindowFocus()}, " +
+                        "finishing=${activity.isFinishing}"
                 }
                 if (!visible) SystemClock.sleep(100)
             }
 
             assertTrue(
-                "MainActivity window did not become visible within 10s ($windowState)",
+                "MainActivity did not reach a globally visible RESUMED window within 10s ($windowState)",
                 visible
             )
 
-            // Ensure it remains visible after the initial launch transition.
+            // A transient first frame is not enough: verify that the same
+            // Activity remains resumed and globally visible after two seconds.
             SystemClock.sleep(2_000)
-            instrumentation.runOnMainSync {
-                val decor = launchedActivity.window.decorView
-                windowState = "attached=${decor.isAttachedToWindow}, " +
-                    "shown=${decor.isShown}, visibility=${decor.windowVisibility}, " +
-                    "windowFocus=${launchedActivity.hasWindowFocus()}, " +
-                    "finishing=${launchedActivity.isFinishing}"
-                visible = !launchedActivity.isFinishing &&
+            scenario.onActivity { activity ->
+                val decor = activity.window.decorView
+                val globalRect = Rect()
+                val globalVisible = decor.getGlobalVisibleRect(globalRect)
+                val lifecycleState = scenario.state
+                visible = lifecycleState.isAtLeast(Lifecycle.State.RESUMED) &&
+                    !activity.isFinishing &&
                     decor.isAttachedToWindow &&
+                    decor.isLaidOut &&
                     decor.isShown &&
-                    decor.windowVisibility == View.VISIBLE
+                    decor.windowVisibility == View.VISIBLE &&
+                    globalVisible &&
+                    !globalRect.isEmpty
+                windowState = "lifecycle=$lifecycleState, " +
+                    "attached=${decor.isAttachedToWindow}, laidOut=${decor.isLaidOut}, " +
+                    "shown=${decor.isShown}, visibility=${decor.windowVisibility}, " +
+                    "globalVisible=$globalVisible, globalRect=$globalRect, " +
+                    "windowFocus=${activity.hasWindowFocus()}, " +
+                    "finishing=${activity.isFinishing}"
             }
-            assertFalse("MainActivity is finishing ($windowState)", launchedActivity.isFinishing)
-            assertTrue("MainActivity did not remain visible ($windowState)", visible)
+            assertTrue("MainActivity did not remain globally visible ($windowState)", visible)
         } finally {
-            activity?.finish()
-            instrumentation.removeMonitor(monitor)
+            scenario.close()
         }
     }
 }
