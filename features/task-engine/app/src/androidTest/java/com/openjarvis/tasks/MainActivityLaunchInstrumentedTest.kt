@@ -36,7 +36,7 @@ class MainActivityLaunchInstrumentedTest {
                     val decor = activity.window.decorView
                     val globalRect = Rect()
                     val globalVisible = decor.getGlobalVisibleRect(globalRect)
-                    val lifecycleState = scenario.state
+                    val lifecycleState = activity.lifecycle.currentState
                     visible = lifecycleState.isAtLeast(Lifecycle.State.RESUMED) &&
                         !activity.isFinishing &&
                         decor.isAttachedToWindow &&
@@ -67,7 +67,7 @@ class MainActivityLaunchInstrumentedTest {
                 val decor = activity.window.decorView
                 val globalRect = Rect()
                 val globalVisible = decor.getGlobalVisibleRect(globalRect)
-                val lifecycleState = scenario.state
+                val lifecycleState = activity.lifecycle.currentState
                 visible = lifecycleState.isAtLeast(Lifecycle.State.RESUMED) &&
                     !activity.isFinishing &&
                     decor.isAttachedToWindow &&
