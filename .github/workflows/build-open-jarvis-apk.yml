@@ -274,6 +274,12 @@ jobs:
             logcat-full.txt
             instrumented.log
             databases.txt
+            screen-after-instrumented.png
+            crashlog-after-instrumented.txt
+            logcat-after-instrumented.txt
+            activity-after-instrumented.txt
+            activity-top-after-instrumented.txt
+            windows-after-instrumented.txt
           if-no-files-found: warn
           retention-days: 7
 
