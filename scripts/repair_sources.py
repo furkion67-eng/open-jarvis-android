@@ -2214,4 +2214,262 @@ def voice_confirmation_flow(s):
         raise SystemExit("VoiceCommandActivity: status label anchor not found")
     return s
 edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", voice_confirmation_flow)
+
+# Issue #voice: install one shared Turkish-first SpeechRecognizer policy.
+voice_feature_root = Path(__file__).resolve().parent.parent / "features" / "turkish-voice"
+if not voice_feature_root.is_dir():
+    raise SystemExit("Turkish voice policy overlay is missing")
+
+for source in sorted(voice_feature_root.rglob("*.kt")):
+    relative = source.relative_to(voice_feature_root)
+    destination = root / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(source.read_bytes())
+
+
+def patch_android_stt_turkish(s):
+    import re
+
+    if "import android.Manifest" not in s:
+        s = s.replace(
+            "import android.content.Context",
+            "import android.Manifest\nimport android.content.Context\nimport android.content.pm.PackageManager",
+            1
+        )
+    s = s.replace("import java.util.Locale\n", "")
+
+    old_errors = """                    val errorMessage = when (error) {
+                        SpeechRecognizer.ERROR_AUDIO -> "Audio recording error"
+                        SpeechRecognizer.ERROR_CLIENT -> "Client error"
+                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Missing permissions"
+                        SpeechRecognizer.ERROR_NETWORK -> "Network error"
+                        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network timeout"
+                        SpeechRecognizer.ERROR_NO_MATCH -> "No speech detected"
+                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Recognizer busy"
+                        SpeechRecognizer.ERROR_SERVER -> "Server error"
+                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Speech timeout"
+                        else -> "Unknown error"
+                    }"""
+    new_errors = """                    val errorMessage = TurkishSpeechPolicy.messageFor(
+                        TurkishSpeechPolicy.failureForAndroidError(error)
+                    )"""
+    if old_errors in s:
+        s = s.replace(old_errors, new_errors, 1)
+    elif new_errors not in s:
+        raise SystemExit("AndroidSTTEngine.kt: recognition error mapping anchor not found")
+
+    old_intent = """        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, SILENCE_TIMEOUT_MS)
+        }"""
+    new_intent = """        val intent = TurkishSpeechPolicy.createRecognizerIntent().apply {
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, SILENCE_TIMEOUT_MS)
+        }"""
+    if old_intent in s:
+        s = s.replace(old_intent, new_intent, 1)
+    elif "TurkishSpeechPolicy.createRecognizerIntent()" not in s:
+        raise SystemExit("AndroidSTTEngine.kt: recognizer intent anchor not found")
+
+    s = s.replace(
+        "val text = matches?.firstOrNull()?.trim()",
+        "val text = TurkishSpeechPolicy.normalizeTranscript(matches?.firstOrNull())",
+        1
+    )
+
+    old_start = "        recognizer?.startListening(intent)"
+    new_start = """        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            currentErrorCallback?.invoke(TurkishSpeechPolicy.messageFor(RecognitionFailure.PERMISSION))
+            return
+        }
+        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+            currentErrorCallback?.invoke("Bu cihazda konuşma tanıma hizmeti bulunamadı.")
+            return
+        }
+
+        // SpeechRecognizer is created on the main looper; start it on that same looper too.
+        mainHandler.post {
+            val activeRecognizer = recognizer
+            if (activeRecognizer == null) {
+                currentErrorCallback?.invoke(TurkishSpeechPolicy.messageFor(RecognitionFailure.CLIENT))
+                return@post
+            }
+            try {
+                activeRecognizer.startListening(intent)
+            } catch (_: SecurityException) {
+                _isListening.value = false
+                currentErrorCallback?.invoke(TurkishSpeechPolicy.messageFor(RecognitionFailure.PERMISSION))
+            } catch (_: IllegalStateException) {
+                _isListening.value = false
+                currentErrorCallback?.invoke(TurkishSpeechPolicy.messageFor(RecognitionFailure.BUSY))
+            } catch (_: RuntimeException) {
+                _isListening.value = false
+                currentErrorCallback?.invoke(TurkishSpeechPolicy.messageFor(RecognitionFailure.CLIENT))
+            }
+        }"""
+    if old_start in s:
+        s = s.replace(old_start, new_start, 1)
+    elif "SpeechRecognizer is created on the main looper" not in s:
+        raise SystemExit("AndroidSTTEngine.kt: startListening anchor not found")
+
+    old_capture = """        return try {
+            audioRecord = AudioRecord("""
+    new_capture = """        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            return false
+        }
+
+        return try {
+            audioRecord = AudioRecord("""
+    s = s.replace(old_capture, new_capture, 1)
+    return s
+
+
+def patch_voice_command_turkish(s):
+    if "import com.openjarvis.voice.TurkishSpeechPolicy" not in s:
+        s = s.replace(
+            "import com.openjarvis.voice.STTMode",
+            "import com.openjarvis.voice.STTMode\nimport com.openjarvis.voice.TurkishSpeechPolicy\nimport com.openjarvis.voice.RecognitionFailure",
+            1
+        )
+
+    s = s.replace(
+        "    private var recognitionRetryCount = 0",
+        "    private var recognitionRetryCount = 0\n    private var requestMicrophonePermission: (() -> Unit)? = null",
+        1
+    )
+
+    state_anchor = '                var message by remember { mutableStateOf("Mikrofon hazır") }'
+    state_replacement = state_anchor + """
+                var microphonePermissionGranted by remember {
+                    mutableStateOf(
+                        ContextCompat.checkSelfPermission(
+                            this@VoiceCommandActivity,
+                            Manifest.permission.RECORD_AUDIO
+                        ) == PackageManager.PERMISSION_GRANTED
+                    )
+                }"""
+    if state_anchor in s:
+        s = s.replace(state_anchor, state_replacement, 1)
+    elif "var microphonePermissionGranted by remember" not in s:
+        raise SystemExit("VoiceCommandActivity.kt: microphone permission state anchor not found")
+
+    old_permission_callback = """                ) { granted ->
+                    if (granted) startVoiceRecognition()
+                    else message = "Mikrofon izni verilmedi. Android uygulama ayarlarından Mikrofon iznini aç."
+                }"""
+    new_permission_callback = """                ) { granted ->
+                    microphonePermissionGranted = granted
+                    if (granted) startVoiceRecognition()
+                    else message = "Mikrofon izni verilmedi. Android uygulama ayarlarından JARVIS için Mikrofon iznini aç."
+                }
+                SideEffect {
+                    requestMicrophonePermission = {
+                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                }"""
+    if old_permission_callback in s:
+        s = s.replace(old_permission_callback, new_permission_callback, 1)
+    elif "requestMicrophonePermission = {" not in s:
+        raise SystemExit("VoiceCommandActivity.kt: permission launcher callback anchor not found")
+
+    s = s.replace(
+        "onDispose { runCatching { recognizer.destroy() } }",
+        "onDispose { requestMicrophonePermission = null; runCatching { recognizer.destroy() } }",
+        1
+    )
+
+    old_error_copy = """                            message = when (error) {
+                                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Mikrofon izni gerekli"
+                                SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Konuşma algılanmadı, tekrar dene"
+                                SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Ses tanıma için ağ bağlantısı gerekli"
+                                SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Ses tanıma meşgul, tekrar dene"
+                                else -> "Ses tanıma hatası (" + error + ")"
+                            }"""
+    new_error_copy = """                            message = TurkishSpeechPolicy.messageFor(
+                                TurkishSpeechPolicy.failureForAndroidError(error)
+                            )"""
+    if old_error_copy in s:
+        s = s.replace(old_error_copy, new_error_copy, 1)
+    elif new_error_copy not in s:
+        raise SystemExit("VoiceCommandActivity.kt: recognition error copy anchor not found")
+
+    s = s.replace(
+        "val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim().orEmpty()",
+        "val text = TurkishSpeechPolicy.normalizeTranscript(results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()).orEmpty()",
+        1
+    )
+    s = s.replace(
+        "val partial = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()",
+        "val partial = TurkishSpeechPolicy.normalizeTranscript(partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull())",
+        1
+    )
+
+    old_ui_anchor = """                    OutlinedButton(onClick = { recognizer.cancel(); listening = false; message = "Dinleme durduruldu" }, enabled = listening, modifier = Modifier.fillMaxWidth()) { Text("Dinlemeyi durdur") }"""
+    permission_button = """                    if (autoMode && !microphonePermissionGranted) {
+                        OutlinedButton(
+                            onClick = { micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Mikrofon izni ver") }
+                    }
+""" + old_ui_anchor
+    if old_ui_anchor in s and "Text(\"Mikrofon izni ver\")" not in s:
+        s = s.replace(old_ui_anchor, permission_button, 1)
+
+    old_missing_permission = """        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 2001)
+            return
+        }"""
+    new_missing_permission = """        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestMicrophonePermission?.invoke()
+            if (requestMicrophonePermission == null) {
+                android.widget.Toast.makeText(
+                    this,
+                    TurkishSpeechPolicy.messageFor(RecognitionFailure.PERMISSION),
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+            return
+        }"""
+    if old_missing_permission in s:
+        s = s.replace(old_missing_permission, new_missing_permission, 1)
+    elif "requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO)" in s:
+        raise SystemExit("VoiceCommandActivity.kt: legacy permission request remains")
+
+    old_intent = """        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "tr-TR")
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "tr-TR")
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+        }"""
+    if old_intent in s:
+        s = s.replace(old_intent, "        val intent = TurkishSpeechPolicy.createRecognizerIntent()", 1)
+    elif "TurkishSpeechPolicy.createRecognizerIntent()" not in s:
+        raise SystemExit("VoiceCommandActivity.kt: recognizer intent anchor not found")
+
+    old_failure = """        runCatching { recognizer.startListening(intent) }.onFailure {
+            android.widget.Toast.makeText(this, "Mikrofon başlatılamadı: " + it.message, android.widget.Toast.LENGTH_LONG).show()
+        }"""
+    new_failure = """        runCatching { recognizer.startListening(intent) }.onFailure {
+            val failure = if (it is SecurityException) RecognitionFailure.PERMISSION else RecognitionFailure.CLIENT
+            android.widget.Toast.makeText(
+                this,
+                TurkishSpeechPolicy.messageFor(failure),
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+        }"""
+    if old_failure in s:
+        s = s.replace(old_failure, new_failure, 1)
+    elif "val failure = if (it is SecurityException)" not in s:
+        raise SystemExit("VoiceCommandActivity.kt: recognizer start failure anchor not found")
+
+    return s
+
+
+edit("app/src/main/java/com/openjarvis/voice/AndroidSTTEngine.kt", patch_android_stt_turkish)
+edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", patch_voice_command_turkish)
+print("Installed shared tr-TR STT policy, Turkish error mapping and microphone permission handling")
+
 print("Added Turkish confirmation flow for local device actions (issue #5)")
