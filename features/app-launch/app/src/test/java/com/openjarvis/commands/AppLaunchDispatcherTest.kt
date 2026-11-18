@@ -1,6 +1,7 @@
 package com.openjarvis.commands
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -79,9 +80,13 @@ class AppLaunchDispatcherTest {
     fun launchResultMessagesAreTurkishAndDoNotClaimVerifiedForeground() {
         val message = AppLaunchMessages.forResult(AppLaunchResult.LaunchRequested(target, "com.whatsapp"))
         assertTrue(message.contains("açma isteği"))
-        assertTrue(!message.contains("açıldı"))
-        assertTrue(AppLaunchMessages.forResult(AppLaunchResult.BackgroundRestricted(target)).contains("arka planda"))
+        assertFalse(message.contains("açıldı"))
+        val backgroundMessage = AppLaunchMessages.forResult(AppLaunchResult.BackgroundRestricted(target))
+        assertTrue(backgroundMessage.contains("arka planda"))
+        assertTrue(backgroundMessage.contains("ön plana"))
+        assertFalse(backgroundMessage.contains("üstte görünme"))
     }
+
     @Test
     fun reportsGenericAndroidLaunchFailureInTurkish() {
         val target = AppLaunchRegistry.find("whatsapp")!!
@@ -91,5 +96,4 @@ class AppLaunchDispatcherTest {
         assertTrue(result is AppLaunchResult.LaunchFailed)
         assertTrue(AppLaunchMessages.forResult(result).contains("açılamadı"))
     }
-
 }
