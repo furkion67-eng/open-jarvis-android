@@ -48,7 +48,8 @@ class VideoRenderSpecTest {
     fun estimatedOutputRemainsBelowPrototypeCap() {
         val spec = VideoRenderSpec.sample("Tarih")
         spec.validate()
-        val estimatedBytes = spec.bitRate.toLong() * spec.durationSeconds / 8L * 2L
-        assertTrue(estimatedBytes <= VideoRenderSpec.MAX_OUTPUT_BYTES)
+        assertTrue(spec.estimatedOutputBytes > 0L)
+        assertTrue(spec.estimatedOutputBytes <= VideoRenderSpec.MAX_OUTPUT_BYTES)
+        assertTrue(VideoRenderSpec.MIN_FREE_SPACE_MARGIN_BYTES >= 2L * 1024L * 1024L)
     }
 }
