@@ -3,7 +3,7 @@ name: Build Open Jarvis APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, "feature/approval-toggle" ]
+    branches: [ main, "feature/approval-toggle", "feature/litert-local-runtime" ]
   pull_request:
     branches: [ main ]
 
@@ -40,6 +40,7 @@ jobs:
           p.write_text(s)
           PY
           python3 scripts/repair_sources.py "$PROJECT_DIR"
+          python3 scripts/enable_litert_local_runtime.py "$PROJECT_DIR"
           # Avoid constructing AgentCore during launcher startup: it eagerly opens
           # encrypted provider preferences and is not used by MainActivity's dashboard.
           python3 - "$PROJECT_DIR/app/src/main/java/com/openjarvis/ui/MainActivity.kt" <<'PY'
@@ -131,13 +132,13 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.2'
+          gradle-version: '8.13'
 
       - name: Enable AndroidX
         working-directory: ${{ steps.source.outputs.project_dir }}
         run: |
           touch gradle.properties
-          printf '\nandroid.useAndroidX=true\nandroid.enableJetifier=true\n' >> gradle.properties
+          printf '\nandroid.useAndroidX=true\nandroid.enableJetifier=false\n' >> gradle.properties
           cat gradle.properties
 
       - name: Capture failing Kotlin source context
