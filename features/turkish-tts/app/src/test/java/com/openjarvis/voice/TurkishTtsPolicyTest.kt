@@ -63,4 +63,11 @@ class TurkishTtsPolicyTest {
         assertTrue(message.contains("Türkçe"))
         assertTrue(message.contains("Android ses ayarlarından"))
     }
+    @Test
+    fun initializationFailureMessageIsTurkishAndActionable() {
+        val message = TurkishTtsPolicy.messageFor(TurkishTtsStatus.InitializationFailed)
+        assertTrue(message.contains("Android metin okuma motoru"))
+        assertTrue(message.contains("tekrar dene"))
+    }
+
 }
