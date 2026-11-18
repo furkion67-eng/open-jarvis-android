@@ -25,7 +25,7 @@ internal class PendingUtteranceCallbacks {
         }
     }
 
-    /** Stop/release must never strand the caller waiting for an utterance callback. */
+    /** An explicit stop must release the caller waiting for the current utterance. */
     fun completeAll() {
         val pending = callbacks.values.toList()
         callbacks.clear()
