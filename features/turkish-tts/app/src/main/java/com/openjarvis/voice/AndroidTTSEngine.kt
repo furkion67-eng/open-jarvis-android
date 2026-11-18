@@ -173,9 +173,10 @@ class AndroidTTSEngine(context: Context) {
 
     fun stop() {
         onMain {
-            pendingCallbacks.completeAll()
-            speaking = false
+            // Stop audio first; only then resume AUTO_VAD so it cannot hear the tail of speech.
             runCatching { tts?.stop() }
+            speaking = false
+            pendingCallbacks.completeAll()
         }
     }
 
