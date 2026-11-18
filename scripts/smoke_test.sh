@@ -115,12 +115,6 @@ verify_launcher_visible_after_tests() {
     return 1
   fi
 
-  adb exec-out screencap -p > screen-main-activity-visible.png 2>/dev/null || true
-    adb logcat -d -b crash > crashlog-after-visible-launch.txt 2>/dev/null || true
-    echo "MainActivity did not become the resumed Activity with the focused JARVIS window within 20s."
-    return 1
-  fi
-
   adb exec-out screencap -p > screen-main-activity-visible.png 2>/dev/null || {
     echo "Could not capture the visible MainActivity screenshot."
     return 1
