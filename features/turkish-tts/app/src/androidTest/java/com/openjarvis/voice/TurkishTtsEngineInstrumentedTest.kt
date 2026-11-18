@@ -88,4 +88,62 @@ class TurkishTtsEngineInstrumentedTest {
         InstrumentationRegistry.getInstrumentation().runOnMainSync { engine.release() }
     }
 
+
+    @Test
+    fun releaseDuringCurrentUtteranceCompletesHandoffExactlyOnce() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as Context
+        lateinit var engine: AndroidTTSEngine
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            engine = AndroidTTSEngine(context)
+        }
+        runBlocking {
+            withTimeout(15_000) {
+                engine.status.first { it !is TurkishTtsStatus.Initializing }
+            }
+        }
+
+        val handoff = CountDownLatch(1)
+        val callbacks = AtomicInteger(0)
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            engine.speak(
+                "Bu uzun Türkçe cümle, konuşma tamamlanmadan motor kapatıldığında bekleyen görevin serbest bırakılmasını doğrular."
+            ) {
+                callbacks.incrementAndGet()
+                handoff.countDown()
+            }
+            engine.release()
+        }
+
+        assertTrue("Release must complete the pending STT handoff", handoff.await(2, TimeUnit.SECONDS))
+        assertTrue("Release must deliver the handoff exactly once", callbacks.get() == 1)
+        assertTrue(engine.status.value == TurkishTtsStatus.Released)
+    }
+
+    @Test
+    fun stopDuringCurrentUtteranceCompletesHandoffExactlyOnce() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as Context
+        lateinit var engine: AndroidTTSEngine
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            engine = AndroidTTSEngine(context)
+        }
+        runBlocking {
+            withTimeout(15_000) {
+                engine.status.first { it !is TurkishTtsStatus.Initializing }
+            }
+        }
+
+        val handoff = CountDownLatch(1)
+        val callbacks = AtomicInteger(0)
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            engine.speak("Dinleme güvenli biçimde yeniden başlayabilsin diye bu konuşma durduruluyor.") {
+                callbacks.incrementAndGet()
+                handoff.countDown()
+            }
+            engine.stop()
+        }
+
+        assertTrue("Stop must complete the pending STT handoff", handoff.await(2, TimeUnit.SECONDS))
+        assertTrue("Stop must deliver the handoff exactly once", callbacks.get() == 1)
+        InstrumentationRegistry.getInstrumentation().runOnMainSync { engine.release() }
+    }
 }
