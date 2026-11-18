@@ -1,0 +1,61 @@
+name: "Pinned OpenCode GitHub Action"
+description: "Run OpenCode v1.19.6 with explicit model and permission mode"
+
+inputs:
+  model:
+    description: "Model to use"
+    required: true
+  agent:
+    description: "Primary OpenCode agent"
+    required: false
+  share:
+    description: "Share the OpenCode session"
+    required: false
+  prompt:
+    description: "Custom prompt"
+    required: false
+  use_github_token:
+    description: "Use GITHUB_TOKEN directly for GitHub API access"
+    required: false
+    default: "false"
+  mentions:
+    description: "Trigger phrases"
+    required: false
+  variant:
+    description: "Model variant"
+    required: false
+  oidc_base_url:
+    description: "OpenCode App OIDC endpoint"
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install pinned OpenCode v1.19.6
+      shell: bash
+      run: |
+        set -euo pipefail
+        curl -fsSL https://opencode.ai/install | bash -s -- --version 1.19.6 --no-modify-path
+
+    - name: Add OpenCode to PATH
+      shell: bash
+      run: echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+
+    - name: Verify OpenCode version
+      shell: bash
+      run: |
+        set -euo pipefail
+        opencode --version
+
+    - name: Run OpenCode
+      shell: bash
+      run: opencode github run
+      env:
+        MODEL: ${{ inputs.model }}
+        AGENT: ${{ inputs.agent }}
+        SHARE: ${{ inputs.share }}
+        PROMPT: ${{ inputs.prompt }}
+        USE_GITHUB_TOKEN: ${{ inputs.use_github_token }}
+        MENTIONS: ${{ inputs.mentions }}
+        VARIANT: ${{ inputs.variant }}
+        OIDC_BASE_URL: ${{ inputs.oidc_base_url }}
