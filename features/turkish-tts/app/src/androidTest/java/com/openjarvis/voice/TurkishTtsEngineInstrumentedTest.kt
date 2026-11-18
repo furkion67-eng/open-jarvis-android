@@ -6,6 +6,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume
 import org.junit.Test
@@ -48,7 +49,7 @@ class TurkishTtsEngineInstrumentedTest {
         InstrumentationRegistry.getInstrumentation().runOnMainSync { engine.release() }
     }
     @Test
-    fun releaseBeforeInitializationDoesNotLeaveSpeechHandoffPending() {
+    fun speakAfterReleaseDoesNotRestartStt() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as Context
         lateinit var engine: AndroidTTSEngine
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
@@ -58,7 +59,7 @@ class TurkishTtsEngineInstrumentedTest {
 
         val handoff = CountDownLatch(1)
         engine.speak("Bu metin okunmayacak.") { handoff.countDown() }
-        assertTrue("A released engine must complete the caller handoff", handoff.await(1, TimeUnit.SECONDS))
+        assertFalse("A released engine must not restart STT from a stale callback", handoff.await(300, TimeUnit.MILLISECONDS))
         assertTrue(engine.status.value == TurkishTtsStatus.Released)
     }
 
