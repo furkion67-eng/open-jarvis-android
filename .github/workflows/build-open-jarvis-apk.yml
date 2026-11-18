@@ -189,6 +189,15 @@ jobs:
           print('PACKAGE-VISIBILITY-QUERIES-OK')
           PY
 
+      - name: Validate shell syntax and launcher matcher before Gradle
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/smoke_test.sh
+          bash -n scripts/launcher_visibility_check.sh
+          bash -n scripts/test_launcher_visibility_check.sh
+          bash scripts/test_launcher_visibility_check.sh
+
       - name: Set up JDK 17
         uses: actions/setup-java@v6
         with:
