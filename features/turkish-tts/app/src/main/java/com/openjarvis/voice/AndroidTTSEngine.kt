@@ -131,8 +131,9 @@ class AndroidTTSEngine(context: Context) {
 
     fun speak(text: String, onDone: (() -> Unit)? = null) {
         onMain {
+            if (released) return@onMain
             val engine = tts
-            if (released || mutableStatus.value !is TurkishTtsStatus.Ready || engine == null) {
+            if (mutableStatus.value !is TurkishTtsStatus.Ready || engine == null) {
                 onDone?.invoke()
                 return@onMain
             }
