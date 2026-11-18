@@ -40,7 +40,7 @@ class VideoRenderSpecTest {
     @Test(expected = IllegalArgumentException::class)
     fun rejectsTooManyScenes() {
         VideoRenderSpec.sample("Konu").copy(
-            scenes = (1..7).map { VideoScene("Sahne \$it", "Açıklama") }
+            scenes = (1..7).map { VideoScene("Sahne $it", "Açıklama") }
         ).validate()
     }
 
