@@ -293,46 +293,55 @@ class Mp4VideoRenderer(context: Context) {
     }
 
     private class EglFrameRenderer(surface: Surface, private val width: Int, private val height: Int) {
-        private val display: android.opengl.EGLDisplay
-        private val context: android.opengl.EGLContext
-        private val window: android.opengl.EGLSurface
-        private val program: Int
+        private var display: android.opengl.EGLDisplay = EGL14.EGL_NO_DISPLAY
+        private var context: android.opengl.EGLContext = EGL14.EGL_NO_CONTEXT
+        private var window: android.opengl.EGLSurface = EGL14.EGL_NO_SURFACE
+        private var initialized = false
+        private var program: Int = 0
         private val texture = IntArray(1)
         private var textureInitialized = false
         private val positionBuffer: FloatBuffer = floatBuffer(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f))
         private val textureBuffer: FloatBuffer = floatBuffer(floatArrayOf(0f, 1f, 1f, 1f, 0f, 0f, 1f, 0f))
 
         init {
-            display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
-            if (display == EGL14.EGL_NO_DISPLAY) throw VideoRenderException("EGL ekranı başlatılamadı.")
-            val version = IntArray(2)
-            if (!EGL14.eglInitialize(display, version, 0, version, 1)) throw VideoRenderException("EGL başlatılamadı.")
-            val configAttributes = intArrayOf(
-                EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8,
-                EGL14.EGL_ALPHA_SIZE, 8, EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
-                EGL14.EGL_SURFACE_TYPE, EGL14.EGL_WINDOW_BIT, EGL_RECORDABLE_ANDROID, 1, EGL14.EGL_NONE
-            )
-            val configs = arrayOfNulls<android.opengl.EGLConfig>(1)
-            val count = IntArray(1)
-            if (!EGL14.eglChooseConfig(display, configAttributes, 0, configs, 0, 1, count, 0) || count[0] == 0) {
-                throw VideoRenderException("Video kodlayıcı için EGL yapılandırması bulunamadı.")
+            try {
+                display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+                if (display == EGL14.EGL_NO_DISPLAY) throw VideoRenderException("EGL ekranı başlatılamadı.")
+                val version = IntArray(2)
+                initialized = EGL14.eglInitialize(display, version, 0, version, 1)
+                if (!initialized) throw VideoRenderException("EGL başlatılamadı.")
+                val configAttributes = intArrayOf(
+                    EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8,
+                    EGL14.EGL_ALPHA_SIZE, 8, EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
+                    EGL14.EGL_SURFACE_TYPE, EGL14.EGL_WINDOW_BIT, EGL_RECORDABLE_ANDROID, 1, EGL14.EGL_NONE
+                )
+                val configs = arrayOfNulls<android.opengl.EGLConfig>(1)
+                val count = IntArray(1)
+                if (!EGL14.eglChooseConfig(display, configAttributes, 0, configs, 0, 1, count, 0) || count[0] == 0) {
+                    throw VideoRenderException("Video kodlayıcı için EGL yapılandırması bulunamadı.")
+                }
+                val config = configs[0] ?: throw VideoRenderException("EGL yapılandırması boş.")
+                val contextAttributes = intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE)
+                context = EGL14.eglCreateContext(display, config, EGL14.EGL_NO_CONTEXT, contextAttributes, 0)
+                if (context == EGL14.EGL_NO_CONTEXT) throw VideoRenderException("EGL bağlamı oluşturulamadı.")
+                window = EGL14.eglCreateWindowSurface(display, config, surface, intArrayOf(EGL14.EGL_NONE), 0)
+                if (window == EGL14.EGL_NO_SURFACE) throw VideoRenderException("Video yüzeyi oluşturulamadı.")
+                if (!EGL14.eglMakeCurrent(display, window, window, context)) {
+                    throw VideoRenderException("EGL video yüzeyi etkinleştirilemedi.")
+                }
+                program = createProgram(VERTEX_SHADER, FRAGMENT_SHADER)
+                GLES20.glGenTextures(1, texture, 0)
+                if (texture[0] == 0) throw VideoRenderException("Video dokusu oluşturulamadı.")
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture[0])
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+            } catch (error: Throwable) {
+                release()
+                throw error
             }
-            val config = configs[0] ?: throw VideoRenderException("EGL yapılandırması boş.")
-            val contextAttributes = intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE)
-            context = EGL14.eglCreateContext(display, config, EGL14.EGL_NO_CONTEXT, contextAttributes, 0)
-            if (context == EGL14.EGL_NO_CONTEXT) throw VideoRenderException("EGL bağlamı oluşturulamadı.")
-            window = EGL14.eglCreateWindowSurface(display, config, surface, intArrayOf(EGL14.EGL_NONE), 0)
-            if (window == EGL14.EGL_NO_SURFACE) throw VideoRenderException("Video yüzeyi oluşturulamadı.")
-            if (!EGL14.eglMakeCurrent(display, window, window, context)) throw VideoRenderException("EGL video yüzeyi etkinleştirilemedi.")
-            program = createProgram(VERTEX_SHADER, FRAGMENT_SHADER)
-            GLES20.glGenTextures(1, texture, 0)
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture[0])
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
         }
-
         fun draw(bitmap: Bitmap, presentationTimeNs: Long) {
             EGL14.eglMakeCurrent(display, window, window, context)
             GLES20.glViewport(0, 0, width, height)
@@ -361,13 +370,34 @@ class Mp4VideoRenderer(context: Context) {
         }
 
         fun release() {
-            runCatching { EGL14.eglMakeCurrent(display, window, window, context) }
-            runCatching { GLES20.glDeleteTextures(1, texture, 0) }
-            runCatching { GLES20.glDeleteProgram(program) }
-            runCatching { EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT) }
-            runCatching { EGL14.eglDestroySurface(display, window) }
-            runCatching { EGL14.eglDestroyContext(display, context) }
-            runCatching { EGL14.eglTerminate(display) }
+            if (initialized && context != EGL14.EGL_NO_CONTEXT && window != EGL14.EGL_NO_SURFACE) {
+                runCatching { EGL14.eglMakeCurrent(display, window, window, context) }
+            }
+            if (initialized && context != EGL14.EGL_NO_CONTEXT) {
+                if (texture[0] != 0) runCatching { GLES20.glDeleteTextures(1, texture, 0) }
+                if (program != 0) runCatching { GLES20.glDeleteProgram(program) }
+                runCatching {
+                    EGL14.eglMakeCurrent(
+                        display,
+                        EGL14.EGL_NO_SURFACE,
+                        EGL14.EGL_NO_SURFACE,
+                        EGL14.EGL_NO_CONTEXT
+                    )
+                }
+            }
+            if (initialized && window != EGL14.EGL_NO_SURFACE) {
+                runCatching { EGL14.eglDestroySurface(display, window) }
+            }
+            if (initialized && context != EGL14.EGL_NO_CONTEXT) {
+                runCatching { EGL14.eglDestroyContext(display, context) }
+            }
+            if (initialized) runCatching { EGL14.eglTerminate(display) }
+            initialized = false
+            display = EGL14.EGL_NO_DISPLAY
+            context = EGL14.EGL_NO_CONTEXT
+            window = EGL14.EGL_NO_SURFACE
+            program = 0
+            texture[0] = 0
         }
 
         private fun floatBuffer(values: FloatArray): FloatBuffer =
@@ -378,21 +408,28 @@ class Mp4VideoRenderer(context: Context) {
 
         private fun createProgram(vertexSource: String, fragmentSource: String): Int {
             val vertex = compileShader(GLES20.GL_VERTEX_SHADER, vertexSource)
-            val fragment = compileShader(GLES20.GL_FRAGMENT_SHADER, fragmentSource)
-            val result = GLES20.glCreateProgram()
-            GLES20.glAttachShader(result, vertex)
-            GLES20.glAttachShader(result, fragment)
-            GLES20.glLinkProgram(result)
-            val status = IntArray(1)
-            GLES20.glGetProgramiv(result, GLES20.GL_LINK_STATUS, status, 0)
-            GLES20.glDeleteShader(vertex)
-            GLES20.glDeleteShader(fragment)
-            if (status[0] == 0) {
-                val error = GLES20.glGetProgramInfoLog(result)
-                GLES20.glDeleteProgram(result)
-                throw VideoRenderException("Video çizim programı bağlanamadı: $error")
+            var fragment = 0
+            var result = 0
+            try {
+                fragment = compileShader(GLES20.GL_FRAGMENT_SHADER, fragmentSource)
+                result = GLES20.glCreateProgram()
+                if (result == 0) throw VideoRenderException("Video çizim programı oluşturulamadı.")
+                GLES20.glAttachShader(result, vertex)
+                GLES20.glAttachShader(result, fragment)
+                GLES20.glLinkProgram(result)
+                val status = IntArray(1)
+                GLES20.glGetProgramiv(result, GLES20.GL_LINK_STATUS, status, 0)
+                if (status[0] == 0) {
+                    throw VideoRenderException("Video çizim programı bağlanamadı: ${GLES20.glGetProgramInfoLog(result)}")
+                }
+                return result
+            } catch (error: Throwable) {
+                if (result != 0) runCatching { GLES20.glDeleteProgram(result) }
+                throw error
+            } finally {
+                runCatching { GLES20.glDeleteShader(vertex) }
+                if (fragment != 0) runCatching { GLES20.glDeleteShader(fragment) }
             }
-            return result
         }
 
         private fun compileShader(type: Int, source: String): Int {
