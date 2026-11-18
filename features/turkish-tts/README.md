@@ -20,4 +20,4 @@ This overlay replaces the packaged `AndroidTTSEngine` with a Turkish-only implem
 - Instrumentation test accepts either a verified Turkish voice or the honest missing-data state; if speech is available, it verifies the utterance completion/error handoff.
 - A physical TECNO Spark 20 Pro / HiOS listening test is still required to accept naturalness and OEM-specific behaviour. Emulator voice quality is not device evidence.
 - Releases the per-activity TTS engine from the voice and settings screens, and releases one-shot ScreenWatcher engines after their utterance callback.
-- Instrumentation also checks repeated replies, stop/release during an active utterance (the active-voice cases are skipped on emulator images without a Turkish voice), and that a released engine cannot strand a new caller handoff.
+- Instrumentation also checks repeated replies, stop/release during an active utterance (the active-voice cases are skipped on emulator images without a Turkish voice), and that calling speak after release cannot restart STT.
