@@ -33,14 +33,25 @@ class LocalPlanPreviewCapability : JarvisTaskCapability {
     )
 }
 
+data class JarvisTaskExecutionResult(
+    val outputSummary: String,
+    val evidenceReference: String,
+    val verified: Boolean
+)
+
+interface JarvisTaskExecutor {
+    val capabilityId: String
+    suspend fun execute(task: JarvisTaskEntity): JarvisTaskExecutionResult
+}
+
 class JarvisTaskCapabilityRegistry(
     private val capabilities: List<JarvisTaskCapability>,
-    private val executableCapabilityIds: Set<String> = emptySet()
+    private val executors: List<JarvisTaskExecutor> = emptyList()
 ) {
     fun resolve(goal: String): JarvisTaskCapability? = capabilities.firstOrNull { it.supports(goal) }
 
-    fun hasExecutor(capabilityId: String?): Boolean =
-        capabilityId != null && executableCapabilityIds.contains(capabilityId)
+    fun executorFor(capabilityId: String?): JarvisTaskExecutor? =
+        executors.firstOrNull { it.capabilityId == capabilityId }
 
     companion object {
         fun localPreviewOnly(): JarvisTaskCapabilityRegistry =
@@ -112,6 +123,95 @@ class JarvisTaskOrchestrator(
                         currentStep = "Plan hazırlanamadı",
                         errorCode = "PLAN_PREPARATION_FAILED",
                         errorMessage = error.message ?: "Görev planı hazırlanamadı.",
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+            }
+        }
+    }
+
+    /** Executes only a registered capability and requires verified evidence before success. */
+    suspend fun execute(taskId: String) {
+        val task = dao.findById(taskId) ?: return
+        val status = JarvisTaskStatus.fromStorage(task.status)
+        if (status != JarvisTaskStatus.WAITING_FOR_USER && status != JarvisTaskStatus.WAITING_FOR_NETWORK) return
+
+        if (task.requiresApproval && !task.approvalGranted) {
+            if (status != JarvisTaskStatus.WAITING_FOR_USER &&
+                JarvisTaskStateMachine.canTransition(status, JarvisTaskStatus.WAITING_FOR_USER)
+            ) {
+                dao.update(
+                    task.copy(
+                        status = JarvisTaskStatus.WAITING_FOR_USER.storageValue,
+                        currentStep = "Ayrı işlem onayı bekleniyor",
+                        errorCode = "APPROVAL_REQUIRED",
+                        errorMessage = "Plan onayı, dış işlem onayı değildir. Devam etmek için ilgili işlem ayrıca onaylanmalı.",
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+            }
+            return
+        }
+
+        val executor = registry.executorFor(task.ownerAgent)
+        if (executor == null) {
+            dao.update(
+                task.copy(
+                    status = JarvisTaskStatus.WAITING_FOR_NETWORK.storageValue,
+                    currentStep = "Bulut/uzman ajan yürütücüsü bekleniyor",
+                    progressPercent = JarvisTaskStatus.WAITING_FOR_NETWORK.defaultProgress,
+                    requiresNetwork = true,
+                    errorCode = "EXECUTOR_NOT_CONFIGURED",
+                    errorMessage = "Bu yetenek için çalıştırılabilir ajan veya bulut bağlantısı yapılandırılmadı; hiçbir gerçek işlem yapılmadı.",
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+            return
+        }
+
+        if (!JarvisTaskStateMachine.canTransition(status, JarvisTaskStatus.RUNNING)) return
+        dao.update(
+            task.copy(
+                status = JarvisTaskStatus.RUNNING.storageValue,
+                currentStep = "${executor.capabilityId} çalıştırılıyor",
+                progressPercent = JarvisTaskStatus.RUNNING.defaultProgress,
+                errorCode = null,
+                errorMessage = null,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+        try {
+            val result = executor.execute(task)
+            val latest = dao.findById(taskId) ?: return
+            val verified = result.verified && result.evidenceReference.isNotBlank()
+            val next = if (verified) JarvisTaskStatus.SUCCEEDED else JarvisTaskStatus.FAILED
+            if (JarvisTaskStateMachine.canTransition(JarvisTaskStatus.fromStorage(latest.status), next)) {
+                dao.update(
+                    latest.copy(
+                        status = next.storageValue,
+                        currentStep = if (verified) "Sonuç doğrulandı" else "Sonuç doğrulanamadı",
+                        progressPercent = next.defaultProgress,
+                        outputSummary = result.outputSummary,
+                        artifactRefs = if (verified) result.evidenceReference else latest.artifactRefs,
+                        errorCode = if (verified) null else "UNVERIFIED_RESULT",
+                        errorMessage = if (verified) null else "Yürütücü tamamlandı dedi ancak doğrulanabilir kanıt sunmadı.",
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+            }
+        } catch (error: Exception) {
+            val latest = dao.findById(taskId) ?: return
+            if (JarvisTaskStateMachine.canTransition(
+                    JarvisTaskStatus.fromStorage(latest.status),
+                    JarvisTaskStatus.FAILED
+                )
+            ) {
+                dao.update(
+                    latest.copy(
+                        status = JarvisTaskStatus.FAILED.storageValue,
+                        currentStep = "Yürütme başarısız",
+                        errorCode = "EXECUTION_FAILED",
+                        errorMessage = error.message ?: "Yetenek çalıştırılamadı.",
                         updatedAt = System.currentTimeMillis()
                     )
                 )

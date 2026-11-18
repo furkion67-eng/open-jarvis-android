@@ -2,6 +2,8 @@ package com.openjarvis.tasks
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -28,6 +30,13 @@ class JarvisTaskStateMachineTest {
     fun failedAndWaitingTasksHaveExplicitRetryPaths() {
         assertTrue(JarvisTaskStateMachine.canTransition(JarvisTaskStatus.FAILED, JarvisTaskStatus.QUEUED))
         assertTrue(JarvisTaskStateMachine.canTransition(JarvisTaskStatus.WAITING_FOR_NETWORK, JarvisTaskStatus.QUEUED))
+    }
+
+    @Test
+    fun localRegistryHasPlannerButNoExecutionBackend() {
+        val registry = JarvisTaskCapabilityRegistry.localPreviewOnly()
+        assertNotNull(registry.resolve("Türkçe bir görev"))
+        assertNull(registry.executorFor("local.plan-preview"))
     }
 
     @Test

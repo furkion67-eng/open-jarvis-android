@@ -33,7 +33,7 @@ class JarvisTaskRepository(
         return id
     }
 
-    /** Accepting a plan never starts the underlying action. It only records the user's review. */
+    /** Accepting a plan never starts an unregistered action or grants a side-effect approval. */
     suspend fun acceptPlan(id: String) {
         val task = dao.findById(id) ?: return
         if (!JarvisTaskStateMachine.canTransition(
@@ -42,33 +42,16 @@ class JarvisTaskRepository(
             )
         ) return
 
-        dao.update(
-            task.copy(
-                status = JarvisTaskStatus.WAITING_FOR_NETWORK.storageValue,
-                currentStep = "Yürütücü bağlantısı bekleniyor",
-                progressPercent = JarvisTaskStatus.WAITING_FOR_NETWORK.defaultProgress,
-                checkpoint = "plan_reviewed",
-                errorCode = "EXECUTOR_NOT_CONFIGURED",
-                errorMessage = "Plan kabul edildi. Bulut/uzman ajan yürütücüsü yapılandırılmadığı için hiçbir gerçek işlem başlatılmadı.",
-                updatedAt = System.currentTimeMillis()
-            )
-        )
+        dao.update(task.copy(checkpoint = "plan_reviewed", updatedAt = System.currentTimeMillis()))
+        orchestrator.execute(id)
     }
 
     suspend fun retry(id: String) {
         val task = dao.findById(id) ?: return
         when (JarvisTaskStatus.fromStorage(task.status)) {
             JarvisTaskStatus.WAITING_FOR_NETWORK -> {
-                if (registry.hasExecutor(task.ownerAgent)) return
-                dao.update(
-                    task.copy(
-                        retryCount = task.retryCount + 1,
-                        currentStep = "Yürütücü bağlantısı yeniden kontrol edildi",
-                        errorCode = "EXECUTOR_NOT_CONFIGURED",
-                        errorMessage = "Yeniden denendi; bu dalda çalıştırılabilir bulut/uzman ajan kayıtlı değil. Görev beklemede kaldı.",
-                        updatedAt = System.currentTimeMillis()
-                    )
-                )
+                dao.update(task.copy(retryCount = task.retryCount + 1, updatedAt = System.currentTimeMillis()))
+                orchestrator.execute(id)
             }
             JarvisTaskStatus.FAILED -> {
                 if (!JarvisTaskStateMachine.canTransition(
