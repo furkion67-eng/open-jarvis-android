@@ -79,7 +79,7 @@ class TurkishTtsPolicyTest {
 
 
     @Test
-    fun stopOrReleaseDrainsPendingHandoffsExactlyOnce() {
+    fun stopDrainsPendingHandoffsExactlyOnce() {
         val callbacks = PendingUtteranceCallbacks()
         var completed = 0
         callbacks.register("first") { completed += 1 }
@@ -104,5 +104,17 @@ class TurkishTtsPolicyTest {
 
         assertEquals(0, oldCompleted)
         assertEquals(1, latestCompleted)
+    }
+
+    @Test
+    fun releaseDiscardsPendingHandoffsWithoutInvokingThem() {
+        val callbacks = PendingUtteranceCallbacks()
+        var completed = 0
+        callbacks.register("current") { completed += 1 }
+
+        callbacks.discardAll()
+        callbacks.completeAll()
+
+        assertEquals("Lifecycle release must not restart STT", 0, completed)
     }
 }
