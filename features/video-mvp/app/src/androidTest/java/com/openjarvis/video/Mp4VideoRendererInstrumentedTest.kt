@@ -4,9 +4,15 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
@@ -46,5 +52,30 @@ class Mp4VideoRendererInstrumentedTest {
         } finally {
             result.file.delete()
         }
+    }
+
+    @Test
+    fun cancellationAfterFirstFrameDeletesPartialOutput() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val outputDir = File(context.filesDir, "jarvis-videos")
+        val existingNames = outputDir.listFiles()?.map { it.name }?.toSet().orEmpty()
+        val jobReference = AtomicReference<Job?>()
+        val spec = VideoRenderSpec.sample("İptal testi").copy(
+            framesPerSecond = 15,
+            secondsPerScene = 5
+        )
+        val renderJob = launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+            Mp4VideoRenderer(context).render(spec) { completedFrames, _ ->
+                if (completedFrames >= 1) jobReference.get()?.cancel()
+            }
+        }
+        jobReference.set(renderJob)
+        renderJob.start()
+
+        withTimeout(15_000L) { renderJob.join() }
+
+        assertTrue("Render işi ilk kareden sonra iptal edilmeliydi.", renderJob.isCancelled)
+        val newFiles = outputDir.listFiles()?.filterNot { it.name in existingNames }.orEmpty()
+        assertTrue("İptal edilen render yarım MP4 bırakmamalı.", newFiles.isEmpty())
     }
 }
