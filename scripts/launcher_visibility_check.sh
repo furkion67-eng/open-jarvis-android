@@ -7,11 +7,20 @@ launcher_is_resumed_and_focused() {
   fi
   local activity_dump="$1"
   local window_dump="$2"
+  local component="com.openjarvis/com.openjarvis.ui.MainActivity"
 
-  # Avoid grep -q on the right side of a pipeline under pipefail:
-  # early exit can SIGPIPE the upstream grep even when a match exists.
-  grep -E 'topResumedActivity=|ResumedActivity:' "$activity_dump" |
-    grep -F 'com.openjarvis/.ui.MainActivity' >/dev/null &&
-  grep -F 'mCurrentFocus=Window' "$window_dump" |
-    grep -F 'com.openjarvis/com.openjarvis.ui.MainActivity' >/dev/null
+  # MainActivity must genuinely be the resumed Activity.
+  if ! grep -E 'topResumedActivity=|ResumedActivity:' "$activity_dump" |
+       grep -F "$component" >/dev/null; then
+    return 1
+  fi
+
+  # Android may give mCurrentFocus to the soft keyboard while the app remains
+  # the IME input target. That is a visible, interactive app state, not a crash
+  # or a launcher loss. Accept either the app window focus or its IME target.
+  awk -v component="$component" '
+    /mCurrentFocus=Window/ && index($0, component) { focused=1 }
+    /imeInputTarget in display#/ && index($0, component) { input_target=1 }
+    END { exit !(focused || input_target) }
+  ' "$window_dump"
 }
