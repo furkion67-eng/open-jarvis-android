@@ -5,13 +5,13 @@ This overlay replaces the packaged `AndroidTTSEngine` with a Turkish-only implem
 ## Behaviour
 
 - Waits for Android `TextToSpeech` initialization before accepting speech.
-- Checks both inLanguageAvailable(Locale.forLanguageTag("tr-TR"))` and `setLanguage` results.
+- Checks both `isLanguageAvailable(Locale.forLanguageTag("tr-TR"))` and `setLanguage` results.
 - Selects only installed voices whose locale language is Turkish. Exact `tr-TR` wins, then offline synthesis, quality, latency and a stable name tie-breaker.
 - Never falls back silently to English. Missing Turkish voice data and initialization errors are shown in Turkish, with a user-triggered `ACTION_INSTALL_TTS_DATA` route.
 - Keeps the existing 0.96 speech-rate and 1.0 pitch defaults; values remain clamped to Android's supported 0.5–2.0 range.
 - Serializes TextToSpeech operations and callbacks on the main thread.
 - Resumes AUTO_VAD only after utterance completion/error; a missing voice completes the callback immediately so the voice screen does not stall.
-- Clears stale callbacks before `QUEUE_FLUSH`, preventing an older reply from restarting STT during a newer reply.
+- Clears stale callbacks before `QUEUE_FLUSH`, preventing an older reply from restarting STT during a newer reply. `stop()` and `release()` drain the current handoff exactly once so AUTO_VAD callers cannot remain stuck when playback is interrupted.
 - Shuts down the engine when the voice activity is destroyed.
 
 ## Validation
