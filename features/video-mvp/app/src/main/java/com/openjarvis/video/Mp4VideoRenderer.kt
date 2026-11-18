@@ -15,8 +15,6 @@ import android.opengl.EGL14
 import android.opengl.EGLExt
 import android.opengl.GLES20
 import android.opengl.GLUtils
-import android.os.Handler
-import android.os.Looper
 import android.os.SystemClock
 import android.os.StatFs
 import android.view.Surface
@@ -46,7 +44,6 @@ data class VideoRenderResult(
 /** Silent local renderer; no network, account, publishing or external-storage dependency. */
 class Mp4VideoRenderer(context: Context) {
     private val appContext = context.applicationContext
-    private val mainHandler = Handler(Looper.getMainLooper())
 
     suspend fun render(
         spec: VideoRenderSpec,
@@ -127,7 +124,9 @@ class Mp4VideoRenderer(context: Context) {
                     })
                     if (frame % 4 == 0 || frame == spec.frameCount - 1) {
                         val done = frame + 1
-                        mainHandler.post { onProgress(done, spec.frameCount) }
+                        // Invoke synchronously on the render dispatcher: callers can cancel deterministically,
+                        // and no queued progress callback can overwrite the terminal UI state after render returns.
+                        onProgress(done, spec.frameCount)
                     }
                 }
             } finally {
