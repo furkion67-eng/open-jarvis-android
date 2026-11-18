@@ -77,4 +77,32 @@ class TurkishTtsPolicyTest {
         assertFalse(TurkishTtsPolicy.requiresNetwork(setOf("embeddedTts")))
     }
 
+
+    @Test
+    fun stopOrReleaseDrainsPendingHandoffsExactlyOnce() {
+        val callbacks = PendingUtteranceCallbacks()
+        var completed = 0
+        callbacks.register("first") { completed += 1 }
+        callbacks.register("second") { completed += 1 }
+
+        callbacks.completeAll()
+        callbacks.completeAll()
+
+        assertEquals("Every pending handoff is completed once", 2, completed)
+    }
+
+    @Test
+    fun replacingAnUtteranceDiscardsOnlyTheOlderHandoff() {
+        val callbacks = PendingUtteranceCallbacks()
+        var oldCompleted = 0
+        var latestCompleted = 0
+        callbacks.register("old") { oldCompleted += 1 }
+
+        callbacks.discardAll()
+        callbacks.register("latest") { latestCompleted += 1 }
+        callbacks.completeAll()
+
+        assertEquals(0, oldCompleted)
+        assertEquals(1, latestCompleted)
+    }
 }
