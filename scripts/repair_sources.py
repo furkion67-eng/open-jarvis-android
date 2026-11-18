@@ -2560,23 +2560,23 @@ data class MCPTool(
 mcp_manager_path = root / "app/src/main/java/com/openjarvis/mcp/MCPManager.kt"
 if mcp_manager_path.exists():
     manager_text = mcp_manager_path.read_text()
-    manager_text = manager_text.replace("import com.openjarvis.llm.HttpClient\\n", "")
+    manager_text = manager_text.replace("import com.openjarvis.llm.HttpClient" + chr(10), "")
     mcp_manager_path.write_text(manager_text)
 
 app_gradle_path = root / "app/build.gradle"
 if app_gradle_path.exists():
     gradle_text = app_gradle_path.read_text()
     gradle_text = gradle_text.replace(
-        "    implementation 'com.squareup.okhttp3:logging-interceptor:4.12.0'\\n",
+        "    implementation 'com.squareup.okhttp3:logging-interceptor:4.12.0'" + chr(10),
         ""
     )
     if "mockwebserver:4.12.0" not in gradle_text:
-        anchor = "    testImplementation 'org.json:json:20231013'\\n"
+        anchor = "    testImplementation 'org.json:json:20231013'" + chr(10)
         if anchor not in gradle_text:
             raise SystemExit("Issue #14: app/build.gradle test dependency anchor not found")
         gradle_text = gradle_text.replace(
             anchor,
-            anchor + "    testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'\\n",
+            anchor + "    testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'" + chr(10),
             1
         )
     app_gradle_path.write_text(gradle_text)
