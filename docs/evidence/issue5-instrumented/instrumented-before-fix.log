@@ -1,0 +1,237 @@
+INSTRUMENTATION_STATUS: class=com.openjarvis.commands.ConfirmationGatingInstrumentedTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=10
+INSTRUMENTATION_STATUS: stream=
+com.openjarvis.commands.ConfirmationGatingInstrumentedTest:
+INSTRUMENTATION_STATUS: test=callCommandWaitsForConfirmationAndCancelDoesNothing
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.openjarvis.commands.ConfirmationGatingInstrumentedTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=10
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=callCommandWaitsForConfirmationAndCancelDoesNothing
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_STATUS: class=com.openjarvis.commands.ConfirmationGatingInstrumentedTest
+INSTRUMENTATION_STATUS: current=2
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=10
+INSTRUMENTATION_STATUS: stream=
+INSTRUMENTATION_STATUS: test=sendSmsConfirmationRequiresExplicitConfirmBeforeSending
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.openjarvis.commands.ConfirmationGatingInstrumentedTest
+INSTRUMENTATION_STATUS: current=2
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=10
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=sendSmsConfirmationRequiresExplicitConfirmBeforeSending
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_STATUS: class=com.openjarvis.commands.ConfirmationGatingInstrumentedTest
+INSTRUMENTATION_STATUS: current=3
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=10
+INSTRUMENTATION_STATUS: stream=
+INSTRUMENTATION_STATUS: test=confirmingSmsWithoutSendSmsPermissionNeverClaimsSent
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.openjarvis.commands.ConfirmationGatingInstrumentedTest
+INSTRUMENTATION_STATUS: current=3
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=10
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=confirmingSmsWithoutSendSmsPermissionNeverClaimsSent
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_STATUS: class=com.openjarvis.commands.ConfirmationGatingInstrumentedTest
+INSTRUMENTATION_STATUS: current=4
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=10
+INSTRUMENTATION_STATUS: stream=
+INSTRUMENTATION_STATUS: test=missingContactsPermissionReportsTurkishErrorInsteadOfCrashing
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.openjarvis.commands.ConfirmationGatingInstrumentedTest
+INSTRUMENTATION_STATUS: current=4
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=10
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=missingContactsPermissionReportsTurkishErrorInsteadOfCrashing
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_STATUS: class=com.openjarvis.commands.ConfirmationGatingInstrumentedTest
+INSTRUMENTATION_STATUS: current=5
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=10
+INSTRUMENTATION_STATUS: stream=
+INSTRUMENTATION_STATUS: test=missingBodyWaitsForUserInputThenConfirmationThenFreeTextIsNotAnAnswer
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.openjarvis.commands.ConfirmationGatingInstrumentedTest
+INSTRUMENTATION_STATUS: current=5
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=10
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=missingBodyWaitsForUserInputThenConfirmationThenFreeTextIsNotAnAnswer
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_STATUS: class=com.openjarvis.commands.ConfirmationGatingInstrumentedTest
+INSTRUMENTATION_STATUS: current=6
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=10
+INSTRUMENTATION_STATUS: stream=
+INSTRUMENTATION_STATUS: test=spokenCancelResolvesPendingSmsWithoutSendingAnything
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.openjarvis.commands.ConfirmationGatingInstrumentedTest
+INSTRUMENTATION_STATUS: current=6
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=10
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=spokenCancelResolvesPendingSmsWithoutSendingAnything
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_STATUS: class=com.openjarvis.graphify.AnalysisEngineTest
+INSTRUMENTATION_STATUS: current=7
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=10
+INSTRUMENTATION_STATUS: stream=
+com.openjarvis.graphify.AnalysisEngineTest:
+INSTRUMENTATION_STATUS: test=confidenceDecaysAfterSevenDaysStale
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.openjarvis.graphify.AnalysisEngineTest
+INSTRUMENTATION_STATUS: current=7
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=10
+INSTRUMENTATION_STATUS: stack=java.lang.IllegalArgumentException: Dispatcher must implement TestDispatcher: Dispatchers.IO
+	at kotlinx.coroutines.test.TestScopeKt.withDelaySkipping(TestScope.kt:202)
+	at kotlinx.coroutines.test.TestScopeKt.TestScope(TestScope.kt:168)
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0(TestBuilders.kt:166)
+	at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0(Unknown Source:1)
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0$default(TestBuilders.kt:158)
+	at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0$default(Unknown Source:1)
+	at com.openjarvis.graphify.AnalysisEngineTest.confidenceDecaysAfterSevenDaysStale(AnalysisEngineTest.kt:39)
+
+INSTRUMENTATION_STATUS: stream=
+Error in confidenceDecaysAfterSevenDaysStale(com.openjarvis.graphify.AnalysisEngineTest):
+java.lang.IllegalArgumentException: Dispatcher must implement TestDispatcher: Dispatchers.IO
+	at kotlinx.coroutines.test.TestScopeKt.withDelaySkipping(TestScope.kt:202)
+	at kotlinx.coroutines.test.TestScopeKt.TestScope(TestScope.kt:168)
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0(TestBuilders.kt:166)
+	at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0(Unknown Source:1)
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0$default(TestBuilders.kt:158)
+	at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0$default(Unknown Source:1)
+	at com.openjarvis.graphify.AnalysisEngineTest.confidenceDecaysAfterSevenDaysStale(AnalysisEngineTest.kt:39)
+
+INSTRUMENTATION_STATUS: test=confidenceDecaysAfterSevenDaysStale
+INSTRUMENTATION_STATUS_CODE: -2
+INSTRUMENTATION_STATUS: class=com.openjarvis.graphify.AnalysisEngineTest
+INSTRUMENTATION_STATUS: current=8
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=10
+INSTRUMENTATION_STATUS: stream=
+INSTRUMENTATION_STATUS: test=contactFuzzyMatchWithinDistanceTwo
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.openjarvis.graphify.AnalysisEngineTest
+INSTRUMENTATION_STATUS: current=8
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=10
+INSTRUMENTATION_STATUS: stack=java.lang.IllegalArgumentException: Dispatcher must implement TestDispatcher: Dispatchers.IO
+	at kotlinx.coroutines.test.TestScopeKt.withDelaySkipping(TestScope.kt:202)
+	at kotlinx.coroutines.test.TestScopeKt.TestScope(TestScope.kt:168)
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0(TestBuilders.kt:166)
+	at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0(Unknown Source:1)
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0$default(TestBuilders.kt:158)
+	at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0$default(Unknown Source:1)
+	at com.openjarvis.graphify.AnalysisEngineTest.contactFuzzyMatchWithinDistanceTwo(AnalysisEngineTest.kt:68)
+
+INSTRUMENTATION_STATUS: stream=
+Error in contactFuzzyMatchWithinDistanceTwo(com.openjarvis.graphify.AnalysisEngineTest):
+java.lang.IllegalArgumentException: Dispatcher must implement TestDispatcher: Dispatchers.IO
+	at kotlinx.coroutines.test.TestScopeKt.withDelaySkipping(TestScope.kt:202)
+	at kotlinx.coroutines.test.TestScopeKt.TestScope(TestScope.kt:168)
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0(TestBuilders.kt:166)
+	at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0(Unknown Source:1)
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0$default(TestBuilders.kt:158)
+	at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0$default(Unknown Source:1)
+	at com.openjarvis.graphify.AnalysisEngineTest.contactFuzzyMatchWithinDistanceTwo(AnalysisEngineTest.kt:68)
+
+INSTRUMENTATION_STATUS: test=contactFuzzyMatchWithinDistanceTwo
+INSTRUMENTATION_STATUS_CODE: -2
+INSTRUMENTATION_STATUS: class=com.openjarvis.graphify.AnalysisEngineTest
+INSTRUMENTATION_STATUS: current=9
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=10
+INSTRUMENTATION_STATUS: stream=
+INSTRUMENTATION_STATUS: test=threeIdenticalSequencesCreatePatternNodeWithPositiveConfidence
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.openjarvis.graphify.AnalysisEngineTest
+INSTRUMENTATION_STATUS: current=9
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=10
+INSTRUMENTATION_STATUS: stack=java.lang.IllegalArgumentException: Dispatcher must implement TestDispatcher: Dispatchers.IO
+	at kotlinx.coroutines.test.TestScopeKt.withDelaySkipping(TestScope.kt:202)
+	at kotlinx.coroutines.test.TestScopeKt.TestScope(TestScope.kt:168)
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0(TestBuilders.kt:166)
+	at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0(Unknown Source:1)
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0$default(TestBuilders.kt:158)
+	at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0$default(Unknown Source:1)
+	at com.openjarvis.graphify.AnalysisEngineTest.threeIdenticalSequencesCreatePatternNodeWithPositiveConfidence(AnalysisEngineTest.kt:15)
+
+INSTRUMENTATION_STATUS: stream=
+Error in threeIdenticalSequencesCreatePatternNodeWithPositiveConfidence(com.openjarvis.graphify.AnalysisEngineTest):
+java.lang.IllegalArgumentException: Dispatcher must implement TestDispatcher: Dispatchers.IO
+	at kotlinx.coroutines.test.TestScopeKt.withDelaySkipping(TestScope.kt:202)
+	at kotlinx.coroutines.test.TestScopeKt.TestScope(TestScope.kt:168)
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0(TestBuilders.kt:166)
+	at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0(Unknown Source:1)
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0$default(TestBuilders.kt:158)
+	at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0$default(Unknown Source:1)
+	at com.openjarvis.graphify.AnalysisEngineTest.threeIdenticalSequencesCreatePatternNodeWithPositiveConfidence(AnalysisEngineTest.kt:15)
+
+INSTRUMENTATION_STATUS: test=threeIdenticalSequencesCreatePatternNodeWithPositiveConfidence
+INSTRUMENTATION_STATUS_CODE: -2
+INSTRUMENTATION_STATUS: class=com.openjarvis.graphify.GraphifyDbRecoveryInstrumentedTest
+INSTRUMENTATION_STATUS: current=10
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=10
+INSTRUMENTATION_STATUS: stream=
+com.openjarvis.graphify.GraphifyDbRecoveryInstrumentedTest:
+INSTRUMENTATION_STATUS: test=legacyDatabaseIsBackedUpAndRoomCreatesFreshSchema
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.openjarvis.graphify.GraphifyDbRecoveryInstrumentedTest
+INSTRUMENTATION_STATUS: current=10
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=10
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=legacyDatabaseIsBackedUpAndRoomCreatesFreshSchema
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_RESULT: stream=
+
+Time: 1.89
+There were 3 failures:
+1) confidenceDecaysAfterSevenDaysStale(com.openjarvis.graphify.AnalysisEngineTest)
+java.lang.IllegalArgumentException: Dispatcher must implement TestDispatcher: Dispatchers.IO
+	at kotlinx.coroutines.test.TestScopeKt.withDelaySkipping(TestScope.kt:202)
+	at kotlinx.coroutines.test.TestScopeKt.TestScope(TestScope.kt:168)
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0(TestBuilders.kt:166)
+	at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0(Unknown Source:1)
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0$default(TestBuilders.kt:158)
+	at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0$default(Unknown Source:1)
+	at com.openjarvis.graphify.AnalysisEngineTest.confidenceDecaysAfterSevenDaysStale(AnalysisEngineTest.kt:39)
+2) contactFuzzyMatchWithinDistanceTwo(com.openjarvis.graphify.AnalysisEngineTest)
+java.lang.IllegalArgumentException: Dispatcher must implement TestDispatcher: Dispatchers.IO
+	at kotlinx.coroutines.test.TestScopeKt.withDelaySkipping(TestScope.kt:202)
+	at kotlinx.coroutines.test.TestScopeKt.TestScope(TestScope.kt:168)
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0(TestBuilders.kt:166)
+	at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0(Unknown Source:1)
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0$default(TestBuilders.kt:158)
+	at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0$default(Unknown Source:1)
+	at com.openjarvis.graphify.AnalysisEngineTest.contactFuzzyMatchWithinDistanceTwo(AnalysisEngineTest.kt:68)
+3) threeIdenticalSequencesCreatePatternNodeWithPositiveConfidence(com.openjarvis.graphify.AnalysisEngineTest)
+java.lang.IllegalArgumentException: Dispatcher must implement TestDispatcher: Dispatchers.IO
+	at kotlinx.coroutines.test.TestScopeKt.withDelaySkipping(TestScope.kt:202)
+	at kotlinx.coroutines.test.TestScopeKt.TestScope(TestScope.kt:168)
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0(TestBuilders.kt:166)
+	at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0(Unknown Source:1)
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0$default(TestBuilders.kt:158)
+	at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0$default(Unknown Source:1)
+	at com.openjarvis.graphify.AnalysisEngineTest.threeIdenticalSequencesCreatePatternNodeWithPositiveConfidence(AnalysisEngineTest.kt:15)
+
+FAILURES!!!
+Tests run: 10,  Failures: 3
+
+
+INSTRUMENTATION_CODE: -1
