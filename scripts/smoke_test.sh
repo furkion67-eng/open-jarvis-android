@@ -48,7 +48,7 @@ capture_post_instrumentation() {
   adb logcat -d -v threadtime > logcat-after-instrumented.txt 2>/dev/null || true
   adb shell dumpsys activity activities > activity-after-instrumented.txt 2>/dev/null || true
   adb shell dumpsys activity top > activity-top-after-instrumented.txt 2>/dev/null || true
-  adb shell dumpsys window windows > windows-after-instrumented.txt 2>/dev/null || true
+  adb shell dumpsys window > windows-after-instrumented.txt 2>/dev/null || true
   echo "Captured immediate post-instrumentation screenshot, crash buffer, ActivityManager and WindowManager state."
 }
 
@@ -58,7 +58,7 @@ verify_launcher_visible_after_tests() {
   if ! adb shell am start -W -n "$LAUNCHER" > launcher-start-after-instrumented.txt 2>&1; then
     echo "MainActivity could not be relaunched after instrumented tests."
     adb shell dumpsys activity activities > activity-main-activity-visible.txt 2>/dev/null || true
-    adb shell dumpsys window windows > windows-main-activity-visible.txt 2>/dev/null || true
+    adb shell dumpsys window > windows-main-activity-visible.txt 2>/dev/null || true
     adb logcat -d -b crash > crashlog-after-visible-launch.txt 2>/dev/null || true
     return 1
   fi
@@ -68,7 +68,7 @@ verify_launcher_visible_after_tests() {
   local visible=0
   while (( SECONDS < deadline )); do
     adb shell dumpsys activity activities > activity-main-activity-visible.txt 2>/dev/null || true
-    adb shell dumpsys window windows > windows-main-activity-visible.txt 2>/dev/null || true
+    adb shell dumpsys window > windows-main-activity-visible.txt 2>/dev/null || true
     if launcher_is_resumed_and_focused activity-main-activity-visible.txt windows-main-activity-visible.txt; then
       visible=1
       break
@@ -79,7 +79,7 @@ verify_launcher_visible_after_tests() {
   # Take one fresh sample after the bounded wait to avoid a timeout race.
   if [ "$visible" -ne 1 ]; then
     adb shell dumpsys activity activities > activity-main-activity-visible.txt 2>/dev/null || true
-    adb shell dumpsys window windows > windows-main-activity-visible.txt 2>/dev/null || true
+    adb shell dumpsys window > windows-main-activity-visible.txt 2>/dev/null || true
     if launcher_is_resumed_and_focused activity-main-activity-visible.txt windows-main-activity-visible.txt; then
       visible=1
       echo "MAIN-ACTIVITY-VISIBLE: final bounded recheck found the resumed launcher and focused window"
