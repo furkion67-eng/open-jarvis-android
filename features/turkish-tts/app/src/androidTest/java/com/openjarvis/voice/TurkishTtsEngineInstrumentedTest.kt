@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertTrue
+import org.junit.Assume
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.concurrent.CountDownLatch
@@ -90,32 +91,28 @@ class TurkishTtsEngineInstrumentedTest {
 
 
     @Test
-    fun releaseDuringCurrentUtteranceCompletesHandoffExactlyOnce() {
+    fun releaseDuringCurrentUtteranceDoesNotRestartSttAfterTeardown() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as Context
         lateinit var engine: AndroidTTSEngine
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             engine = AndroidTTSEngine(context)
         }
-        runBlocking {
+        val status = runBlocking {
             withTimeout(15_000) {
                 engine.status.first { it !is TurkishTtsStatus.Initializing }
             }
         }
+        Assume.assumeTrue("A Turkish voice is required to exercise an in-flight utterance", status is TurkishTtsStatus.Ready)
 
-        val handoff = CountDownLatch(1)
         val callbacks = AtomicInteger(0)
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            engine.speak(
-                "Bu uzun Türkçe cümle, konuşma tamamlanmadan motor kapatıldığında bekleyen görevin serbest bırakılmasını doğrular."
-            ) {
+            engine.speak("Bu uzun Türkçe cümle, etkinlik kapanırken bekleyen konuşma callback'inin dinlemeyi yeniden başlatmamasını doğrular.") {
                 callbacks.incrementAndGet()
-                handoff.countDown()
             }
             engine.release()
         }
-
-        assertTrue("Release must complete the pending STT handoff", handoff.await(2, TimeUnit.SECONDS))
-        assertTrue("Release must deliver the handoff exactly once", callbacks.get() == 1)
+        Thread.sleep(300)
+        assertTrue("Release must not invoke a stale STT handoff", callbacks.get() == 0)
         assertTrue(engine.status.value == TurkishTtsStatus.Released)
     }
 
