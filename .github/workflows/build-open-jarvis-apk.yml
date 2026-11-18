@@ -280,6 +280,11 @@ jobs:
             activity-after-instrumented.txt
             activity-top-after-instrumented.txt
             windows-after-instrumented.txt
+            launcher-start-after-instrumented.txt
+            activity-main-activity-visible.txt
+            windows-main-activity-visible.txt
+            screen-main-activity-visible.png
+            crashlog-after-visible-launch.txt
           if-no-files-found: warn
           retention-days: 7
 
