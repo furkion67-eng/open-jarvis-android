@@ -1,14 +1,11 @@
 package com.openjarvis.commands
 
-import android.app.Activity
 import android.app.ActivityManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Process
-import android.provider.Settings
 
 /** Android PackageManager/launcher-intent adapter for the allowlisted dispatcher. */
 class AndroidAppLaunchPlatform(private val context: Context) : AppLaunchPlatform {
@@ -46,33 +43,48 @@ class AndroidAppLaunchPlatform(private val context: Context) : AppLaunchPlatform
             AppLaunchAttempt.Started
         } catch (_: ActivityNotFoundException) {
             AppLaunchAttempt.IntentNotResolvable
-        } catch (_: SecurityException) {
-            AppLaunchAttempt.BackgroundRestricted
+        } catch (error: SecurityException) {
+            if (AppLaunchFailureClassifier.isBackgroundActivityStartDenied(
+                    error.javaClass.simpleName,
+                    error.message.orEmpty()
+                )
+            ) {
+                AppLaunchAttempt.BackgroundRestricted
+            } else {
+                AppLaunchAttempt.Failed
+            }
         } catch (error: RuntimeException) {
-            if (isBackgroundStartDenial(error)) AppLaunchAttempt.BackgroundRestricted
-            else AppLaunchAttempt.Failed
+            if (AppLaunchFailureClassifier.isBackgroundActivityStartDenied(
+                    error.javaClass.simpleName,
+                    error.message.orEmpty()
+                )
+            ) {
+                AppLaunchAttempt.BackgroundRestricted
+            } else {
+                AppLaunchAttempt.Failed
+            }
         }
     }
 
-    private fun canStartActivityFromCurrentAppState(): Boolean {
-        if (context is Activity && !context.isFinishing && !context.isDestroyed) return true
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && Settings.canDrawOverlays(context)) return true
+    private fun canStartActivityFromCurrentAppState(): Boolean =
+        AppLaunchVisibilityPolicy.mayStartActivity(currentProcessVisibility())
 
-        val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return false
+    @Suppress("DEPRECATION")
+    private fun currentProcessVisibility(): AppLaunchProcessVisibility {
+        val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+            ?: return AppLaunchProcessVisibility.UNKNOWN
         val process = manager.runningAppProcesses
             ?.firstOrNull { it.pid == Process.myPid() }
-            ?: return false
+            ?: return AppLaunchProcessVisibility.UNKNOWN
 
-        // A foreground service alone is not treated as a visible activity.
-        return process.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND ||
-            process.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_VISIBLE
-    }
-
-    private fun isBackgroundStartDenial(error: RuntimeException): Boolean {
-        val className = error.javaClass.simpleName
-        val message = error.message.orEmpty().lowercase()
-        return className.contains("BackgroundActivityStartDenied") ||
-            message.contains("background activity start") ||
-            message.contains("background start")
+        return when (process.importance) {
+            ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND ->
+                AppLaunchProcessVisibility.FOREGROUND
+            ActivityManager.RunningAppProcessInfo.IMPORTANCE_VISIBLE ->
+                AppLaunchProcessVisibility.VISIBLE
+            ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND_SERVICE ->
+                AppLaunchProcessVisibility.FOREGROUND_SERVICE
+            else -> AppLaunchProcessVisibility.BACKGROUND
+        }
     }
 }
