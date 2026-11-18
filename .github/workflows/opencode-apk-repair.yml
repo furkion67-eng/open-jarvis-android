@@ -80,7 +80,9 @@ jobs:
   read-only-agent-smoke:
     name: Read-only OpenCode startup and repository inspection
     needs: preflight
-    if: github.event_name == 'push' && github.ref == 'refs/heads/infra/issue29-opencode-model-catalog'
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/infra/issue29-opencode-model-catalog') ||
+      (github.event_name == 'workflow_dispatch' && inputs.enable_agent_writes == false)
     runs-on: ubuntu-latest
     timeout-minutes: 12
     permissions:
