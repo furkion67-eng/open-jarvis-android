@@ -2581,3 +2581,29 @@ def data_sync_permission(s):
 
 edit("app/src/main/AndroidManifest.xml", data_sync_permission)
 print("Applied HiOS SpeechRecognizer session reset, Android package visibility and dataSync FGS permission")
+
+
+# Issue #8 Stage A: install a bounded local silent MP4 prototype.
+video_feature_root = Path(__file__).resolve().parent.parent / "features" / "video-mvp"
+if not video_feature_root.is_dir():
+    raise SystemExit("Issue #8 video-mvp source overlay is missing")
+
+for source in sorted(video_feature_root.rglob("*.kt")):
+    relative = source.relative_to(video_feature_root)
+    destination = root / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(source.read_bytes())
+
+video_dashboard_path = root / "app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt"
+video_dashboard_text = video_dashboard_path.read_text()
+video_dashboard_anchor = "            TaskControlCenter(modifier = Modifier.fillMaxWidth())"
+if "VideoMvpPanel(" not in video_dashboard_text:
+    if video_dashboard_anchor not in video_dashboard_text:
+        raise SystemExit("DashboardScreen task control center anchor not found for video MVP")
+    video_dashboard_text = video_dashboard_text.replace(
+        video_dashboard_anchor,
+        video_dashboard_anchor + "\n            VideoMvpPanel(modifier = Modifier.fillMaxWidth())",
+        1
+    )
+video_dashboard_path.write_text(video_dashboard_text)
+print("Installed Issue #8 local silent MP4 prototype")
