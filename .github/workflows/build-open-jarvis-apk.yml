@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: Assert exact commit on push
         if: github.event_name == 'push'
         shell: bash
@@ -31,7 +33,7 @@ jobs:
           echo "Checked out SHA: $actual"
           test "$actual" = "$GITHUB_SHA"
 
-      - name: Assert PR #31 TTS source is unchanged by CI overlay
+      - name: "Assert PR #31 TTS source is unchanged by CI overlay"
         shell: bash
         env:
           EXPECTED_TTS_SOURCE_SHA: f76d22328ded073c8d0f942f77bc288fe0c4ecd6
