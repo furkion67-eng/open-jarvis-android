@@ -83,4 +83,14 @@ class AppLaunchDispatcherTest {
         assertTrue(!message.contains("açıldı"))
         assertTrue(AppLaunchMessages.forResult(AppLaunchResult.BackgroundRestricted(target)).contains("arka planda"))
     }
+    @Test
+    fun reportsGenericAndroidLaunchFailureInTurkish() {
+        val target = AppLaunchRegistry.find("whatsapp")!!
+        val result = AppLaunchDispatcher(
+            FakePlatform(mapOf("com.whatsapp" to AppLaunchAttempt.Failed))
+        ).dispatch("WhatsApp")
+        assertTrue(result is AppLaunchResult.LaunchFailed)
+        assertTrue(AppLaunchMessages.forResult(result).contains("açılamadı"))
+    }
+
 }
