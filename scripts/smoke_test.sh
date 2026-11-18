@@ -60,25 +60,62 @@ verify_launcher_visible_after_tests() {
     return 1
   fi
 
+  # Match only the current resumed Activity and current focused window.
+  # Fixed-string checks avoid fragile escaping in grep's regular expressions.
+  launcher_is_resumed_and_focused() {
+    tr -d '\r' < activity-main-activity-visible.txt | awk '
+      /topResumedActivity=|ResumedActivity:/ {
+        if (index($0, "com.openjarvis/.ui.MainActivity") > 0) found = 1
+      }
+      END { exit(found ? 0 : 1) }
+    ' || return 1
+
+    tr -d '\r' < windows-main-activity-visible.txt | awk '
+      /mCurrentFocus=Window/ {
+        if (index($0, "com.openjarvis/com.openjarvis.ui.MainActivity") > 0) found = 1
+      }
+      END { exit(found ? 0 : 1) }
+    '
+  }
+
   local deadline=$((SECONDS + 20))
   local visible=0
   while (( SECONDS < deadline )); do
     adb shell dumpsys activity activities > activity-main-activity-visible.txt 2>/dev/null || true
     adb shell dumpsys window windows > windows-main-activity-visible.txt 2>/dev/null || true
-    if grep -Eq 'topResumedActivity=.*com\.openjarvis/\.ui\.MainActivity|ResumedActivity:.*com\.openjarvis/\.ui\.MainActivity' activity-main-activity-visible.txt \
-      && grep -Eq 'mCurrentFocus=Window.*com\.openjarvis' windows-main-activity-visible.txt; then
+    if launcher_is_resumed_and_focused; then
       visible=1
       break
     fi
     sleep 1
   done
 
+  # Take one fresh sample after the bounded wait to avoid a timeout race.
   if [ "$visible" -ne 1 ]; then
-    echo "---- ActivityManager state ----"
+    adb shell dumpsys activity activities > activity-main-activity-visible.txt 2>/dev/null || true
+    adb shell dumpsys window windows > windows-main-activity-visible.txt 2>/dev/null || true
+    if launcher_is_resumed_and_focused; then
+      visible=1
+      echo "MAIN-ACTIVITY-VISIBLE: final bounded recheck found the resumed launcher and focused window"
+    fi
+  fi
+
+  if [ "$visible" -ne 1 ]; then
+    echo "---- ActivityManager current-resumed lines ----"
+    grep -E 'topResumedActivity=|ResumedActivity:' activity-main-activity-visible.txt || true
+    echo "---- WindowManager current-focus line ----"
+    grep -F 'mCurrentFocus=Window' windows-main-activity-visible.txt || true
+    echo "---- Full ActivityManager state ----"
     cat activity-main-activity-visible.txt || true
-    echo "---- WindowManager state ----"
+    echo "---- Full WindowManager state ----"
     cat windows-main-activity-visible.txt || true
     adb exec-out screencap -p > screen-main-activity-visible.png 2>/dev/null || true
+    adb logcat -d -b crash > crashlog-after-visible-launch.txt 2>/dev/null || true
+    echo "MainActivity did not become the resumed Activity with the focused JARVIS window within 20s."
+    return 1
+  fi
+
+  adb exec-out screencap -p > screen-main-activity-visible.png 2>/dev/null || true
     adb logcat -d -b crash > crashlog-after-visible-launch.txt 2>/dev/null || true
     echo "MainActivity did not become the resumed Activity with the focused JARVIS window within 20s."
     return 1
