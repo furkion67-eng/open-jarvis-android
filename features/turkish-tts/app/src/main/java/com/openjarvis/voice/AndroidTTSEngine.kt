@@ -24,7 +24,7 @@ class AndroidTTSEngine(context: Context) {
     // Accessed only on the main thread.
     private var tts: TextToSpeech? = null
     private var released = false
-    private val pendingCallbacks = linkedMapOf<String, () -> Unit>()
+    private val pendingCallbacks = PendingUtteranceCallbacks()
 
     @Volatile private var speaking = false
     @Volatile private var speechRate = TurkishTtsPolicy.DEFAULT_SPEECH_RATE
@@ -145,12 +145,12 @@ class AndroidTTSEngine(context: Context) {
 
             // QUEUE_FLUSH cancels older utterances. Drop their callbacks first so an
             // old AUTO_VAD handoff cannot restart STT while the new utterance is speaking.
-            pendingCallbacks.clear()
+            pendingCallbacks.discardAll()
             engine.stop()
             speaking = false
 
             val utteranceId = "jarvis_${UUID.randomUUID()}"
-            if (onDone != null) pendingCallbacks[utteranceId] = onDone
+            if (onDone != null) pendingCallbacks.register(utteranceId, onDone)
             val result = runCatching {
                 engine.speak(clean, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
             }.getOrDefault(TextToSpeech.ERROR)
@@ -173,7 +173,7 @@ class AndroidTTSEngine(context: Context) {
 
     fun stop() {
         onMain {
-            pendingCallbacks.clear()
+            pendingCallbacks.completeAll()
             speaking = false
             runCatching { tts?.stop() }
         }
@@ -197,7 +197,7 @@ class AndroidTTSEngine(context: Context) {
         onMain {
             if (released) return@onMain
             released = true
-            pendingCallbacks.clear()
+            pendingCallbacks.completeAll()
             speaking = false
             runCatching { tts?.stop() }
             runCatching { tts?.shutdown() }
@@ -207,11 +207,7 @@ class AndroidTTSEngine(context: Context) {
     }
 
     private fun completeCallback(utteranceId: String) {
-        onMain {
-            pendingCallbacks.remove(utteranceId)?.let { callback ->
-                runCatching { callback() }
-            }
-        }
+        onMain { pendingCallbacks.complete(utteranceId) }
     }
 
     private fun onMain(block: () -> Unit) {
