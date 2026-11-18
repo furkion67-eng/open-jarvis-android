@@ -4,7 +4,7 @@ This is a deliberately small Android-only renderer, not a full content-generatio
 
 - Accepts a short topic and creates a 6-second 9:16 H.264/MP4 title-card draft.
 - Uses Android MediaCodec, MediaMuxer, EGL14 and OpenGL ES; no FFmpeg, cloud service, API key, paid service or extra manifest permission is required.
-- Runs on Dispatchers.IO, checks coroutine cancellation between frames, limits dimensions/FPS/duration/bitrate and caps the output at 24 MB.
+- Runs on Dispatchers.IO, checks coroutine cancellation between frames, limits dimensions/FPS/duration/bitrate, checks free disk space before rendering and caps the output at 24 MB.
 - Stores output under app-private filesDir/jarvis-videos; partial files are deleted after failure/cancellation.
 - Validates the final MP4 with MediaExtractor before reporting success.
 
