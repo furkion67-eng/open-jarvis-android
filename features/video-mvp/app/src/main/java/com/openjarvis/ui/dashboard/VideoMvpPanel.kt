@@ -72,8 +72,8 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
                             val result = Mp4VideoRenderer(context).render(VideoRenderSpec.sample(topic)) { done, total ->
                                 progress = done.toFloat() / total.toFloat()
                             }
-                            output = "\${result.file.name} · \${result.sizeBytes / 1024} KB"
-                            status = "Video hazır: \${result.width}×\${result.height}, \${result.durationMs / 1000} sn"
+                            output = "${result.file.name} · ${result.sizeBytes / 1024} KB"
+                            status = "Video hazır: ${result.width}×${result.height}, ${result.durationMs / 1000} sn"
                             progress = 1f
                         } catch (cancelled: CancellationException) {
                             status = "Video oluşturma iptal edildi."
@@ -101,7 +101,7 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
                 }
             }
             Text(status, style = MaterialTheme.typography.bodySmall)
-            output?.let { Text("Kaydedildi: \$it", style = MaterialTheme.typography.bodySmall) }
+            output?.let { Text("Kaydedildi: $it", style = MaterialTheme.typography.bodySmall) }
             Text(
                 "Dosya uygulamanın özel alanında saklanır. Bu prototipte seslendirme, yapay zekâ görselleri, altyazı, galeri dışa aktarımı ve sosyal medya paylaşımı yoktur.",
                 style = MaterialTheme.typography.bodySmall
