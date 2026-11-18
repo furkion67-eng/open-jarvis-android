@@ -110,12 +110,25 @@ jobs:
           p = 'app/src/main/AndroidManifest.xml'
           root = ET.parse(p).getroot()
           ns = '{http://schemas.android.com/apk/res/android}'
+          declared_permissions = {node.get(ns + 'name') for node in root.findall('uses-permission')}
           print('===== Declared permissions (preserved as approved) =====')
-          for node in root.findall('uses-permission'):
-              print(node.get(ns + 'name'))
-          print('===== Services and protection =====')
+          for permission in sorted(declared_permissions):
+              print(permission)
+          print('===== Services and foreground-service requirements =====')
+          type_permissions = {
+              'dataSync': 'android.permission.FOREGROUND_SERVICE_DATA_SYNC',
+              'specialUse': 'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
+          }
           for node in root.findall('./application/service'):
-              print(node.get(ns + 'name'), 'permission=', node.get(ns + 'permission'))
+              service_name = node.get(ns + 'name')
+              service_type = node.get(ns + 'foregroundServiceType', '')
+              print(service_name, 'permission=', node.get(ns + 'permission'), 'foregroundServiceType=', service_type)
+              if service_type and 'android.permission.FOREGROUND_SERVICE' not in declared_permissions:
+                  print(f'::warning:: {service_name} declares a foreground service but FOREGROUND_SERVICE is missing')
+              for service_kind in service_type.split('|'):
+                  required = type_permissions.get(service_kind)
+                  if required and required not in declared_permissions:
+                      print(f'::warning:: {service_name} declares foregroundServiceType={service_kind}; add {required} for targetSdk 34 compatibility (Android 14+)')
           PY
 
       - name: Set up JDK 17
@@ -219,6 +232,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+
+      - name: Validate smoke harness syntax
+        run: bash -n scripts/smoke_test.sh
 
       - name: Download app APK
         uses: actions/download-artifact@v8
