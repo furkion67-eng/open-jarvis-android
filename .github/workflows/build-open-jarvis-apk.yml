@@ -295,6 +295,10 @@ jobs:
             logcat-full.txt
             instrumented.log
             databases.txt
+            activity-*.txt
+            windows-*.txt
+            crashlog-*.txt
+            logcat-*.txt
             screen-after-instrumented.png
             crashlog-after-instrumented.txt
             logcat-after-instrumented.txt
