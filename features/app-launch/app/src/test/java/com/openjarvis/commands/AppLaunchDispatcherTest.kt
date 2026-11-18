@@ -6,6 +6,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppLaunchDispatcherTest {
+    private val target = AppLaunchRegistry.find("whatsapp")!!
+
     private class FakePlatform(private val outcomes: Map<String, AppLaunchAttempt>) : AppLaunchPlatform {
         val calls = mutableListOf<String>()
         override fun launch(packageName: String): AppLaunchAttempt {
