@@ -45,6 +45,10 @@ data class VideoRenderResult(
 class Mp4VideoRenderer(context: Context) {
     private val appContext = context.applicationContext
 
+    /**
+     * Renders on Dispatchers.IO. Progress is called synchronously on that dispatcher;
+     * callbacks must be lightweight and safe to invoke off the main thread.
+     */
     suspend fun render(
         spec: VideoRenderSpec,
         onProgress: (completedFrames: Int, totalFrames: Int) -> Unit = { _, _ -> }
