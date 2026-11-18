@@ -68,7 +68,7 @@ class Mp4VideoRenderer(context: Context) {
         if (!outputDir.exists() && !outputDir.mkdirs()) {
             throw VideoRenderException("JARVIS video klasörü oluşturulamadı.")
         }
-        val output = File(outputDir, "jarvis-\${System.currentTimeMillis()}-\${UUID.randomUUID()}.mp4")
+        val output = File(outputDir, "jarvis-${System.currentTimeMillis()}-${UUID.randomUUID()}.mp4")
         var codec: MediaCodec? = null
         var inputSurface: Surface? = null
         var muxer: MediaMuxer? = null
