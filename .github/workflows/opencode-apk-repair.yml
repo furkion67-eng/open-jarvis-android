@@ -5,12 +5,21 @@ on:
     types: [created]
   schedule:
     - cron: "*/15 * * * *"
+  push:
+    branches: ["infra/issue29-opencode-model-catalog"]
   workflow_dispatch:
+    inputs:
+      enable_agent_writes:
+        description: "Allow the write-capable agent only after main branch protection is enabled"
+        required: true
+        default: false
+        type: boolean
 
+# Read-only by default. Only the gated develop job receives write permissions.
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
+  contents: read
+  pull-requests: read
+  issues: read
   actions: read
 
 concurrency:
@@ -18,13 +27,75 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  develop:
-    if: github.event_name != 'issue_comment' || contains(github.event.comment.body, '/opencode') || contains(github.event.comment.body, '/oc')
+  preflight:
+    name: Resolve live OpenCode model and check main write-safety
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      model: ${{ steps.resolve.outputs.model }}
+      main_protected: ${{ steps.branch.outputs.protected }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Test model-catalog selector
+        run: python3 scripts/test_resolve_opencode_model.py
+
+      - name: Fetch the current OpenCode public model catalogue
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error --retry 2 --retry-delay 2 \
+            https://opencode.ai/inference/v1/models \
+            --output "$RUNNER_TEMP/opencode-models.json"
+          python3 -m json.tool "$RUNNER_TEMP/opencode-models.json" >/dev/null
+
+      - name: Resolve a free tool-capable model from the live catalogue
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          model="$(python3 scripts/resolve_opencode_model.py "$RUNNER_TEMP/opencode-models.json")"
+          echo "Verified OpenCode model: $model"
+          echo "model=$model" >> "$GITHUB_OUTPUT"
+
+      - name: Require protected main before enabling the write-capable agent
+        id: branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          protected="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.protected')"
+          echo "main.protected=$protected"
+          echo "protected=$protected" >> "$GITHUB_OUTPUT"
+          if [ "$protected" != "true" ]; then
+            echo "::warning::main is not protected; the write-capable autonomous agent will be skipped."
+          fi
+
+  develop:
+    needs: preflight
+    if: >-
+      needs.preflight.outputs.main_protected == 'true' &&
+      (
+        github.event_name == 'schedule' ||
+        (github.event_name == 'workflow_dispatch' && inputs.enable_agent_writes == true) ||
+        (github.event_name == 'issue_comment' &&
+          (contains(github.event.comment.body, '/opencode') || contains(github.event.comment.body, '/oc')))
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: read
     timeout-minutes: 35
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -66,12 +137,11 @@ jobs:
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Run autonomous development agent
-        uses: anomalyco/opencode/github@latest
+        uses: anomalyco/opencode/github@77fc88c8ade8e5a620ebbe1197f3a572d29ae91a
         env:
-          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
           GITHUB_TOKEN: ${{ github.token }}
         with:
-          model: opencode/glm-5.3-flash-free
+          model: ${{ needs.preflight.outputs.model }}
           use_github_token: true
           prompt: |
             You are the autonomous software engineering agent for Open Jarvis Android.
