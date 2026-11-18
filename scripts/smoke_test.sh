@@ -63,10 +63,12 @@ verify_launcher_visible_after_tests() {
   # Match the current resumed Activity and focused window on the same sample.
   # grep -F avoids assumptions about Android's Window{token ...} formatting.
   launcher_is_resumed_and_focused() {
+    # Do not use grep -q on the right side of a pipe under pipefail:
+    # early exit can SIGPIPE the upstream grep even when a match exists.
     grep -E 'topResumedActivity=|ResumedActivity:' activity-main-activity-visible.txt |
-      grep -Fq 'com.openjarvis/.ui.MainActivity' &&
+      grep -F 'com.openjarvis/.ui.MainActivity' >/dev/null &&
     grep -F 'mCurrentFocus=Window' windows-main-activity-visible.txt |
-      grep -Fq 'com.openjarvis/com.openjarvis.ui.MainActivity'
+      grep -F 'com.openjarvis/com.openjarvis.ui.MainActivity' >/dev/null
   }
 
   local deadline=$((SECONDS + 20))
