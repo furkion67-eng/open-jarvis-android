@@ -22,6 +22,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+      - name: Assert exact commit on push
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          actual="$(git rev-parse HEAD)"
+          echo "Expected pushed SHA: $GITHUB_SHA"
+          echo "Checked out SHA: $actual"
+          test "$actual" = "$GITHUB_SHA"
 
       - name: Extract source and locate project
         id: source
@@ -249,6 +257,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+      - name: Assert exact commit on push
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          actual="$(git rev-parse HEAD)"
+          echo "Expected pushed SHA: $GITHUB_SHA"
+          echo "Checked out SHA: $actual"
+          test "$actual" = "$GITHUB_SHA"
 
       - name: Validate smoke harness syntax and launcher matcher regression
         run: |
