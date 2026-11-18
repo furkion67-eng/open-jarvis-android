@@ -41,6 +41,10 @@ object TurkishTtsPolicy {
     /** Android TextToSpeech language availability values 0, 1 and 2 are supported. */
     fun isLanguageAvailable(result: Int): Boolean = result in LANGUAGE_AVAILABLE..COUNTRY_VARIANT_AVAILABLE
 
+    fun requiresNetwork(features: Set<String>): Boolean = features.any {
+        it.equals("network", ignoreCase = true) || it.equals("networkTts", ignoreCase = true)
+    }
+
     /**
      * Prefer exact tr-TR, then offline synthesis, higher quality, lower latency,
      * and finally a stable name tie-breaker. Non-Turkish voices are never eligible.

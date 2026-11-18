@@ -70,4 +70,11 @@ class TurkishTtsPolicyTest {
         assertTrue(message.contains("tekrar dene"))
     }
 
+    @Test
+    fun recognizesAndroidNetworkSynthesisFeatureNames() {
+        assertTrue(TurkishTtsPolicy.requiresNetwork(setOf("networkTts")))
+        assertTrue(TurkishTtsPolicy.requiresNetwork(setOf("network")))
+        assertFalse(TurkishTtsPolicy.requiresNetwork(setOf("embeddedTts")))
+    }
+
 }

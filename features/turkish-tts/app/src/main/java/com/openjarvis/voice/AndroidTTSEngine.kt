@@ -78,9 +78,7 @@ class AndroidTTSEngine(context: Context) {
                 localeTag = voice.locale.toLanguageTag(),
                 quality = voice.quality,
                 latency = voice.latency,
-                requiresNetwork = voice.features.any {
-                    it.equals("network", ignoreCase = true) || it.equals("networkTts", ignoreCase = true)
-                }
+                requiresNetwork = TurkishTtsPolicy.requiresNetwork(voice.features)
             )
         }
         val selected = TurkishTtsPolicy.selectVoice(candidates)
