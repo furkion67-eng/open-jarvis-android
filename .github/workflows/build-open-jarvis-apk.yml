@@ -27,7 +27,7 @@ jobs:
         shell: bash
         run: |
           actual="$(git rev-parse HEAD)"
-          echo "Expected pushed SHA: $GITHUB_SHA"
+          echo "Expected exact push SHA: $GITHUB_SHA"
           echo "Checked out SHA: $actual"
           test "$actual" = "$GITHUB_SHA"
 
