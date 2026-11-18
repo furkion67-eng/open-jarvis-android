@@ -27,6 +27,10 @@ inputs:
   oidc_base_url:
     description: "OpenCode App OIDC endpoint"
     required: false
+  mode:
+    description: "github (opencode github run) or cli (opencode run)"
+    required: false
+    default: "github"
 
 runs:
   using: "composite"
@@ -49,8 +53,15 @@ runs:
 
     - name: Run OpenCode
       shell: bash
-      run: opencode github run
+      run: |
+        set -euo pipefail
+        if [ "${MODE}" = "cli" ]; then
+          opencode run --model "$MODEL" --agent "$AGENT" "$PROMPT"
+        else
+          opencode github run
+        fi
       env:
+        MODE: ${{ inputs.mode }}
         MODEL: ${{ inputs.model }}
         AGENT: ${{ inputs.agent }}
         SHARE: ${{ inputs.share }}
