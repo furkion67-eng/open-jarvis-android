@@ -8,8 +8,17 @@
 #      app data dir — the exact upgraded-device state that crashed Open Jarvis
 #      with "A migration from 1 to 3 was required but not found" — the app must
 #      stay alive and the database must be backed up as graphify.db.unmigratable-*;
-#   C) instrumented tests: full Room recovery end-to-end + analysis engine.
+#   C) instrumented tests: full Room recovery end-to-end + analysis engine;
+#   D) regardless of the instrumented suite result, relaunch MainActivity and
+#      preserve screenshot, crash buffer, ActivityManager and WindowManager
+#      evidence. This separates an instrumentation assertion failure from a
+#      real launcher crash.
+# Instrumented tests may intentionally open an external app (SMS fallback), so
+# their last screenshot is not necessarily the JARVIS launcher screen.
 set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/launcher_visibility_check.sh"
 
 APP_PKG="com.openjarvis"
 LAUNCHER="com.openjarvis/.ui.MainActivity"
@@ -32,6 +41,84 @@ logcat_scan() {
   adb logcat -d > logcat-full.txt 2>/dev/null || true
 }
 
+capture_post_instrumentation() {
+  # Preserve the immediate state after the test suite before changing focus.
+  adb exec-out screencap -p > screen-after-instrumented.png 2>/dev/null || true
+  adb logcat -d -b crash > crashlog-after-instrumented.txt 2>/dev/null || true
+  adb logcat -d -v threadtime > logcat-after-instrumented.txt 2>/dev/null || true
+  adb shell dumpsys activity activities > activity-after-instrumented.txt 2>/dev/null || true
+  adb shell dumpsys activity top > activity-top-after-instrumented.txt 2>/dev/null || true
+  adb shell dumpsys window windows > windows-after-instrumented.txt 2>/dev/null || true
+  echo "Captured immediate post-instrumentation screenshot, crash buffer, ActivityManager and WindowManager state."
+}
+
+verify_launcher_visible_after_tests() {
+  echo "=== Scenario D: relaunch and verify visible MainActivity after instrumented tests ==="
+  adb shell am force-stop "$APP_PKG" >/dev/null 2>&1 || true
+  if ! adb shell am start -W -n "$LAUNCHER" > launcher-start-after-instrumented.txt 2>&1; then
+    echo "MainActivity could not be relaunched after instrumented tests."
+    adb shell dumpsys activity activities > activity-main-activity-visible.txt 2>/dev/null || true
+    adb shell dumpsys window windows > windows-main-activity-visible.txt 2>/dev/null || true
+    adb logcat -d -b crash > crashlog-after-visible-launch.txt 2>/dev/null || true
+    return 1
+  fi
+
+  # Match the resumed Activity and focused JARVIS window from the same bounded sample.
+  local deadline=$((SECONDS + 20))
+  local visible=0
+  while (( SECONDS < deadline )); do
+    adb shell dumpsys activity activities > activity-main-activity-visible.txt 2>/dev/null || true
+    adb shell dumpsys window windows > windows-main-activity-visible.txt 2>/dev/null || true
+    if launcher_is_resumed_and_focused activity-main-activity-visible.txt windows-main-activity-visible.txt; then
+      visible=1
+      break
+    fi
+    sleep 1
+  done
+
+  # Take one fresh sample after the bounded wait to avoid a timeout race.
+  if [ "$visible" -ne 1 ]; then
+    adb shell dumpsys activity activities > activity-main-activity-visible.txt 2>/dev/null || true
+    adb shell dumpsys window windows > windows-main-activity-visible.txt 2>/dev/null || true
+    if launcher_is_resumed_and_focused activity-main-activity-visible.txt windows-main-activity-visible.txt; then
+      visible=1
+      echo "MAIN-ACTIVITY-VISIBLE: final bounded recheck found the resumed launcher and focused window"
+    fi
+  fi
+
+  if [ "$visible" -ne 1 ]; then
+    echo "---- ActivityManager current-resumed lines ----"
+    grep -E 'topResumedActivity=|ResumedActivity:' activity-main-activity-visible.txt || true
+    echo "---- WindowManager current-focus line ----"
+    grep -F 'mCurrentFocus=Window' windows-main-activity-visible.txt || true
+    echo "---- Full ActivityManager state ----"
+    cat activity-main-activity-visible.txt || true
+    echo "---- Full WindowManager state ----"
+    cat windows-main-activity-visible.txt || true
+    adb exec-out screencap -p > screen-main-activity-visible.png 2>/dev/null || true
+    adb logcat -d -b crash > crashlog-after-visible-launch.txt 2>/dev/null || true
+    echo "MainActivity did not become the resumed Activity with the focused JARVIS window within 20s."
+    return 1
+  fi
+
+  adb exec-out screencap -p > screen-main-activity-visible.png 2>/dev/null || {
+    echo "Could not capture the visible MainActivity screenshot."
+    return 1
+  }
+  test -s screen-main-activity-visible.png || {
+    echo "Visible MainActivity screenshot is empty."
+    return 1
+  }
+  adb logcat -d -b crash > crashlog-after-visible-launch.txt 2>/dev/null || true
+  if grep -q "FATAL EXCEPTION" crashlog-after-visible-launch.txt; then
+    cat crashlog-after-visible-launch.txt
+    echo "MainActivity relaunch produced a FATAL EXCEPTION."
+    return 1
+  fi
+  echo "MAIN-ACTIVITY-VISIBLE: resumed MainActivity and focused JARVIS window verified after instrumented tests"
+  return 0
+}
+
 launch_and_verify() {
   local label="$1"
   adb shell am start -n "$LAUNCHER" >/dev/null
@@ -43,7 +130,7 @@ launch_and_verify() {
     fail "$label: launcher process died within 20s"
   fi
   echo "$label: launcher process alive (pid=$pid) after 20s"
-  adb exec-out screencap -p > "screen-${label}.png" 2>/dev/null || true
+  adb exec-out screencap -p > "screen-$label.png" 2>/dev/null || true
   logcat_scan "$label"
 }
 
@@ -77,12 +164,29 @@ echo "legacy-db: recovery backup created, app stayed alive"
 
 echo "=== Scenario C: instrumented tests (Room recovery end-to-end + analysis engine) ==="
 adb install -r "$TEST_APK" >/dev/null || fail "test APK install failed"
+set +e
 adb shell am instrument -w "$APP_PKG.test/androidx.test.runner.AndroidJUnitRunner" | tee instrumented.log
-if ! grep -q "OK (" instrumented.log; then
-  fail "instrumented tests did not report OK"
+instrumented_exit=${PIPESTATUS[0]}
+set -e
+capture_post_instrumentation
+
+# Always perform the independent launcher check, even when an instrumented
+# assertion failed. Preserve its evidence before reporting the suite failure.
+set +e
+verify_launcher_visible_after_tests
+launcher_visible_exit=$?
+set -e
+
+if [ "$instrumented_exit" -ne 0 ] || ! grep -q "OK (" instrumented.log || grep -q "FAILURES" instrumented.log; then
+  if [ "$launcher_visible_exit" -eq 0 ]; then
+    echo "Launcher visibility passed independently; the instrumented assertion suite still failed."
+  else
+    echo "Launcher visibility check also failed; inspect the preserved Activity/Window/crash evidence."
+  fi
+  fail "instrumented tests did not pass (see instrumented.log and post-instrumentation evidence)"
 fi
-if grep -q "FAILURES" instrumented.log; then
-  fail "instrumented tests reported FAILURES"
+if [ "$launcher_visible_exit" -ne 0 ]; then
+  fail "MainActivity was not visibly resumed after instrumented tests"
 fi
 
-echo "SMOKE-OK: fresh launch, legacy-database launch and instrumented tests all passed"
+echo "SMOKE-OK: fresh launch, legacy-database recovery, instrumented tests and post-test MainActivity visibility all passed"
