@@ -63,16 +63,10 @@ verify_launcher_visible_after_tests() {
   # Match the current resumed Activity and focused window on the same sample.
   # grep -F avoids assumptions about Android's Window{token ...} formatting.
   launcher_is_resumed_and_focused() {
-    local resumed_line focused_line
-    resumed_line="$(
-      grep -E 'topResumedActivity=|ResumedActivity:' activity-main-activity-visible.txt |
-        grep -F 'com.openjarvis/.ui.MainActivity' | tail -n 1 || true
-    )"
-    focused_line="$(
-      grep -F 'mCurrentFocus=Window' windows-main-activity-visible.txt |
-        grep -F 'com.openjarvis/com.openjarvis.ui.MainActivity' | tail -n 1 || true
-    )"
-    [[ -n "$resumed_line" && -n "$focused_line" ]]
+    grep -E 'topResumedActivity=|ResumedActivity:' activity-main-activity-visible.txt |
+      grep -Fq 'com.openjarvis/.ui.MainActivity' &&
+    grep -F 'mCurrentFocus=Window' windows-main-activity-visible.txt |
+      grep -Fq 'com.openjarvis/com.openjarvis.ui.MainActivity'
   }
 
   local deadline=$((SECONDS + 20))
@@ -177,7 +171,7 @@ echo "=== Scenario C: instrumented tests (Room recovery end-to-end + analysis en
 adb install -r "$TEST_APK" >/dev/null || fail "test APK install failed"
 set +e
 adb shell am instrument -w "$APP_PKG.test/androidx.test.runner.AndroidJUnitRunner" | tee instrumented.log
-instrumented_exit=\${PIPESTATUS[0]}
+instrumented_exit=${PIPESTATUS[0]}
 set -e
 capture_post_instrumentation
 
