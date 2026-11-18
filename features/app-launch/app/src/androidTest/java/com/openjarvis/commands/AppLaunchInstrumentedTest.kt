@@ -3,6 +3,7 @@ package com.openjarvis.commands
 import android.content.Intent
 import androidx.test.platform.app.InstrumentationRegistry
 import com.openjarvis.ui.MainActivity
+import com.openjarvis.ui.VoiceCommandActivity
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -12,10 +13,10 @@ class AppLaunchInstrumentedTest {
     fun packageManagerLaunchIntentStartsTheKnownJarvisLauncherActivity() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
-        val launcherIntent = Intent(Intent.ACTION_MAIN)
-            .setClassName(context.packageName, MainActivity::class.java.name)
+        val hostIntent = Intent()
+            .setClassName(context.packageName, VoiceCommandActivity::class.java.name)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        val hostActivity = instrumentation.startActivitySync(launcherIntent) as MainActivity
+        val hostActivity = instrumentation.startActivitySync(hostIntent) as VoiceCommandActivity
         val monitor = instrumentation.addMonitor(MainActivity::class.java.name, null, false)
         val testTarget = AppLaunchTarget(
             displayName = "JARVIS test",
