@@ -9,6 +9,8 @@
 #      with "A migration from 1 to 3 was required but not found" — the app must
 #      stay alive and the database must be backed up as graphify.db.unmigratable-*;
 #   C) instrumented tests: full Room recovery end-to-end + analysis engine.
+# Post-instrumentation screen, crash buffer, ActivityManager and WindowManager
+# state are always captured before interpreting test failures.
 set -euo pipefail
 
 APP_PKG="com.openjarvis"
@@ -30,6 +32,18 @@ logcat_scan() {
     fail "$label: FATAL EXCEPTION found in logcat crash buffer"
   fi
   adb logcat -d > logcat-full.txt 2>/dev/null || true
+}
+
+capture_post_instrumentation() {
+  # Capture the state after the instrumented launcher assertion, including
+  # failure cases. These files are uploaded by the workflow's always() step.
+  adb exec-out screencap -p > screen-after-instrumented.png 2>/dev/null || true
+  adb logcat -d -b crash > crashlog-after-instrumented.txt 2>/dev/null || true
+  adb logcat -d -v threadtime > logcat-after-instrumented.txt 2>/dev/null || true
+  adb shell dumpsys activity activities > activity-after-instrumented.txt 2>/dev/null || true
+  adb shell dumpsys activity top > activity-top-after-instrumented.txt 2>/dev/null || true
+  adb shell dumpsys window windows > windows-after-instrumented.txt 2>/dev/null || true
+  echo "Captured post-instrumentation screenshot, crash buffer, ActivityManager and WindowManager state."
 }
 
 launch_and_verify() {
@@ -77,12 +91,24 @@ echo "legacy-db: recovery backup created, app stayed alive"
 
 echo "=== Scenario C: instrumented tests (Room recovery end-to-end + analysis engine) ==="
 adb install -r "$TEST_APK" >/dev/null || fail "test APK install failed"
+set +e
 adb shell am instrument -w "$APP_PKG.test/androidx.test.runner.AndroidJUnitRunner" | tee instrumented.log
+instrumented_exit=${PIPESTATUS[0]}
+set -e
+capture_post_instrumentation
+if [ "$instrumented_exit" -ne 0 ]; then
+  fail "instrumented command exited with status $instrumented_exit (see post-instrumentation evidence)"
+fi
+if grep -q "FATAL EXCEPTION" crashlog-after-instrumented.txt; then
+  echo "---- post-instrumentation crash buffer ----"
+  cat crashlog-after-instrumented.txt
+  fail "instrumented tests produced a FATAL EXCEPTION"
+fi
 if ! grep -q "OK (" instrumented.log; then
-  fail "instrumented tests did not report OK"
+  fail "instrumented tests did not report OK (see post-instrumentation evidence)"
 fi
 if grep -q "FAILURES" instrumented.log; then
-  fail "instrumented tests reported FAILURES"
+  fail "instrumented tests reported FAILURES (see post-instrumentation evidence)"
 fi
 
 echo "SMOKE-OK: fresh launch, legacy-database launch and instrumented tests all passed"
