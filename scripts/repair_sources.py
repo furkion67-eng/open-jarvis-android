@@ -2595,3 +2595,23 @@ for source in sorted(security_root.rglob("*")):
     destination.write_bytes(source.read_bytes())
 
 print("Applied Issue #14 provider/MCP HTTP log redaction and sentinel regression tests")
+
+
+# Keep the local Llama provider on the same no-sensitive-logging HTTP policy.
+llama_provider_path = root / "app/src/main/java/com/openjarvis/llm/providers/LlamaProvider.kt"
+llama_text = llama_provider_path.read_text()
+old_llama_client = """    private val client = okhttp3.OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .build()"""
+new_llama_client = """    private val client = HttpClient.buildClient(
+        connectTimeoutSeconds = 30,
+        readTimeoutSeconds = 60,
+        writeTimeoutSeconds = 10
+    )"""
+if old_llama_client in llama_text:
+    llama_text = llama_text.replace(old_llama_client, new_llama_client, 1)
+elif new_llama_client not in llama_text:
+    raise SystemExit("Issue #14: LlamaProvider HTTP client anchor not found")
+llama_text = llama_text.replace("import java.util.concurrent.TimeUnit" + chr(10), "")
+llama_provider_path.write_text(llama_text)
