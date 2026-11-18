@@ -2499,3 +2499,377 @@ if "TaskControlCenter(" not in dashboard_text:
     )
 dashboard_path.write_text(dashboard_text)
 print("Installed Issue #10 local task engine and Turkish task control center")
+
+
+
+# Issue #14: provider/MCP HTTP logging must never expose URLs, credentials or content.
+security_root = Path(__file__).resolve().parent.parent / "features" / "security-log-redaction"
+
+http_client_path = root / "app/src/main/java/com/openjarvis/llm/HttpClient.kt"
+http_client_path.write_text("""package com.openjarvis.llm
+
+import okhttp3.ConnectionPool
+import okhttp3.Interceptor
+import okhttp3.OkHttpClient
+import okhttp3.Response
+import java.io.IOException
+import java.util.concurrent.TimeUnit
+
+/**
+ * Allowlisted HTTP diagnostics: only method and response status are observable.
+ * URL/path/query, headers, request/response bodies and exception messages are never emitted.
+ */
+internal class SafeHttpMetadataInterceptor(
+    private val logSink: (String) -> Unit
+) : Interceptor {
+    override fun intercept(chain: Interceptor.Chain): Response {
+        val request = chain.request()
+        return try {
+            val response = chain.proceed(request)
+            logSink("HTTP " + request.method + " " + response.code)
+            response
+        } catch (error: IOException) {
+            logSink("HTTP " + request.method + " failed")
+            throw error
+        }
+    }
+}
+
+object HttpClient {
+    val client: OkHttpClient by lazy { buildClient() }
+
+    /**
+     * The same variant-independent client policy is used by debug and release.
+     * Production callers use the no-op sink; tests may inject a capture sink.
+     */
+    internal fun buildClient(
+        connectTimeoutSeconds: Long = 10,
+        readTimeoutSeconds: Long = 30,
+        writeTimeoutSeconds: Long = 10,
+        logSink: (String) -> Unit = {}
+    ): OkHttpClient {
+        return OkHttpClient.Builder()
+            .connectionPool(
+                ConnectionPool(
+                    maxIdleConnections = 5,
+                    keepAliveDuration = 5,
+                    timeUnit = TimeUnit.MINUTES
+                )
+            )
+            .connectTimeout(connectTimeoutSeconds, TimeUnit.SECONDS)
+            .readTimeout(readTimeoutSeconds, TimeUnit.SECONDS)
+            .writeTimeout(writeTimeoutSeconds, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .addInterceptor(SafeHttpMetadataInterceptor(logSink))
+            .build()
+    }
+}
+""")
+
+gemini_provider_path = root / "app/src/main/java/com/openjarvis/llm/providers/GeminiProvider.kt"
+gemini_provider_path.write_text("""package com.openjarvis.llm.providers
+
+import com.openjarvis.llm.HttpClient
+import com.openjarvis.llm.LLMProvider
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+
+class GeminiProvider(
+    private val apiKey: String,
+    private val model: String = "gemini-1.5-flash"
+) : LLMProvider {
+
+    override val name: String = "Google Gemini"
+    override val baseUrl: String = "https://generativelanguage.googleapis.com/v1beta"
+
+    override suspend fun complete(
+        systemPrompt: String,
+        userMessage: String
+    ): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val fullPrompt = "$systemPrompt\\n\\nUser: $userMessage"
+            val requestBody = JSONObject().apply {
+                put("contents", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("role", "user")
+                        put("parts", JSONArray().apply {
+                            put(JSONObject().apply { put("text", fullPrompt) })
+                        })
+                    })
+                })
+                put("generationConfig", JSONObject().apply {
+                    put("temperature", 0.1)
+                    put("maxOutputTokens", 1024)
+                })
+            }.toString()
+
+            val request = GeminiRequestFactory.generateContentRequest(
+                baseUrl = baseUrl,
+                model = model,
+                apiKey = apiKey,
+                requestBody = requestBody
+            )
+
+            HttpClient.client.newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: throw Exception("Empty response")
+                val json = JSONObject(body)
+                when {
+                    json.has("candidates") -> json.getJSONArray("candidates")
+                        .getJSONObject(0)
+                        .getJSONObject("content")
+                        .getJSONArray("parts")
+                        .getJSONObject(0)
+                        .getString("text")
+                    json.has("error") -> throw Exception(
+                        json.getJSONObject("error").getString("message")
+                    )
+                    else -> throw Exception("Unknown Gemini response")
+                }
+            }
+        }
+    }
+
+    override suspend fun testConnection(): Result<Long> = withContext(Dispatchers.IO) {
+        runCatching {
+            val startTime = System.currentTimeMillis()
+            val request = GeminiRequestFactory.listModelsRequest(baseUrl, apiKey)
+            HttpClient.client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw Exception("HTTP " + response.code)
+            }
+            System.currentTimeMillis() - startTime
+        }
+    }
+}
+""")
+
+mcp_client_path = root / "app/src/main/java/com/openjarvis/mcp/MCPClient.kt"
+mcp_client_path.write_text("""package com.openjarvis.mcp
+
+import com.openjarvis.llm.HttpClient
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
+
+class MCPClient(
+    val server: MCPServer
+) {
+    private val client = createHttpClient()
+
+    private var isConnected = false
+    private var availableTools = emptyList<MCPTool>()
+
+    suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val requestBody = JSONObject().apply {
+                put("jsonrpc", "2.0")
+                put("id", 1)
+                put("method", "initialize")
+                put("params", JSONObject().apply {
+                    put("protocolVersion", "2024-11-05")
+                    put("capabilities", JSONObject())
+                    put("clientInfo", JSONObject().apply {
+                        put("name", "open-jarvis")
+                        put("version", "1.0.0")
+                    })
+                })
+            }.toString()
+
+            val request = Request.Builder()
+                .url(server.url)
+                .post(requestBody.toRequestBody("application/json".toMediaType()))
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext false
+                val body = response.body?.string() ?: return@withContext false
+                val json = JSONObject(body)
+                if (json.has("error")) return@withContext false
+                isConnected = true
+                true
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    suspend fun listTools(): List<MCPTool> = withContext(Dispatchers.IO) {
+        if (!isConnected) {
+            disconnect()
+            return@withContext emptyList()
+        }
+
+        try {
+            val requestBody = JSONObject().apply {
+                put("jsonrpc", "2.0")
+                put("id", 2)
+                put("method", "tools/list")
+            }.toString()
+
+            val request = Request.Builder()
+                .url(server.url)
+                .post(requestBody.toRequestBody("application/json".toMediaType()))
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: return@withContext emptyList()
+                val json = JSONObject(body)
+                val toolsArray = json.optJSONObject("result")?.optJSONArray("tools")
+                    ?: JSONArray()
+
+                availableTools = (0 until toolsArray.length()).map { index ->
+                    val tool = toolsArray.getJSONObject(index)
+                    MCPTool(
+                        name = tool.getString("name"),
+                        description = tool.optString("description", ""),
+                        inputSchema = tool.optJSONObject("inputSchema")
+                    )
+                }
+                availableTools
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    suspend fun callTool(toolName: String, arguments: JSONObject): String =
+        withContext(Dispatchers.IO) {
+            if (!isConnected) {
+                disconnect()
+                return@withContext "Error: Not connected"
+            }
+
+            try {
+                val requestBody = JSONObject().apply {
+                    put("jsonrpc", "2.0")
+                    put("id", 3)
+                    put("method", "tools/call")
+                    put("params", JSONObject().apply {
+                        put("name", toolName)
+                        put("arguments", arguments)
+                    })
+                }.toString()
+
+                val request = Request.Builder()
+                    .url(server.url)
+                    .post(requestBody.toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                client.newCall(request).execute().use { response ->
+                    val body = response.body?.string()
+                        ?: return@withContext "Error: Empty response"
+                    val json = JSONObject(body)
+                    if (json.has("error")) {
+                        return@withContext "Error: " + json.getJSONObject("error").optString("message")
+                    }
+                    json.optJSONArray("result")
+                        ?.optJSONObject(0)
+                        ?.optString("content")
+                        ?: "Tool executed"
+                }
+            } catch (_: Exception) {
+                "Error: MCP request failed"
+            }
+        }
+
+    fun disconnect() {
+        isConnected = false
+        availableTools = emptyList()
+    }
+
+    fun isConnected(): Boolean = isConnected
+    fun getToolCount(): Int = availableTools.size
+
+    companion object {
+        const val HTTP = "http"
+        const val SSE = "sse"
+
+        internal fun createHttpClient(logSink: (String) -> Unit = {}): OkHttpClient =
+            HttpClient.buildClient(
+                connectTimeoutSeconds = 15,
+                readTimeoutSeconds = 30,
+                writeTimeoutSeconds = 10,
+                logSink = logSink
+            )
+    }
+}
+
+data class MCPServer(
+    val id: String,
+    val name: String,
+    val url: String,
+    val apiKey: String? = null,
+    val enabled: Boolean = true
+)
+
+data class MCPTool(
+    val name: String,
+    val description: String,
+    val inputSchema: JSONObject? = null
+)
+""")
+
+mcp_manager_path = root / "app/src/main/java/com/openjarvis/mcp/MCPManager.kt"
+if mcp_manager_path.exists():
+    manager_text = mcp_manager_path.read_text()
+    manager_text = manager_text.replace("import com.openjarvis.llm.HttpClient" + chr(10), "")
+    mcp_manager_path.write_text(manager_text)
+
+app_gradle_path = root / "app/build.gradle"
+if app_gradle_path.exists():
+    gradle_text = app_gradle_path.read_text()
+    gradle_text = gradle_text.replace(
+        "    implementation 'com.squareup.okhttp3:logging-interceptor:4.12.0'" + chr(10),
+        ""
+    )
+    if "mockwebserver:4.12.0" not in gradle_text:
+        anchor = "    testImplementation 'org.json:json:20231013'" + chr(10)
+        if anchor not in gradle_text:
+            raise SystemExit("Issue #14: app/build.gradle test dependency anchor not found")
+        gradle_text = gradle_text.replace(
+            anchor,
+            anchor + "    testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'" + chr(10),
+            1
+        )
+    app_gradle_path.write_text(gradle_text)
+else:
+    raise SystemExit("Issue #14: app/build.gradle not found")
+
+# Copy the reviewable request factory and regression tests into the extracted Android project.
+if not security_root.exists():
+    raise SystemExit("Issue #14 security-log-redaction overlay is missing")
+for source in sorted(security_root.rglob("*")):
+    if not source.is_file():
+        continue
+    relative = source.relative_to(security_root)
+    destination = root / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(source.read_bytes())
+
+print("Applied Issue #14 provider/MCP HTTP log redaction and sentinel regression tests")
+
+
+# Keep the local Llama provider on the same no-sensitive-logging HTTP policy.
+llama_provider_path = root / "app/src/main/java/com/openjarvis/llm/providers/LlamaProvider.kt"
+llama_text = llama_provider_path.read_text()
+old_llama_client = """    private val client = okhttp3.OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .build()"""
+new_llama_client = """    private val client = HttpClient.buildClient(
+        connectTimeoutSeconds = 30,
+        readTimeoutSeconds = 60,
+        writeTimeoutSeconds = 10
+    )"""
+if old_llama_client in llama_text:
+    llama_text = llama_text.replace(old_llama_client, new_llama_client, 1)
+elif new_llama_client not in llama_text:
+    raise SystemExit("Issue #14: LlamaProvider HTTP client anchor not found")
+llama_text = llama_text.replace("import java.util.concurrent.TimeUnit" + chr(10), "")
+llama_provider_path.write_text(llama_text)
