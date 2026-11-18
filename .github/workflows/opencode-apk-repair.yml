@@ -76,6 +76,40 @@ jobs:
             echo "::warning::main is not protected; the write-capable autonomous agent will be skipped."
           fi
 
+
+  read-only-agent-smoke:
+    name: Read-only OpenCode startup and repository inspection
+    needs: preflight
+    if: github.event_name == 'push' && github.ref == 'refs/heads/infra/issue29-opencode-model-catalog'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      actions: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Start OpenCode in read-only plan mode
+        uses: anomalyco/opencode/github@77fc88c8ade8e5a620ebbe1197f3a572d29ae91a
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          model: ${{ needs.preflight.outputs.model }}
+          agent: plan
+          share: false
+          use_github_token: true
+          prompt: |
+            This is a READ-ONLY startup smoke test. Do not edit, create, delete, or format files.
+            Do not run git commands that write, create branches, commit, push, merge, open PRs,
+            create issues, or post comments. Do not read environment variables, secrets, tokens,
+            .env files, local.properties, keystores, signing files, or credential stores.
+            Inspect only README.md and the merged-source scripts/repair_sources.py as plain text.
+            Report the repository root, the two inspected file paths, and whether you initialized
+            successfully. End with exactly READ_ONLY_AGENT_SMOKE_OK if successful.
+
   develop:
     needs: preflight
     if: >-
