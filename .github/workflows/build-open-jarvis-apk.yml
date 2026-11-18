@@ -243,7 +243,22 @@ jobs:
         working-directory: ${{ steps.source.outputs.project_dir }}
         env:
           GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=1g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1
-        run: gradle --no-daemon --max-workers=1 --stacktrace assembleDebug
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            log="$RUNNER_TEMP/gradle-assembleDebug-$attempt.log"
+            if gradle --no-daemon --max-workers=1 --stacktrace assembleDebug 2>&1 | tee "$log"; then
+              exit 0
+            fi
+            if ! grep -Eq "Plugin \\[id: 'com\\.google\\.devtools\\.ksp'.*was not found|Could not resolve plugin artifact 'com\\.google\\.devtools\\.ksp" "$log"; then
+              exit 1
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::Transient KSP plugin resolution failure (attempt $attempt/3); retrying"
+              sleep $((attempt * 10))
+            fi
+          done
+          exit 1
 
       - name: Run debug and release JVM tests, build test APK and release APK
         working-directory: ${{ steps.source.outputs.project_dir }}
