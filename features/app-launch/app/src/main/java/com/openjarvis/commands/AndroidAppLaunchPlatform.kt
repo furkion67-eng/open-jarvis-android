@@ -30,6 +30,8 @@ class AndroidAppLaunchPlatform(private val context: Context) : AppLaunchPlatform
             return AppLaunchAttempt.Failed
         } ?: return AppLaunchAttempt.NoLaunchActivity
 
+        if (launchIntent.component == null) return AppLaunchAttempt.IntentNotResolvable
+
         if (launchIntent.resolveActivity(packageManager) == null) {
             return AppLaunchAttempt.IntentNotResolvable
         }
