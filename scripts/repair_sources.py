@@ -2499,3 +2499,85 @@ if "TaskControlCenter(" not in dashboard_text:
     )
 dashboard_path.write_text(dashboard_text)
 print("Installed Issue #10 local task engine and Turkish task control center")
+
+
+# Issue #16: recover the Android SpeechRecognizer after TTS/cancel on HiOS devices.
+def voice_recognizer_restart(s):
+    s = s.replace(
+        "    private var recognitionRetryCount = 0",
+        "    private var recognitionRetryCount = 0\\n    private var recognitionListener: RecognitionListener? = null",
+        1
+    )
+    old_listener = "                    recognizer.setRecognitionListener(object : RecognitionListener {"
+    new_listener = "                    val listener = object : RecognitionListener {"
+    if old_listener in s:
+        s = s.replace(old_listener, new_listener, 1)
+        old_end = "                    })\\n                    onDispose { requestMicrophonePermission = null; runCatching { recognizer.destroy() } }"
+        new_end = """                    }
+                    recognitionListener = listener
+                    recognizer.setRecognitionListener(listener)
+                    onDispose {
+                        requestMicrophonePermission = null
+                        recognitionListener = null
+                        runCatching { recognizer.cancel() }
+                        runCatching { recognizer.destroy() }
+                    }"""
+        if old_end not in s:
+            raise SystemExit("VoiceCommandActivity: listener disposal anchor not found")
+        s = s.replace(old_end, new_end, 1)
+    elif "val listener = object : RecognitionListener" not in s:
+        raise SystemExit("VoiceCommandActivity: SpeechRecognizer listener anchor not found")
+
+    old_start = "        runCatching { recognizer.startListening(intent) }.onFailure {"
+    new_start = """        runCatching {
+            // HiOS/providers can retain a cancelled session after TTS. Recreate the
+            // recognizer before every new listening session, keeping the same UI listener.
+            runCatching { recognizer.cancel() }
+            runCatching { recognizer.destroy() }
+            recognizer = SpeechRecognizer.createSpeechRecognizer(this)
+            val listener = recognitionListener
+                ?: throw IllegalStateException("Ses dinleyicisi henüz hazır değil.")
+            recognizer.setRecognitionListener(listener)
+            recognizer.startListening(intent)
+        }.onFailure {"""
+    if old_start in s:
+        s = s.replace(old_start, new_start, 1)
+    elif "recognizer = SpeechRecognizer.createSpeechRecognizer(this)" not in s:
+        raise SystemExit("VoiceCommandActivity: startListening anchor not found")
+    return s
+
+edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", voice_recognizer_restart)
+
+
+# Android 11+ package visibility: allow resolving installed launcher activities.
+def launcher_package_visibility(s):
+    if "<queries>" in s:
+        return s
+    anchor = "    <application"
+    block = """    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
+    <application"""
+    if anchor not in s:
+        raise SystemExit("AndroidManifest.xml: application anchor not found")
+    return s.replace(anchor, block, 1)
+
+edit("app/src/main/AndroidManifest.xml", launcher_package_visibility)
+
+
+# Android 14+ requires the type-specific permission for DownloadService's dataSync FGS.
+def data_sync_permission(s):
+    permission = '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />'
+    if permission in s:
+        return s
+    anchor = '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />'
+    if anchor not in s:
+        raise SystemExit("AndroidManifest.xml: FOREGROUND_SERVICE permission anchor not found")
+    return s.replace(anchor, anchor + "\\n" + permission, 1)
+
+edit("app/src/main/AndroidManifest.xml", data_sync_permission)
+print("Applied HiOS SpeechRecognizer session reset, Android package visibility and dataSync FGS permission")
