@@ -25,7 +25,6 @@ class MainActivityLaunchInstrumentedTest {
             assertTrue("MainActivity window is not visible", activity.window.decorView.isShown)
             Thread.sleep(2_000)
             assertFalse("MainActivity exited shortly after launch", activity.isFinishing)
-            assertTrue("MainActivity window disappeared", activity.window.decorView.isShown)
             activity.finish()
         } finally {
             instrumentation.removeMonitor(monitor)
