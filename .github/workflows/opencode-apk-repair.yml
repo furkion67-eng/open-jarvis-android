@@ -6,7 +6,7 @@ on:
   schedule:
     - cron: "*/15 * * * *"
   push:
-    branches: ["infra/issue29-opencode-model-catalog"]
+    branches: ["infra/issue29-opencode-model-catalog", "infra/verify-opencode-safety-gate"]
   workflow_dispatch:
     inputs:
       enable_agent_writes:
@@ -40,6 +40,26 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Assert exact PR #34 source and CI-only overlay allowlist
+        env:
+          SOURCE_SHA: e442e55054859dbd1dcfd57ed40e48ad6e4f1211
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$SOURCE_SHA^{commit}"
+          test "$(git merge-base HEAD "$SOURCE_SHA")" = "$SOURCE_SHA"
+          actual="$(git diff --name-only "$SOURCE_SHA...HEAD" | LC_ALL=C sort)"
+          expected="$(printf '%s\\n' \\
+            .github/workflows/opencode-apk-repair.yml \\
+            scripts/test_opencode_workflow_safety.rb | LC_ALL=C sort)"
+          diff -u <(printf '%s\\n' "$expected") <(printf '%s\\n' "$actual")
+          echo "OPENCODE_OVERLAY_EXACT_SOURCE_OK"
+
+      - name: Test OpenCode least-privilege workflow policy
+        run: ruby scripts/test_opencode_workflow_safety.rb .github/workflows/opencode-apk-repair.yml
 
       - name: Test model-catalog selector
         run: python3 scripts/test_resolve_opencode_model.py
@@ -111,7 +131,7 @@ jobs:
     name: Read-only OpenCode startup and repository inspection
     needs: preflight
     if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/infra/issue29-opencode-model-catalog') ||
+      (github.event_name == 'push' && (github.ref == 'refs/heads/infra/issue29-opencode-model-catalog' || github.ref == 'refs/heads/infra/verify-opencode-safety-gate')) ||
       (github.event_name == 'workflow_dispatch' && inputs.enable_agent_writes == false)
     runs-on: ubuntu-latest
     timeout-minutes: 12
