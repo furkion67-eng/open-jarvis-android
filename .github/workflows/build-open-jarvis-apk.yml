@@ -3,7 +3,7 @@ name: Build Open Jarvis APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, "feature/approval-toggle", "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "infra/issue15-node24-mainline", "infra/issue8-video-ci-validation", "infra/issue8-video-ci-validation-current", "infra/issue8-video-ci-validation-latest" ]
+    branches: [ main, "feature/approval-toggle", "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "infra/issue15-node24-mainline", "infra/issue8-video-ci-validation", "infra/issue8-video-ci-validation-current", "infra/issue8-video-ci-validation-latest", "infra/verify-pr30-exact-152ee" ]
   pull_request:
     branches: [ main, "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "feature/issue8-local-mp4-prototype" ]
 
@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: Assert exact commit on push
         if: github.event_name == 'push'
         shell: bash
@@ -30,6 +32,19 @@ jobs:
           echo "Expected exact push SHA: $GITHUB_SHA"
           echo "Checked out SHA: $actual"
           test "$actual" = "$GITHUB_SHA"
+
+      - name: "Assert PR #30 source is unchanged by exact-head CI overlay"
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          EXPECTED_PR30_SOURCE_SHA: 152ee749ca8a326785ac7a2684d95c4cfc36d8a5
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$EXPECTED_PR30_SOURCE_SHA" HEAD
+          git diff --name-only "$EXPECTED_PR30_SOURCE_SHA"...HEAD | sort > /tmp/actual-overlay-files.txt
+          printf '%s\n' '.github/workflows/build-open-jarvis-apk.yml' > /tmp/expected-overlay-files.txt
+          diff -u /tmp/expected-overlay-files.txt /tmp/actual-overlay-files.txt
+          echo "PR30_SOURCE_EXACT_OK: 152ee749ca8a326785ac7a2684d95c4cfc36d8a5; only this CI workflow differs"
 
       - name: Extract source and locate project
         id: source
