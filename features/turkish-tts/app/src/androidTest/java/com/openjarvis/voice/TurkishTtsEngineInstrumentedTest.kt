@@ -123,11 +123,12 @@ class TurkishTtsEngineInstrumentedTest {
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             engine = AndroidTTSEngine(context)
         }
-        runBlocking {
+        val status = runBlocking {
             withTimeout(15_000) {
                 engine.status.first { it !is TurkishTtsStatus.Initializing }
             }
         }
+        Assume.assumeTrue("A Turkish voice is required to exercise an in-flight utterance", status is TurkishTtsStatus.Ready)
 
         val handoff = CountDownLatch(1)
         val callbacks = AtomicInteger(0)
