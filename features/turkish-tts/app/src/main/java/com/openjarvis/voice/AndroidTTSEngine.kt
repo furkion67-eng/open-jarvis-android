@@ -197,7 +197,8 @@ class AndroidTTSEngine(context: Context) {
         onMain {
             if (released) return@onMain
             released = true
-            pendingCallbacks.completeAll()
+            // Activity/service teardown must not restart AUTO_VAD from a stale callback.
+            pendingCallbacks.discardAll()
             speaking = false
             runCatching { tts?.stop() }
             runCatching { tts?.shutdown() }
