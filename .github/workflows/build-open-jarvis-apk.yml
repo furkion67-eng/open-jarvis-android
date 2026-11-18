@@ -3,12 +3,16 @@ name: Build Open Jarvis APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, "feature/approval-toggle", "infra/issue15-node24-actions" ]
+    branches: [ main, "feature/approval-toggle" ]
   pull_request:
     branches: [ main, "feature/issue10-local-task-engine" ]
 
 permissions:
   contents: read
+
+concurrency:
+  group: open-jarvis-apk-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   build:
