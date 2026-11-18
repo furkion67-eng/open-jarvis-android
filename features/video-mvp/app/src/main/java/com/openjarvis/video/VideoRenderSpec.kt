@@ -15,6 +15,7 @@ data class VideoRenderSpec(
 ) {
     val durationSeconds: Int get() = scenes.size * secondsPerScene
     val frameCount: Int get() = durationSeconds * framesPerSecond
+    val estimatedOutputBytes: Long get() = bitRate.toLong() * durationSeconds / 8L * 2L
 
     fun validate() {
         require(title.isNotBlank()) { "Video başlığı boş olamaz." }
@@ -42,8 +43,7 @@ data class VideoRenderSpec(
         }
         require(frameCount <= MAX_FRAMES) { "Video kare sayısı cihaz sınırını aşıyor." }
         require(bitRate in MIN_BIT_RATE..MAX_BIT_RATE) { "Video bit hızı desteklenen sınırların dışında." }
-        val estimatedBytes = bitRate.toLong() * durationSeconds / 8L * 2L
-        require(estimatedBytes <= MAX_OUTPUT_BYTES) { "Tahmini video boyutu 24 MB sınırını aşıyor." }
+        require(estimatedOutputBytes <= MAX_OUTPUT_BYTES) { "Tahmini video boyutu 24 MB sınırını aşıyor." }
     }
 
     companion object {
@@ -65,6 +65,7 @@ data class VideoRenderSpec(
         const val MIN_BIT_RATE = 300_000
         const val MAX_BIT_RATE = 3_000_000
         const val MAX_OUTPUT_BYTES = 24L * 1024L * 1024L
+        const val MIN_FREE_SPACE_MARGIN_BYTES = 2L * 1024L * 1024L
         private const val PORTRAIT_RATIO = 9f / 16f
         private const val MAX_RATIO_DELTA = 0.015f
 
