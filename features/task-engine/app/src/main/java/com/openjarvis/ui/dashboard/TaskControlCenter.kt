@@ -1,0 +1,226 @@
+package com.openjarvis.ui.dashboard
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.openjarvis.tasks.JarvisTaskEntity
+import com.openjarvis.tasks.JarvisTaskRepository
+import com.openjarvis.tasks.JarvisTaskStatus
+import com.openjarvis.ui.theme.VoidColor
+import kotlinx.coroutines.launch
+
+@Composable
+fun TaskControlCenter(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val repositoryResult = remember(context) {
+        runCatching { JarvisTaskRepository.getInstance(context.applicationContext) }
+    }
+
+    if (repositoryResult.isFailure) {
+        Card(
+            modifier = modifier,
+            colors = CardDefaults.cardColors(containerColor = VoidColor.Void900),
+            shape = RoundedCornerShape(22.dp)
+        ) {
+            Text(
+                text = "Görev hafızası açılamadı: ${repositoryResult.exceptionOrNull()?.localizedMessage ?: "Bilinmeyen hata"}",
+                color = VoidColor.Red,
+                modifier = Modifier.padding(18.dp)
+            )
+        }
+        return
+    }
+
+    val repository = repositoryResult.getOrThrow()
+    val tasks by repository.observeRecentTasks().collectAsState(initial = emptyList())
+    val scope = rememberCoroutineScope()
+    var goal by rememberSaveable { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var notice by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(repository) {
+        repository.recoverInterruptedTasks()
+    }
+
+    fun runAction(action: suspend () -> Unit) {
+        scope.launch {
+            busy = true
+            notice = null
+            try {
+                action()
+            } catch (error: Exception) {
+                notice = error.localizedMessage ?: "İşlem tamamlanamadı."
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = VoidColor.Void900),
+        shape = RoundedCornerShape(22.dp),
+        border = BorderStroke(1.dp, VoidColor.BorderGlow.copy(alpha = 0.45f))
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "Görev kontrol merkezi",
+                color = VoidColor.TextPrimary,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "Yerel görev hafızası açık • Bulut yürütücüsü bağlı değil",
+                color = VoidColor.Amber,
+                style = MaterialTheme.typography.bodySmall
+            )
+            OutlinedTextField(
+                value = goal,
+                onValueChange = { goal = it.take(1000) },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Yeni görev") },
+                placeholder = { Text("Örn. Sakarya'daki etkinlikleri araştır ve özetle") },
+                minLines = 2,
+                maxLines = 4,
+                enabled = !busy,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
+            )
+            Button(
+                onClick = {
+                    val requestedGoal = goal.trim()
+                    if (requestedGoal.isNotEmpty()) {
+                        goal = ""
+                        runAction { repository.createTask(requestedGoal) }
+                    }
+                },
+                enabled = goal.isNotBlank() && !busy,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(if (busy) "Kaydediliyor…" else "Görevi kaydet ve planla")
+            }
+            notice?.let {
+                Text(text = it, color = VoidColor.Red, style = MaterialTheme.typography.bodySmall)
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "Son görevler",
+                color = VoidColor.TextSecondary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            if (tasks.isEmpty()) {
+                Text(
+                    text = "Henüz görev yok. Yeni bir istek yazarak yerel plan taslağı oluşturabilirsin.",
+                    color = VoidColor.TextDisabled,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            } else {
+                tasks.forEach { task ->
+                    TaskItem(
+                        task = task,
+                        enabled = !busy,
+                        onAcceptPlan = { runAction { repository.acceptPlan(task.id) } },
+                        onRetry = { runAction { repository.retry(task.id) } },
+                        onCancel = { runAction { repository.cancel(task.id) } }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TaskItem(
+    task: JarvisTaskEntity,
+    enabled: Boolean,
+    onAcceptPlan: () -> Unit,
+    onRetry: () -> Unit,
+    onCancel: () -> Unit
+) {
+    val status = JarvisTaskStatus.fromStorage(task.status)
+    Card(
+        colors = CardDefaults.cardColors(containerColor = VoidColor.Void950),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, VoidColor.BorderSubtle)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            Text(task.goal, color = VoidColor.TextPrimary, fontWeight = FontWeight.Medium)
+            Text(
+                text = "${status.turkishLabel} • ${task.progressPercent}%",
+                color = if (status == JarvisTaskStatus.FAILED) VoidColor.Red else VoidColor.Cyan,
+                style = MaterialTheme.typography.labelMedium
+            )
+            LinearProgressIndicator(
+                progress = task.progressPercent.coerceIn(0, 100) / 100f,
+                modifier = Modifier.fillMaxWidth()
+            )
+            task.currentStep?.let {
+                Text(it, color = VoidColor.TextSecondary, style = MaterialTheme.typography.bodySmall)
+            }
+            task.outputSummary?.let {
+                Text(it, color = VoidColor.TextSecondary, style = MaterialTheme.typography.bodySmall)
+            }
+            task.errorMessage?.let {
+                Text(it, color = VoidColor.Amber, style = MaterialTheme.typography.bodySmall)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (status == JarvisTaskStatus.WAITING_FOR_USER) {
+                    TextButton(onClick = onAcceptPlan, enabled = enabled) {
+                        Text("Planı kabul et")
+                    }
+                }
+                if (status == JarvisTaskStatus.WAITING_FOR_NETWORK || status == JarvisTaskStatus.FAILED) {
+                    TextButton(onClick = onRetry, enabled = enabled) {
+                        Text("Yeniden dene")
+                    }
+                }
+                if (!status.isFinal && status != JarvisTaskStatus.FAILED) {
+                    TextButton(onClick = onCancel, enabled = enabled) {
+                        Text("İptal et", color = VoidColor.Red)
+                    }
+                }
+                if (status == JarvisTaskStatus.FAILED) {
+                    TextButton(onClick = onCancel, enabled = enabled) {
+                        Text("Kapat", color = VoidColor.Red)
+                    }
+                }
+            }
+        }
+    }
+}
