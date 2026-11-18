@@ -2651,7 +2651,7 @@ def add_turkish_tts_status_ui(s):
     if missing_voice_imports:
         s = s.replace(
             voice_import_anchor,
-            voice_import_anchor + "\\n" + "\\n".join(missing_voice_imports),
+            voice_import_anchor + "\n" + "\n".join(missing_voice_imports),
             1
         )
 
