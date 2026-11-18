@@ -2505,14 +2505,14 @@ print("Installed Issue #10 local task engine and Turkish task control center")
 def voice_recognizer_restart(s):
     s = s.replace(
         "    private var recognitionRetryCount = 0",
-        "    private var recognitionRetryCount = 0\\n    private var recognitionListener: RecognitionListener? = null",
+        "    private var recognitionRetryCount = 0\n    private var recognitionListener: RecognitionListener? = null",
         1
     )
     old_listener = "                    recognizer.setRecognitionListener(object : RecognitionListener {"
     new_listener = "                    val listener = object : RecognitionListener {"
     if old_listener in s:
         s = s.replace(old_listener, new_listener, 1)
-        old_end = "                    })\\n                    onDispose { requestMicrophonePermission = null; runCatching { recognizer.destroy() } }"
+        old_end = "                    })\n                    onDispose { requestMicrophonePermission = null; runCatching { recognizer.destroy() } }"
         new_end = """                    }
                     recognitionListener = listener
                     recognizer.setRecognitionListener(listener)
@@ -2577,7 +2577,7 @@ def data_sync_permission(s):
     anchor = '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />'
     if anchor not in s:
         raise SystemExit("AndroidManifest.xml: FOREGROUND_SERVICE permission anchor not found")
-    return s.replace(anchor, anchor + "\\n" + permission, 1)
+    return s.replace(anchor, anchor + "\n" + permission, 1)
 
 edit("app/src/main/AndroidManifest.xml", data_sync_permission)
 print("Applied HiOS SpeechRecognizer session reset, Android package visibility and dataSync FGS permission")
