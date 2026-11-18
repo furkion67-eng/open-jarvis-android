@@ -8,10 +8,13 @@ launcher_is_resumed_and_focused() {
   local activity_dump="$1"
   local window_dump="$2"
   local component="com.openjarvis/com.openjarvis.ui.MainActivity"
+  local short_component="com.openjarvis/.ui.MainActivity"
 
-  # MainActivity must genuinely be the resumed Activity.
+  # dumpsys activity commonly prints the package-relative component while
+  # dumpsys window prints the fully-qualified window component. Accept both
+  # Android representations for the same MainActivity.
   if ! grep -E 'topResumedActivity=|ResumedActivity:' "$activity_dump" |
-       grep -F "$component" >/dev/null; then
+       grep -F -e "$component" -e "$short_component" >/dev/null; then
     return 1
   fi
 
