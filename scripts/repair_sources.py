@@ -2607,3 +2607,118 @@ if "VideoMvpPanel(" not in video_dashboard_text:
     )
 video_dashboard_path.write_text(video_dashboard_text)
 print("Installed Issue #8 local silent MP4 prototype")
+
+
+# Issue #28: Turkish-first TTS readiness, deterministic voice selection and STT handoff.
+tts_feature_root = Path(__file__).resolve().parent.parent / "features" / "turkish-tts"
+if not tts_feature_root.is_dir():
+    raise SystemExit("Issue #28 Turkish TTS source overlay is missing")
+
+for source in sorted(tts_feature_root.rglob("*.kt")):
+    relative = source.relative_to(tts_feature_root)
+    destination = root / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(source.read_bytes())
+
+def expose_turkish_tts_status(s):
+    anchor = "    private val ttsEngine = AndroidTTSEngine(context)"
+    property = "    val ttsStatus: StateFlow<TurkishTtsStatus> get() = ttsEngine.status"
+    if property not in s:
+        if anchor not in s:
+            raise SystemExit("VoiceManager.kt: TTS engine anchor not found")
+        s = s.replace(anchor, anchor + "\n" + property, 1)
+    return s
+
+edit("app/src/main/java/com/openjarvis/voice/VoiceManager.kt", expose_turkish_tts_status)
+
+def add_turkish_tts_status_ui(s):
+    if "import android.speech.tts.TextToSpeech" not in s:
+        anchor = "import android.speech.SpeechRecognizer"
+        if anchor not in s:
+            raise SystemExit("VoiceCommandActivity.kt: SpeechRecognizer import not found")
+        s = s.replace(anchor, anchor + "\nimport android.speech.tts.TextToSpeech", 1)
+
+    anchor = "                val agentState by agent.state.collectAsState()"
+    replacement = anchor + "\n                val ttsStatus by voice.ttsStatus.collectAsState()"
+    if "val ttsStatus by voice.ttsStatus.collectAsState()" not in s:
+        if anchor not in s:
+            raise SystemExit("VoiceCommandActivity.kt: agent state anchor not found")
+        s = s.replace(anchor, replacement, 1)
+
+    ui_anchor = "                    Text(message, style = MaterialTheme.typography.bodyLarge, color = Color.White)"
+    ui_block = """                    Text(message, style = MaterialTheme.typography.bodyLarge, color = Color.White)
+                    when (val ttsState = ttsStatus) {
+                        TurkishTtsStatus.Initializing -> Text(
+                            TurkishTtsPolicy.messageFor(ttsState),
+                            color = Color(0xFFB7AFC1)
+                        )
+                        is TurkishTtsStatus.Ready -> Text(
+                            "Türkçe ses hazır · " + ttsState.voiceLocale,
+                            color = Color(0xFF66D6A4)
+                        )
+                        TurkishTtsStatus.TurkishVoiceMissing,
+                        TurkishTtsStatus.InitializationFailed -> Column {
+                            Text(TurkishTtsPolicy.messageFor(ttsState), color = Color(0xFFFFC38A))
+                            OutlinedButton(
+                                onClick = {
+                                    val opened = runCatching {
+                                        startActivity(Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA))
+                                    }.isSuccess
+                                    if (!opened) {
+                                        android.widget.Toast.makeText(
+                                            this@VoiceCommandActivity,
+                                            "Android Türkçe ses verisi ekranı açılamadı. Ayarlar > Metin okuma bölümünü kontrol et.",
+                                            android.widget.Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("Türkçe ses verisini aç") }
+                        }
+                        TurkishTtsStatus.Released -> Unit
+                    }"""
+    if "Türkçe ses verisini aç" not in s:
+        if ui_anchor not in s:
+            raise SystemExit("VoiceCommandActivity.kt: message UI anchor not found")
+        s = s.replace(ui_anchor, ui_block, 1)
+
+    if "override fun onDestroy()" not in s:
+        closing = s.rfind("}")
+        if closing < 0:
+            raise SystemExit("VoiceCommandActivity.kt: class closing brace not found")
+        s = s[:closing] + """    override fun onDestroy() {
+        if (::recognizer.isInitialized) {
+            runCatching { recognizer.cancel() }
+            runCatching { recognizer.destroy() }
+        }
+        if (::voice.isInitialized) voice.release()
+        super.onDestroy()
+    }
+""" + s[closing:]
+    return s
+
+edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", add_turkish_tts_status_ui)
+
+def release_settings_voice_manager(s):
+    if "override fun onDestroy()" in s:
+        return s
+    closing = s.rfind("}")
+    if closing < 0:
+        raise SystemExit("SettingsActivity.kt: class closing brace not found")
+    return s[:closing] + """    override fun onDestroy() {
+        if (::voiceManager.isInitialized) voiceManager.release()
+        super.onDestroy()
+    }
+""" + s[closing:]
+
+edit("app/src/main/java/com/openjarvis/ui/SettingsActivity.kt", release_settings_voice_manager)
+
+def release_one_shot_watch_voice(s):
+    old = "                com.openjarvis.voice.VoiceManager(context).speak(watchAction.template)"
+    new = """                com.openjarvis.voice.VoiceManager(context).let { manager ->
+                    manager.speak(watchAction.template) { manager.release() }
+                }"""
+    return s.replace(old, new, 1) if old in s else s
+
+edit("app/src/main/java/com/openjarvis/watch/ScreenWatcher.kt", release_one_shot_watch_voice)
+print("Installed Turkish-only TTS selection, truthful readiness UI and owner lifecycle cleanup (issue #28)")
