@@ -52,9 +52,11 @@ jobs:
           git cat-file -e "$SOURCE_SHA^{commit}"
           test "$(git merge-base HEAD "$SOURCE_SHA")" = "$SOURCE_SHA"
           actual="$(git diff --name-only "$SOURCE_SHA...HEAD" | LC_ALL=C sort)"
-          expected="$(printf '%s\\n' \\
-            .github/workflows/opencode-apk-repair.yml \\
-            scripts/test_opencode_workflow_safety.rb | LC_ALL=C sort)"
+          expected="$(cat <<'EOF' | LC_ALL=C sort
+          .github/workflows/opencode-apk-repair.yml
+          scripts/test_opencode_workflow_safety.rb
+          EOF
+          )"
           diff -u <(printf '%s\\n' "$expected") <(printf '%s\\n' "$actual")
           echo "OPENCODE_OVERLAY_EXACT_SOURCE_OK"
 
