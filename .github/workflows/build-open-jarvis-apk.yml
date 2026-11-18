@@ -3,7 +3,7 @@ name: Build Open Jarvis APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, "feature/approval-toggle", "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "infra/issue15-node24-mainline", "infra/issue8-video-ci-validation" ]
+    branches: [ main, "feature/approval-toggle", "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "infra/issue15-node24-mainline", "infra/issue8-video-ci-validation", "infra/issue8-video-ci-validation-current" ]
   pull_request:
     branches: [ main, "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "feature/issue8-local-mp4-prototype" ]
 
