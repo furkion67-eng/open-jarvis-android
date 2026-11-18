@@ -41,6 +41,26 @@ logcat_scan() {
   adb logcat -d > logcat-full.txt 2>/dev/null || true
 }
 
+verify_launcher_visible_for_label() {
+  local label="$1"
+  local activity_file="activity-$label.txt"
+  local window_file="windows-$label.txt"
+  adb shell dumpsys activity activities > "$activity_file" 2>/dev/null || true
+  adb shell dumpsys window > "$window_file" 2>/dev/null || true
+  if ! launcher_is_resumed_and_focused "$activity_file" "$window_file"; then
+    echo "---- $label ActivityManager launcher lines ----"
+    grep -E 'topResumedActivity=|ResumedActivity:' "$activity_file" || true
+    echo "---- $label WindowManager launcher focus/IME target ----"
+    grep -E 'mCurrentFocus=Window|imeInputTarget in display#' "$window_file" || true
+    adb exec-out screencap -p > "screen-$label.png" 2>/dev/null || true
+    adb logcat -d -b crash > "crashlog-$label.txt" 2>/dev/null || true
+    adb logcat -d -v threadtime > "logcat-$label.txt" 2>/dev/null || true
+    return 1
+  fi
+  echo "MAIN-ACTIVITY-VISIBLE: $label launcher is resumed and focused"
+  return 0
+}
+
 capture_post_instrumentation() {
   # Preserve the immediate state after the test suite before changing focus.
   adb exec-out screencap -p > screen-after-instrumented.png 2>/dev/null || true
@@ -130,6 +150,9 @@ launch_and_verify() {
     fail "$label: launcher process died within 20s"
   fi
   echo "$label: launcher process alive (pid=$pid) after 20s"
+  if ! verify_launcher_visible_for_label "$label"; then
+    fail "$label: MainActivity process is alive but its resumed/focused window is not visible"
+  fi
   adb exec-out screencap -p > "screen-$label.png" 2>/dev/null || true
   logcat_scan "$label"
 }
@@ -153,6 +176,9 @@ if [ -z "$pid" ]; then
   fail "legacy-db: launcher process died within 20s"
 fi
 echo "legacy-db: launcher process alive (pid=$pid) after 20s"
+if ! verify_launcher_visible_for_label "legacy-db"; then
+  fail "legacy-db: MainActivity process is alive but its resumed/focused window is not visible"
+fi
 adb exec-out screencap -p > "screen-legacy-db.png" 2>/dev/null || true
 logcat_scan "legacy-db"
 adb shell run-as "$APP_PKG" ls databases | tr -d '\r' > databases.txt
