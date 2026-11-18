@@ -5,12 +5,21 @@ on:
     types: [created]
   schedule:
     - cron: "*/15 * * * *"
+  push:
+    branches: ["infra/issue29-opencode-model-catalog"]
   workflow_dispatch:
+    inputs:
+      enable_agent_writes:
+        description: "Allow the write-capable agent only after main branch protection is enabled"
+        required: true
+        default: false
+        type: boolean
 
+# Read-only by default. Only the gated develop job receives write permissions.
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
+  contents: read
+  pull-requests: read
+  issues: read
   actions: read
 
 concurrency:
@@ -18,13 +27,139 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  develop:
-    if: github.event_name != 'issue_comment' || contains(github.event.comment.body, '/opencode') || contains(github.event.comment.body, '/oc')
+  preflight:
+    name: Resolve live OpenCode model and check main write-safety
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      model: ${{ steps.resolve.outputs.model }}
+      main_protected: ${{ steps.branch.outputs.protected }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Test model-catalog selector
+        run: python3 scripts/test_resolve_opencode_model.py
+
+      - name: Fetch the current OpenCode public model catalogue
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error --retry 2 --retry-delay 2 \
+            https://opencode.ai/inference/v1/models \
+            --output "$RUNNER_TEMP/opencode-models.json"
+          python3 -m json.tool "$RUNNER_TEMP/opencode-models.json" >/dev/null
+
+      - name: Resolve a free tool-capable model from the live catalogue
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          model="$(python3 scripts/resolve_opencode_model.py "$RUNNER_TEMP/opencode-models.json")"
+          echo "Verified OpenCode model: $model"
+          echo "model=$model" >> "$GITHUB_OUTPUT"
+
+      - name: Require protected main and an active PR-required no-bypass ruleset
+        id: branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          protected="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.protected')"
+          echo "main.protected=$protected"
+          ruleset_safe=false
+          if gh api "repos/$GITHUB_REPOSITORY/rulesets?includes_parents=true" > "$RUNNER_TEMP/main-rulesets.json"; then
+            ruleset_safe="$(python3 - "$RUNNER_TEMP/main-rulesets.json" <<'PY'
+          import json, sys
+          try:
+              rulesets = json.load(open(sys.argv[1], encoding="utf-8"))
+          except Exception:
+              rulesets = []
+          def safe_for_main(rule_set):
+              if rule_set.get("target") != "branch" or rule_set.get("enforcement") != "active":
+                  return False
+              include = rule_set.get("conditions", {}).get("ref_name", {}).get("include", [])
+              if not any(x in ("refs/heads/main", "~DEFAULT_BRANCH") for x in include):
+                  return False
+              if rule_set.get("bypass_actors") or []:
+                  return False
+              pull_request = next((r for r in rule_set.get("rules", []) if r.get("type") == "pull_request"), None)
+              if not pull_request:
+                  return False
+              parameters = pull_request.get("parameters", {})
+              return int(parameters.get("required_approving_review_count", 0)) >= 1
+          print("true" if any(safe_for_main(item) for item in rulesets) else "false")
+          PY
+          )"
+          else
+            echo "::warning::Repository rulesets could not be read; write-capable agent remains disabled."
+          fi
+          echo "active PR-required no-bypass main ruleset=$ruleset_safe"
+          if [ "$protected" = "true" ] && [ "$ruleset_safe" = "true" ]; then
+            echo "protected=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "protected=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::main must be protected by an active PR-required ruleset with at least one approval and no bypass actors."
+          fi
+
+
+  read-only-agent-smoke:
+    name: Read-only OpenCode startup and repository inspection
+    needs: preflight
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/infra/issue29-opencode-model-catalog') ||
+      (github.event_name == 'workflow_dispatch' && inputs.enable_agent_writes == false)
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      actions: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Start OpenCode in read-only plan mode
+        uses: ./.github/actions/opencode
+        with:
+          model: ${{ needs.preflight.outputs.model }}
+          agent: plan
+          mode: cli
+          share: false
+          prompt: |
+            This is a READ-ONLY startup smoke test. Do not edit, create, delete, or format files.
+            Do not run git commands that write, create branches, commit, push, merge, open PRs,
+            create issues, or post comments. Do not read environment variables, secrets, tokens,
+            .env files, local.properties, keystores, signing files, or credential stores.
+            Inspect only README.md and the merged-source scripts/repair_sources.py as plain text.
+            Report the repository root, the two inspected file paths, and whether you initialized
+            successfully. End with exactly READ_ONLY_AGENT_SMOKE_OK if successful.
+
+  develop:
+    needs: preflight
+    if: >-
+      needs.preflight.outputs.main_protected == 'true' &&
+      (
+        github.event_name == 'schedule' ||
+        (github.event_name == 'workflow_dispatch' && inputs.enable_agent_writes == true) ||
+        (github.event_name == 'issue_comment' &&
+          (contains(github.event.comment.body, '/opencode') || contains(github.event.comment.body, '/oc')))
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+      actions: read
     timeout-minutes: 35
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -66,12 +201,12 @@ jobs:
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Run autonomous development agent
-        uses: anomalyco/opencode/github@latest
+        uses: ./.github/actions/opencode
         env:
-          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
           GITHUB_TOKEN: ${{ github.token }}
+          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
         with:
-          model: opencode/glm-5.3-flash-free
+          model: ${{ needs.preflight.outputs.model }}
           use_github_token: true
           prompt: |
             You are the autonomous software engineering agent for Open Jarvis Android.
@@ -107,7 +242,9 @@ jobs:
               Turkish localization and standalone app behavior. Never remove, weaken or silently
               alter permissions.
             - Never push directly to main. Use a descriptive branch and pull request.
-            - Do not merge PRs, publish releases, alter repository secrets, change billing,
+            - Never call a PR merge endpoint or merge any PR; the active no-bypass main ruleset must require a human approval.
+            - Do not create or edit issues; report through the relevant PR only.
+            - Do not publish releases, alter repository secrets, change billing,
               or deploy externally.
             - Never expose API keys, tokens, signing credentials or private data.
             - Do not modify the separate JARVIS project or unrelated repositories.
