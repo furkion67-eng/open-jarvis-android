@@ -3,7 +3,7 @@ name: Build Open Jarvis APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, "feature/approval-toggle" ]
+    branches: [ main, "feature/approval-toggle", "infra/issue15-node24-actions" ]
   pull_request:
     branches: [ main, "feature/issue10-local-task-engine" ]
 
