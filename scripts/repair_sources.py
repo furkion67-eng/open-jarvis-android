@@ -2473,3 +2473,29 @@ edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", patch_voice_
 print("Installed shared tr-TR STT policy, Turkish error mapping and microphone permission handling")
 
 print("Added Turkish confirmation flow for local device actions (issue #5)")
+
+# Issue #10: install the durable local task model and Turkish task control center.
+feature_root = Path(__file__).resolve().parent.parent / "features" / "task-engine"
+if not feature_root.exists():
+    raise SystemExit("Issue #10 task-engine source overlay is missing")
+
+for source in sorted(feature_root.rglob("*.kt")):
+    relative = source.relative_to(feature_root)
+    destination = root / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(source.read_bytes())
+
+dashboard_path = root / "app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt"
+dashboard_text = dashboard_path.read_text()
+dashboard_anchor = "            RecentTasksSection(tasks = recentTasks, alpha = tasksAlpha)"
+if "TaskControlCenter(" not in dashboard_text:
+    if dashboard_anchor not in dashboard_text:
+        raise SystemExit("DashboardScreen task section anchor not found")
+    dashboard_text = dashboard_text.replace(
+        dashboard_anchor,
+        "            TaskControlCenter(modifier = Modifier.fillMaxWidth())\n"
+        "            Spacer(modifier = Modifier.height(16.dp))\n" + dashboard_anchor,
+        1
+    )
+dashboard_path.write_text(dashboard_text)
+print("Installed Issue #10 local task engine and Turkish task control center")
