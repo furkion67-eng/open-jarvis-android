@@ -1046,15 +1046,15 @@ def voice_activity(s):
     if "import com.openjarvis.voice.VoiceManager" not in s:
         s = s.replace(
             "import com.openjarvis.ui.theme.OpenJarvisTheme",
-            "import com.openjarvis.ui.theme.OpenJarvisTheme\nimport com.openjarvis.voice.VoiceManager\nimport com.openjarvis.voice.STTMode"
+            "import com.openjarvis.ui.theme.OpenJarvisTheme\\nimport com.openjarvis.voice.VoiceManager\\nimport com.openjarvis.voice.STTMode"
         )
     if "private lateinit var voiceManager" not in s:
         s = s.replace(
             "private lateinit var prefs: android.content.SharedPreferences",
-            "private lateinit var prefs: android.content.SharedPreferences\n    private lateinit var voiceManager: VoiceManager"
+            "private lateinit var prefs: android.content.SharedPreferences\\n    private lateinit var voiceManager: VoiceManager"
         )
     if "voiceManager = VoiceManager(applicationContext)" not in s:
-        s = s.replace("        setContent {", "        voiceManager = VoiceManager(applicationContext)\n\n        setContent {", 1)
+        s = s.replace("        setContent {", "        voiceManager = VoiceManager(applicationContext)\\n\\n        setContent {", 1)
     anchor = """                    onSaveProvider = { name, baseUrl, apiKey, model ->
                         saveProviderSettings(name, baseUrl, apiKey, model)
                     },"""
@@ -1076,7 +1076,7 @@ edit("app/src/main/java/com/openjarvis/ui/SettingsActivity.kt", voice_activity)
 
 def voice_screen(s):
     if "import com.openjarvis.voice.STTMode" not in s:
-        s = s.replace("import com.openjarvis.llm.UniversalAdapter", "import com.openjarvis.llm.UniversalAdapter\nimport com.openjarvis.voice.STTMode")
+        s = s.replace("import com.openjarvis.llm.UniversalAdapter", "import com.openjarvis.llm.UniversalAdapter\\nimport com.openjarvis.voice.STTMode")
     s = s.replace(
         """    initialProvider: List<String> = listOf("Groq", "", "", "llama-3.1-70b-versatile"),
     onSaveProvider: (String, String, String, String) -> Unit,""",
@@ -1121,20 +1121,20 @@ print("Applied persistent voice settings repair")
 # Normalize escaped line breaks introduced by the voice settings patch.
 def normalize_voice_patch(s):
     s = s.replace(
-        "import com.openjarvis.ui.theme.OpenJarvisTheme\\\nimport com.openjarvis.voice.VoiceManager\\\nimport com.openjarvis.voice.STTMode",
-        "import com.openjarvis.ui.theme.OpenJarvisTheme\nimport com.openjarvis.voice.VoiceManager\nimport com.openjarvis.voice.STTMode"
+        "import com.openjarvis.ui.theme.OpenJarvisTheme\\\\nimport com.openjarvis.voice.VoiceManager\\\\nimport com.openjarvis.voice.STTMode",
+        "import com.openjarvis.ui.theme.OpenJarvisTheme\\nimport com.openjarvis.voice.VoiceManager\\nimport com.openjarvis.voice.STTMode"
     )
     s = s.replace(
-        "private lateinit var prefs: android.content.SharedPreferences\\\n    private lateinit var voiceManager: VoiceManager",
-        "private lateinit var prefs: android.content.SharedPreferences\n    private lateinit var voiceManager: VoiceManager"
+        "private lateinit var prefs: android.content.SharedPreferences\\\\n    private lateinit var voiceManager: VoiceManager",
+        "private lateinit var prefs: android.content.SharedPreferences\\n    private lateinit var voiceManager: VoiceManager"
     )
     s = s.replace(
-        "voiceManager = VoiceManager(applicationContext)\\\n\\\n        setContent {",
-        "voiceManager = VoiceManager(applicationContext)\n\n        setContent {"
+        "voiceManager = VoiceManager(applicationContext)\\\\n\\\\n        setContent {",
+        "voiceManager = VoiceManager(applicationContext)\\n\\n        setContent {"
     )
     s = s.replace(
-        "import com.openjarvis.llm.UniversalAdapter\\\nimport com.openjarvis.voice.STTMode",
-        "import com.openjarvis.llm.UniversalAdapter\nimport com.openjarvis.voice.STTMode"
+        "import com.openjarvis.llm.UniversalAdapter\\\\nimport com.openjarvis.voice.STTMode",
+        "import com.openjarvis.llm.UniversalAdapter\\nimport com.openjarvis.voice.STTMode"
     )
     return s
 edit("app/src/main/java/com/openjarvis/ui/SettingsActivity.kt", normalize_voice_patch)
@@ -2037,7 +2037,7 @@ def add_persistent_conversation_memory(s):
     s = s.replace(
         '''val system = "Sen Open Jarvis'sin. Kullanıcıyla daima Türkçe, doğal ve kısa konuş. Varsayılan olarak 1-3 cümleyle cevap ver. Kullanıcı başka dil istemedikçe İngilizce kullanma. Kendini tanıtman istenirse Open Jarvis, kişisel dijital asistanı olduğunu söyle. Sesinin daha doğal olmasını isterse ses dosyası değiştirdiğini iddia etme; uygulama Türkçe sistem TTS sesini ve konuşma hızını kullanır. JSON veya eylem listesi döndürme." ''',
         '''val memoryContext = loadConversationMemory()
-            val system = "Sen Open Jarvis'sin. Kullanıcıyla daima Türkçe, doğal ve kısa konuş. Önceki konuşmalardaki bilgileri ve tercihleri dikkate al; kullanıcı daha önce verdiği bir bilgiyi tekrar sorma. Bilmediğin şeyi hatırlıyormuş gibi yapma. Varsayılan olarak 1-3 cümleyle cevap ver. Kullanıcı başka dil istemedikçe İngilizce kullanma. Kendini tanıtman istenirse Open Jarvis, kişisel dijital asistanı olduğunu söyle. JSON veya eylem listesi döndürme.\n\nKALICI KONUŞMA HAFIZASI:\n" + memoryContext'''
+            val system = "Sen Open Jarvis'sin. Kullanıcıyla daima Türkçe, doğal ve kısa konuş. Önceki konuşmalardaki bilgileri ve tercihleri dikkate al; kullanıcı daha önce verdiği bir bilgiyi tekrar sorma. Bilmediğin şeyi hatırlıyormuş gibi yapma. Varsayılan olarak 1-3 cümleyle cevap ver. Kullanıcı başka dil istemedikçe İngilizce kullanma. Kendini tanıtman istenirse Open Jarvis, kişisel dijital asistanı olduğunu söyle. JSON veya eylem listesi döndürme.\\n\\nKALICI KONUŞMA HAFIZASI:\\n" + memoryContext'''
     )
     s = s.replace(
         "                    updateStatus(clean)\n                    speakAndResume(clean)",
@@ -2053,7 +2053,7 @@ def add_persistent_conversation_memory(s):
                 val role = item.optString("role")
                 val content = item.optString("content")
                 if (role.isBlank() || content.isBlank()) null else "$role: $content"
-            }.takeLast(16).joinToString("\\\n").take(5000)
+            }.takeLast(16).joinToString("\\\\n").take(5000)
         }.getOrDefault("")
     }
 
