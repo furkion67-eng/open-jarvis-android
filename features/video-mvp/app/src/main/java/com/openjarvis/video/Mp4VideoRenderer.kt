@@ -87,7 +87,7 @@ class Mp4VideoRenderer(context: Context) {
         var completed = false
         val bufferInfo = MediaCodec.BufferInfo()
 
-        try {
+        return try {
             val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, spec.width, spec.height).apply {
                 setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
                 setInteger(MediaFormat.KEY_BIT_RATE, spec.bitRate)
