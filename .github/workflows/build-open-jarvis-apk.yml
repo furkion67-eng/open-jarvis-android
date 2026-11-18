@@ -119,16 +119,33 @@ jobs:
               'dataSync': 'android.permission.FOREGROUND_SERVICE_DATA_SYNC',
               'specialUse': 'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
           }
-          for node in root.findall('./application/service'):
+          services = root.findall('./application/service')
+          errors = []
+          for node in services:
               service_name = node.get(ns + 'name')
               service_type = node.get(ns + 'foregroundServiceType', '')
               print(service_name, 'permission=', node.get(ns + 'permission'), 'foregroundServiceType=', service_type)
               if service_type and 'android.permission.FOREGROUND_SERVICE' not in declared_permissions:
-                  print(f'::warning:: {service_name} declares a foreground service but FOREGROUND_SERVICE is missing')
+                  errors.append(f'{service_name} declares a foreground service but FOREGROUND_SERVICE is missing')
               for service_kind in service_type.split('|'):
                   required = type_permissions.get(service_kind)
                   if required and required not in declared_permissions:
-                      print(f'::warning:: {service_name} declares foregroundServiceType={service_kind}; add {required} for targetSdk 34 compatibility (Android 14+)')
+                      errors.append(f'{service_name} declares foregroundServiceType={service_kind}; missing {required} for targetSdk 34 compatibility (Android 14+)')
+
+          download_service = next(
+              (node for node in services if (node.get(ns + 'name') or '').endswith('DownloadService')),
+              None
+          )
+          if download_service is None:
+              errors.append('DownloadService is missing from the merged manifest')
+          elif 'dataSync' not in download_service.get(ns + 'foregroundServiceType', '').split('|'):
+              errors.append('DownloadService must declare foregroundServiceType=dataSync')
+
+          if errors:
+              for error in errors:
+                  print(f'::error::{error}')
+              raise SystemExit(1)
+          print('FOREGROUND-SERVICE-MANIFEST-OK')
           PY
 
       - name: Set up JDK 17
