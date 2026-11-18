@@ -2330,7 +2330,7 @@ def patch_voice_command_turkish(s):
     if "import com.openjarvis.voice.TurkishSpeechPolicy" not in s:
         s = s.replace(
             "import com.openjarvis.voice.STTMode",
-            "import com.openjarvis.voice.STTMode\nimport com.openjarvis.voice.TurkishSpeechPolicy",
+            "import com.openjarvis.voice.STTMode\nimport com.openjarvis.voice.TurkishSpeechPolicy\nimport com.openjarvis.voice.RecognitionFailure",
             1
         )
 
