@@ -3,12 +3,16 @@ name: Build Open Jarvis APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, "feature/approval-toggle" ]
+    branches: [ main, "feature/approval-toggle", "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "infra/issue15-node24-mainline", "infra/issue8-video-ci-validation", "infra/issue8-video-ci-validation-current" ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "feature/issue8-local-mp4-prototype" ]
 
 permissions:
   contents: read
+
+concurrency:
+  group: open-jarvis-apk-${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -17,7 +21,15 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+      - name: Assert exact commit on push
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          actual="$(git rev-parse HEAD)"
+          echo "Expected pushed SHA: $GITHUB_SHA"
+          echo "Checked out SHA: $actual"
+          test "$actual" = "$GITHUB_SHA"
 
       - name: Extract source and locate project
         id: source
@@ -106,22 +118,52 @@ jobs:
           p = 'app/src/main/AndroidManifest.xml'
           root = ET.parse(p).getroot()
           ns = '{http://schemas.android.com/apk/res/android}'
+          declared_permissions = {node.get(ns + 'name') for node in root.findall('uses-permission')}
           print('===== Declared permissions (preserved as approved) =====')
-          for node in root.findall('uses-permission'):
-              print(node.get(ns + 'name'))
-          print('===== Services and protection =====')
-          for node in root.findall('./application/service'):
-              print(node.get(ns + 'name'), 'permission=', node.get(ns + 'permission'))
+          for permission in sorted(declared_permissions):
+              print(permission)
+          print('===== Services and foreground-service requirements =====')
+          type_permissions = {
+              'dataSync': 'android.permission.FOREGROUND_SERVICE_DATA_SYNC',
+              'specialUse': 'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
+          }
+          services = root.findall('./application/service')
+          errors = []
+          for node in services:
+              service_name = node.get(ns + 'name')
+              service_type = node.get(ns + 'foregroundServiceType', '')
+              print(service_name, 'permission=', node.get(ns + 'permission'), 'foregroundServiceType=', service_type)
+              if service_type and 'android.permission.FOREGROUND_SERVICE' not in declared_permissions:
+                  errors.append(f'{service_name} declares a foreground service but FOREGROUND_SERVICE is missing')
+              for service_kind in service_type.split('|'):
+                  required = type_permissions.get(service_kind)
+                  if required and required not in declared_permissions:
+                      errors.append(f'{service_name} declares foregroundServiceType={service_kind}; missing {required} for targetSdk 34 compatibility (Android 14+)')
+
+          download_service = next(
+              (node for node in services if (node.get(ns + 'name') or '').endswith('DownloadService')),
+              None
+          )
+          if download_service is None:
+              errors.append('DownloadService is missing from the merged manifest')
+          elif 'dataSync' not in download_service.get(ns + 'foregroundServiceType', '').split('|'):
+              errors.append('DownloadService must declare foregroundServiceType=dataSync')
+
+          if errors:
+              for error in errors:
+                  print(f'::error::{error}')
+              raise SystemExit(1)
+          print('FOREGROUND-SERVICE-MANIFEST-OK')
           PY
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           packages: platform-tools
 
@@ -129,7 +171,7 @@ jobs:
         run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '8.2'
 
@@ -161,15 +203,15 @@ jobs:
           GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=1g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1
         run: gradle --no-daemon --max-workers=1 --stacktrace assembleDebug
 
-      - name: Run JVM unit tests and build instrumented test APK
+      - name: Run debug and release JVM tests, build test APK and release APK
         working-directory: ${{ steps.source.outputs.project_dir }}
         env:
           GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=1g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1
-        run: gradle --no-daemon --max-workers=1 --stacktrace testDebugUnitTest assembleDebugAndroidTest
+        run: gradle --no-daemon --max-workers=1 --stacktrace testDebugUnitTest testReleaseUnitTest assembleDebugAndroidTest assembleRelease
 
       - name: Upload unit test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Open-Jarvis-Unit-Test-Results
           path: ${{ steps.source.outputs.project_dir }}/app/build/reports/tests/
@@ -177,7 +219,7 @@ jobs:
           retention-days: 7
 
       - name: Upload instrumented test APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Open-Jarvis-Test-APK
           path: ${{ steps.source.outputs.project_dir }}/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
@@ -192,7 +234,7 @@ jobs:
 
       - name: Upload patched source diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Open-Jarvis-Source-Debug
           path: open-jarvis-patched-source.zip
@@ -200,7 +242,7 @@ jobs:
           retention-days: 2
 
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Open-Jarvis-APK
           path: ${{ steps.source.outputs.project_dir }}/app/build/outputs/apk/debug/app-debug.apk
@@ -214,22 +256,38 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+      - name: Assert exact commit on push
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          actual="$(git rev-parse HEAD)"
+          echo "Expected pushed SHA: $GITHUB_SHA"
+          echo "Checked out SHA: $actual"
+          test "$actual" = "$GITHUB_SHA"
+
+      - name: Validate smoke harness syntax and launcher matcher regression
+        run: |
+          set -euo pipefail
+          for script in scripts/smoke_test.sh scripts/launcher_visibility_check.sh scripts/test_launcher_visibility_check.sh; do
+            bash -n "$script"
+          done
+          bash scripts/test_launcher_visibility_check.sh
 
       - name: Download app APK
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: Open-Jarvis-APK
           path: apk
 
       - name: Download instrumented test APK
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: Open-Jarvis-Test-APK
           path: apk-tests
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
@@ -261,7 +319,7 @@ jobs:
 
       - name: Upload smoke-test evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Open-Jarvis-Smoke-Test
           path: |
@@ -270,6 +328,21 @@ jobs:
             logcat-full.txt
             instrumented.log
             databases.txt
+            activity-*.txt
+            windows-*.txt
+            crashlog-*.txt
+            logcat-*.txt
+            screen-after-instrumented.png
+            crashlog-after-instrumented.txt
+            logcat-after-instrumented.txt
+            activity-after-instrumented.txt
+            activity-top-after-instrumented.txt
+            windows-after-instrumented.txt
+            launcher-start-after-instrumented.txt
+            activity-main-activity-visible.txt
+            windows-main-activity-visible.txt
+            screen-main-activity-visible.png
+            crashlog-after-visible-launch.txt
           if-no-files-found: warn
           retention-days: 7
 
