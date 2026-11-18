@@ -15,8 +15,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderLogRedactionTest {
+    // This src/test test runs under both testDebugUnitTest and testReleaseUnitTest.
+    // HttpClient deliberately has no BuildConfig.DEBUG branch.
     @Test
-    fun capturedHttpLogsExcludeSecretsUrlsHeadersPromptsAndResponsesForBothBuildTypes() {
+    fun capturedHttpLogsExcludeSecretsUrlsHeadersPromptsAndResponses() {
         val server = MockWebServer()
         server.start()
         try {
@@ -24,41 +26,36 @@ class ProviderLogRedactionTest {
             val authorization = "Bearer SENTINEL_AUTHORIZATION_ISSUE14"
             val prompt = "Merhaba JARVIS, bu özel Türkçe istem loglara yazılmamalı."
             val responseBody = "SENTINEL_RESPONSE_BODY_ISSUE14"
+            val capturedLogs = mutableListOf<String>()
+            server.enqueue(MockResponse().setResponseCode(200).setBody(responseBody))
 
-            // HttpClient has no BuildConfig.DEBUG branch: debug and release share this policy.
-            for (variant in listOf("debug", "release")) {
-                val capturedLogs = mutableListOf<String>()
-                server.enqueue(MockResponse().setResponseCode(200).setBody(responseBody))
+            val requestUrl = server.url("/private/generate?key=$apiKey")
+            val request = Request.Builder()
+                .url(requestUrl)
+                .header("Authorization", authorization)
+                .post(prompt.toRequestBody("text/plain".toMediaType()))
+                .build()
 
-                val requestUrl = server.url("/private/generate?key=$apiKey")
-                val request = Request.Builder()
-                    .url(requestUrl)
-                    .header("Authorization", authorization)
-                    .post(prompt.toRequestBody("text/plain".toMediaType()))
-                    .build()
-
-                HttpClient.buildClient(logSink = { capturedLogs += it })
-                    .newCall(request)
-                    .execute()
-                    .use { response ->
-                        assertEquals(200, response.code)
-                        assertEquals(responseBody, response.body?.string())
-                    }
-
-                val captured = capturedLogs.joinToString("\n")
-                assertEquals("$variant build should emit only allowlisted metadata", 1, capturedLogs.size)
-                assertEquals("HTTP POST 200", capturedLogs.single())
-                listOf(
-                    apiKey,
-                    authorization,
-                    "Authorization",
-                    prompt,
-                    responseBody,
-                    requestUrl.toString(),
-                    "/private/generate"
-                ).forEach { sensitive ->
-                    assertFalse("$variant log leaked: $sensitive", captured.contains(sensitive))
+            HttpClient.buildClient(logSink = { capturedLogs += it })
+                .newCall(request)
+                .execute()
+                .use { response ->
+                    assertEquals(200, response.code)
+                    assertEquals(responseBody, response.body?.string())
                 }
+
+            val captured = capturedLogs.joinToString("\n")
+            assertEquals(listOf("HTTP POST 200"), capturedLogs)
+            listOf(
+                apiKey,
+                authorization,
+                "Authorization",
+                prompt,
+                responseBody,
+                requestUrl.toString(),
+                "/private/generate"
+            ).forEach { sensitive ->
+                assertFalse("HTTP log leaked sensitive data: $sensitive", captured.contains(sensitive))
             }
         } finally {
             server.shutdown()
