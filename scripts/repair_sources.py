@@ -2873,16 +2873,16 @@ def install_shared_app_launch_input_adapters(s):
         raise SystemExit("VoiceCommandActivity.kt: AgentState import anchor not found")
     missing = [item for item in imports if item not in s]
     if missing:
-        s = s.replace(anchor, anchor + "\\n" + "\\n".join(missing), 1)
+        s = s.replace(anchor, anchor + "\n" + "\n".join(missing), 1)
 
-    property_anchor = "    private lateinit var voice: VoiceManager\\n"
-    property = property_anchor + "    private lateinit var appLaunchInputAdapter: AppLaunchInputAdapter\\n"
+    property_anchor = "    private lateinit var voice: VoiceManager\n"
+    property = property_anchor + "    private lateinit var appLaunchInputAdapter: AppLaunchInputAdapter\n"
     if "private lateinit var appLaunchInputAdapter: AppLaunchInputAdapter" not in s:
         if property_anchor not in s:
             raise SystemExit("VoiceCommandActivity.kt: VoiceManager property anchor not found")
         s = s.replace(property_anchor, property, 1)
 
-    init_anchor = "        voice = VoiceManager(applicationContext)\\n"
+    init_anchor = "        voice = VoiceManager(applicationContext)\n"
     init = init_anchor + """        appLaunchInputAdapter = AppLaunchInputAdapter(
             AppLaunchCommandEntryPoint(
                 AppLaunchDispatcher(AndroidAppLaunchPlatform(this))
