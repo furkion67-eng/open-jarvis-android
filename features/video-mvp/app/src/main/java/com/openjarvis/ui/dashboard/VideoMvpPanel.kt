@@ -14,8 +14,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.openjarvis.video.Mp4VideoRenderer
+import com.openjarvis.video.VideoRenderProgress
 import com.openjarvis.video.VideoRenderSpec
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -35,7 +36,8 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     var topic by remember { mutableStateOf("İstanbul'un Fethi") }
     var status by remember { mutableStateOf("Henüz video oluşturulmadı.") }
-    var progress by remember { mutableFloatStateOf(0f) }
+    var renderProgress by remember { mutableStateOf(VideoRenderProgress()) }
+    val progress by renderProgress.progress.collectAsState()
     var output by remember { mutableStateOf<String?>(null) }
     var rendering by remember { mutableStateOf(false) }
     var renderJob by remember { mutableStateOf<Job?>(null) }
@@ -63,27 +65,33 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
             )
             Button(
                 onClick = {
+                    val progressForThisRender = VideoRenderProgress()
+                    renderProgress = progressForThisRender
                     renderJob = scope.launch {
                         rendering = true
-                        progress = 0f
                         output = null
                         status = "MP4 hazırlanıyor…"
                         try {
                             val result = Mp4VideoRenderer(context).render(VideoRenderSpec.sample(topic)) { done, total ->
-                                progress = done.toFloat() / total.toFloat()
+                                // Renderer invokes this callback on Dispatchers.IO. StateFlow is thread-safe;
+                                // Compose observes it through collectAsState on the UI side.
+                                progressForThisRender.report(done, total)
                             }
+                            progressForThisRender.finish()
                             output = "${result.file.name} · ${result.sizeBytes / 1024} KB"
                             status = "Video hazır: ${result.width}×${result.height}, ${result.durationMs / 1000} sn"
-                            progress = 1f
                         } catch (cancelled: CancellationException) {
+                            progressForThisRender.stop()
                             status = "Video oluşturma iptal edildi."
                             throw cancelled
                         } catch (error: Exception) {
+                            progressForThisRender.stop()
                             status = when (error) {
                                 is IllegalArgumentException -> error.message ?: "Video ayarları geçersiz."
                                 else -> error.message ?: "Video oluşturulamadı."
                             }
                         } finally {
+                            progressForThisRender.stop()
                             rendering = false
                             renderJob = null
                         }
