@@ -77,7 +77,6 @@ class AppLaunchDispatcherTest {
 
     @Test
     fun launchResultMessagesAreTurkishAndDoNotClaimVerifiedForeground() {
-        val target = AppLaunchRegistry.find("whatsapp")!!
         val message = AppLaunchMessages.forResult(AppLaunchResult.LaunchRequested(target, "com.whatsapp"))
         assertTrue(message.contains("açma isteği"))
         assertTrue(!message.contains("açıldı"))
