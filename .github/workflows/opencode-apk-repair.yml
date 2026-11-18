@@ -94,13 +94,11 @@ jobs:
 
       - name: Start OpenCode in read-only plan mode
         uses: ./.github/actions/opencode
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         with:
           model: ${{ needs.preflight.outputs.model }}
           agent: plan
+          mode: cli
           share: false
-          use_github_token: true
           prompt: |
             This is a READ-ONLY startup smoke test. Do not edit, create, delete, or format files.
             Do not run git commands that write, create branches, commit, push, merge, open PRs,
