@@ -2638,6 +2638,23 @@ def add_turkish_tts_status_ui(s):
             raise SystemExit("VoiceCommandActivity.kt: SpeechRecognizer import not found")
         s = s.replace(anchor, anchor + "\nimport android.speech.tts.TextToSpeech", 1)
 
+    # VoiceCommandActivity is in com.openjarvis.ui; import the public TTS
+    # status/policy types from com.openjarvis.voice so the sealed when is exhaustive.
+    voice_import_anchor = "import android.speech.SpeechRecognizer"
+    required_voice_imports = (
+        "import com.openjarvis.voice.TurkishTtsPolicy",
+        "import com.openjarvis.voice.TurkishTtsStatus",
+    )
+    if voice_import_anchor not in s:
+        raise SystemExit("VoiceCommandActivity.kt: SpeechRecognizer import not found for TTS status imports")
+    missing_voice_imports = [item for item in required_voice_imports if item not in s]
+    if missing_voice_imports:
+        s = s.replace(
+            voice_import_anchor,
+            voice_import_anchor + "\\n" + "\\n".join(missing_voice_imports),
+            1
+        )
+
     anchor = "                val agentState by agent.state.collectAsState()"
     replacement = anchor + "\n                val ttsStatus by voice.ttsStatus.collectAsState()"
     if "val ttsStatus by voice.ttsStatus.collectAsState()" not in s:
