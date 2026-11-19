@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.openjarvis.tasks.JarvisTaskCheckpoint
 import com.openjarvis.tasks.JarvisTaskEntity
@@ -67,7 +68,9 @@ class TaskControlCenterReviewStateInstrumentedTest {
             }
         }
 
-        composeRule.onNodeWithText("Yürütülmedi · yürütücü yok • 25%").assertIsDisplayed()
+        composeRule.onNodeWithText("Yürütülmedi · yürütücü yok").assertIsDisplayed()
+        composeRule.onNodeWithText("25%").assertDoesNotExist()
+        composeRule.onNodeWithTag("task-progress-indicator").assertDoesNotExist()
         composeRule.onNodeWithText(
             "Bu görev yalnızca yerel plan taslağıdır; yürütücü yapılandırılmadığı için çalıştırılmadı."
         ).assertIsDisplayed()
