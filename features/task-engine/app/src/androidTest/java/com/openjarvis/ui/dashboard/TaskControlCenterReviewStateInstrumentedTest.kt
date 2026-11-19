@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.openjarvis.tasks.JarvisTaskCheckpoint
 import com.openjarvis.tasks.JarvisTaskEntity
@@ -77,7 +78,7 @@ class TaskControlCenterReviewStateInstrumentedTest {
         composeRule.onNodeWithText(
             "Bu görev yalnızca yerel plan taslağıdır; yürütücü yapılandırılmadığı için çalıştırılmadı."
         ).assertIsDisplayed()
-        composeRule.onNodeWithText("Yeniden dene").assertIsDisplayed()
+        assertTextAbsent("Yeniden dene")
     }
 
     @Test
@@ -138,6 +139,55 @@ class TaskControlCenterReviewStateInstrumentedTest {
         assertTextAbsent("65%")
         assertTrue(composeRule.onAllNodesWithTag("task-progress-indicator").fetchSemanticsNodes().isEmpty())
         assertTrue(composeRule.onAllNodesWithTag("task-progress-indeterminate").fetchSemanticsNodes().isEmpty())
+    }
+
+    @Test
+    fun interruptedTaskShowsAndInvokesExplicitManualRetryAction() {
+        val task = task(
+            status = JarvisTaskStatus.INTERRUPTED,
+            errorCode = "APP_RESTARTED",
+            executionMode = "remote.device-action",
+            progressPercent = 65
+        )
+        var retryInvoked = false
+        composeRule.setContent {
+            MaterialTheme {
+                TaskItem(
+                    task,
+                    enabled = true,
+                    onAcceptPlan = {},
+                    onRetry = { retryInvoked = true },
+                    onCancel = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Yeniden dene").assertIsDisplayed().performClick()
+        assertTrue("Interrupted task must expose a working manual retry action", retryInvoked)
+    }
+
+    @Test
+    fun ordinaryNetworkWaitShowsAndInvokesExplicitManualRetryAction() {
+        val task = task(
+            status = JarvisTaskStatus.WAITING_FOR_NETWORK,
+            errorCode = "NETWORK_UNAVAILABLE",
+            executionMode = "remote.device-action"
+        )
+        var retryInvoked = false
+        composeRule.setContent {
+            MaterialTheme {
+                TaskItem(
+                    task,
+                    enabled = true,
+                    onAcceptPlan = {},
+                    onRetry = { retryInvoked = true },
+                    onCancel = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Yeniden dene").assertIsDisplayed().performClick()
+        assertTrue("Network-wait task must expose a working manual retry action", retryInvoked)
     }
 
     private fun assertTextAbsent(text: String) {
