@@ -40,6 +40,7 @@ import com.openjarvis.tasks.JarvisTaskRepository
 import com.openjarvis.tasks.JarvisTaskStatus
 import com.openjarvis.ui.theme.VoidColor
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 @Composable
 fun TaskControlCenter(modifier: Modifier = Modifier) {
@@ -67,6 +68,7 @@ fun TaskControlCenter(modifier: Modifier = Modifier) {
     val tasks by repository.observeRecentTasks().collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     var goal by rememberSaveable { mutableStateOf("") }
+    var submissionKey by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
     var busy by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
 
@@ -111,7 +113,10 @@ fun TaskControlCenter(modifier: Modifier = Modifier) {
             )
             OutlinedTextField(
                 value = goal,
-                onValueChange = { goal = it.take(1000) },
+                onValueChange = { value ->
+                    goal = value.take(1000)
+                    submissionKey = UUID.randomUUID().toString()
+                },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Yeni görev") },
                 placeholder = { Text("Örn. Sakarya'daki etkinlikleri araştır ve özetle") },
@@ -123,9 +128,13 @@ fun TaskControlCenter(modifier: Modifier = Modifier) {
             Button(
                 onClick = {
                     val requestedGoal = goal.trim()
+                    val requestKey = submissionKey
                     if (requestedGoal.isNotEmpty()) {
-                        goal = ""
-                        runAction { repository.createTask(requestedGoal) }
+                        runAction {
+                            repository.createTask(requestedGoal, requestKey)
+                            goal = ""
+                            submissionKey = UUID.randomUUID().toString()
+                        }
                     }
                 },
                 enabled = goal.isNotBlank() && !busy,
@@ -150,7 +159,7 @@ fun TaskControlCenter(modifier: Modifier = Modifier) {
                     style = MaterialTheme.typography.bodySmall
                 )
             } else {
-                tasks.forEach { task ->
+                tasks.distinctBy { it.id }.forEach { task ->
                     TaskItem(
                         task = task,
                         enabled = !busy,
