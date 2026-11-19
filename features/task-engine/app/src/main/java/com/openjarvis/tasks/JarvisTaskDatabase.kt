@@ -42,7 +42,8 @@ abstract class JarvisTaskDatabase : RoomDatabase() {
                         "WHERE status = 'waiting_for_network' AND errorCode = 'EXECUTOR_NOT_CONFIGURED'"
                 )
                 database.execSQL(
-                    "UPDATE jarvis_tasks SET status = 'interrupted', progressPercent = 0 " +
+                    "UPDATE jarvis_tasks SET status = 'interrupted', progressPercent = 0, " +
+                        "approvalGranted = 0, approvalReference = NULL " +
                         "WHERE status = 'waiting_for_network' AND errorCode = 'APP_RESTARTED'"
                 )
             }

@@ -98,7 +98,7 @@ class JarvisTaskMigrationInstrumentedTest {
                 checkpoint, idempotencyKey, executionMode, estimatedCostMicros, actualCostMicros
             ) VALUES (
                 'legacy-interrupted', 'Kesilen eski görev', 'waiting_for_network', NULL, NULL, 65, NULL,
-                '[]', 4, 4, 0, 'APP_RESTARTED', 'Uygulama yeniden başladı', 0, 0, 0, NULL,
+                '[]', 4, 4, 0, 'APP_RESTARTED', 'Uygulama yeniden başladı', 0, 1, 1, 'stale-approval',
                 'plan_reviewed', 'legacy-interrupted-key', 'remote.device-action', 0, 0
             )
         """.trimIndent())
@@ -134,6 +134,8 @@ class JarvisTaskMigrationInstrumentedTest {
             val interrupted = migrated.taskDao().findById("legacy-interrupted")!!
             assertEquals(JarvisTaskStatus.INTERRUPTED.storageValue, interrupted.status)
             assertEquals(0, interrupted.progressPercent)
+            assertEquals(false, interrupted.approvalGranted)
+            assertNull(interrupted.approvalReference)
         } finally {
             migrated.close()
             context.deleteDatabase(databaseName)
