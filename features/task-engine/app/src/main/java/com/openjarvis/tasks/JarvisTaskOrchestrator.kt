@@ -36,8 +36,27 @@ class LocalPlanPreviewCapability : JarvisTaskCapability {
 data class JarvisTaskExecutionResult(
     val outputSummary: String,
     val evidenceReference: String,
-    val verified: Boolean
+    val verified: Boolean,
+    /** All user-visible artifacts; empty keeps compatibility with single-evidence executors. */
+    val artifactReferences: List<String> = emptyList()
 )
+
+internal fun encodeArtifactReferences(references: List<String>): String {
+    require(references.isNotEmpty() && references.all { it.isNotBlank() })
+    fun escape(value: String): String = buildString {
+        value.forEach { char ->
+            when (char) {
+                '\\' -> append("\\\\")
+                '"' -> append("\\\"")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                else -> append(char)
+            }
+        }
+    }
+    return references.joinToString(prefix = "[", postfix = "]") { "\"" + escape(it) + "\"" }
+}
 
 interface JarvisTaskExecutor {
     val capabilityId: String
@@ -149,7 +168,9 @@ class JarvisTaskOrchestrator(
         val task = dao.findById(taskId) ?: return
         val status = JarvisTaskStatus.fromStorage(task.status)
         if (status != JarvisTaskStatus.WAITING_FOR_USER &&
-            status != JarvisTaskStatus.WAITING_FOR_NETWORK
+            status != JarvisTaskStatus.WAITING_FOR_NETWORK &&
+            status != JarvisTaskStatus.NOT_EXECUTED &&
+            status != JarvisTaskStatus.INTERRUPTED
         ) return
 
         if (task.planAcceptedAt == null || task.checkpoint != JarvisTaskCheckpoint.PLAN_REVIEWED) {
@@ -171,12 +192,11 @@ class JarvisTaskOrchestrator(
 
         val executor = registry.executorFor(task.ownerAgent)
         if (executor == null) {
-            dao.waitForNetworkIfCurrent(
+            dao.markNotExecutedIfCurrent(
                 id = taskId,
                 expectedStatus = status.storageValue,
-                waitingStatus = JarvisTaskStatus.WAITING_FOR_NETWORK.storageValue,
-                currentStep = "Bulut/uzman ajan yürütücüsü bekleniyor",
-                progressPercent = 0,
+                notExecutedStatus = JarvisTaskStatus.NOT_EXECUTED.storageValue,
+                currentStep = "Yürütülmedi · yürütücü yok",
                 errorCode = "EXECUTOR_NOT_CONFIGURED",
                 errorMessage = "Bu yetenek için çalıştırılabilir ajan veya bulut bağlantısı yapılandırılmadı; hiçbir gerçek işlem başlatılmadı.",
                 updatedAt = System.currentTimeMillis()
@@ -200,7 +220,11 @@ class JarvisTaskOrchestrator(
         val claimedTask = dao.findById(taskId) ?: return
         try {
             val result = executor.execute(claimedTask, claimedTask.idempotencyKey)
-            val verified = result.verified && result.evidenceReference.isNotBlank()
+            val references = result.artifactReferences.ifEmpty { listOf(result.evidenceReference) }
+            val verified = result.verified &&
+                result.evidenceReference.isNotBlank() &&
+                references.isNotEmpty() &&
+                references.all { it.isNotBlank() }
             val next = if (verified) JarvisTaskStatus.SUCCEEDED else JarvisTaskStatus.FAILED
             dao.finishExecutionIfRunning(
                 id = taskId,
@@ -209,7 +233,7 @@ class JarvisTaskOrchestrator(
                 currentStep = if (verified) "Sonuç doğrulandı" else "Sonuç doğrulanamadı",
                 progressPercent = next.defaultProgress,
                 outputSummary = result.outputSummary,
-                artifactRefs = if (verified) result.evidenceReference else claimedTask.artifactRefs,
+                artifactRefs = if (verified) encodeArtifactReferences(references) else claimedTask.artifactRefs,
                 errorCode = if (verified) null else "UNVERIFIED_RESULT",
                 errorMessage = if (verified) null else "Yürütücü tamamlandı dedi ancak doğrulanabilir kanıt sunmadı.",
                 updatedAt = System.currentTimeMillis()

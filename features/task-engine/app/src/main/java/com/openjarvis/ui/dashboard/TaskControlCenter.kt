@@ -206,11 +206,13 @@ internal fun taskReviewUiState(task: JarvisTaskEntity): TaskReviewUiState {
             (task.errorCode == "APPROVAL_REQUIRED" || (task.requiresApproval && !task.approvalGranted)) ->
             TaskReviewUiState.ACTION_APPROVAL_REQUIRED
 
-        status == JarvisTaskStatus.WAITING_FOR_NETWORK &&
-            task.errorCode == "APP_RESTARTED" -> TaskReviewUiState.INTERRUPTED
+        status == JarvisTaskStatus.INTERRUPTED ||
+            (status == JarvisTaskStatus.WAITING_FOR_NETWORK && task.errorCode == "APP_RESTARTED") ->
+            TaskReviewUiState.INTERRUPTED
 
-        status == JarvisTaskStatus.WAITING_FOR_NETWORK &&
-            task.errorCode == "EXECUTOR_NOT_CONFIGURED" -> TaskReviewUiState.EXECUTOR_UNAVAILABLE
+        status == JarvisTaskStatus.NOT_EXECUTED ||
+            (status == JarvisTaskStatus.WAITING_FOR_NETWORK && task.errorCode == "EXECUTOR_NOT_CONFIGURED") ->
+            TaskReviewUiState.EXECUTOR_UNAVAILABLE
 
         else -> TaskReviewUiState.NONE
     }
@@ -238,8 +240,10 @@ internal fun TaskItem(
             Text(task.goal, color = VoidColor.TextPrimary, fontWeight = FontWeight.Medium)
             Text(
                 text = when {
-                    reviewState == TaskReviewUiState.EXECUTOR_UNAVAILABLE -> "Yürütülmedi · yürütücü yok"
-                    reviewState == TaskReviewUiState.INTERRUPTED -> "Yürütülmedi · güvenli yeniden deneme bekliyor"
+                    status == JarvisTaskStatus.NOT_EXECUTED ||
+                        reviewState == TaskReviewUiState.EXECUTOR_UNAVAILABLE -> "Yürütülmedi · yürütücü yok"
+                    status == JarvisTaskStatus.INTERRUPTED ||
+                        reviewState == TaskReviewUiState.INTERRUPTED -> "Yürütülmedi · güvenli yeniden deneme bekliyor"
                     task.executionMode == "local_plan_preview" -> "${status.turkishLabel} · önizleme"
                     task.executionMode == VIDEO_TASK_EXECUTION_MODE && status == JarvisTaskStatus.WAITING_FOR_NETWORK -> "Yürütülmedi · güvenli yeniden deneme bekliyor"
                     task.executionMode == VIDEO_TASK_EXECUTION_MODE && status == JarvisTaskStatus.RUNNING -> "Türkçe video oluşturuluyor"
@@ -300,6 +304,8 @@ internal fun TaskItem(
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if ((status == JarvisTaskStatus.WAITING_FOR_NETWORK &&
                         reviewState != TaskReviewUiState.EXECUTOR_UNAVAILABLE) ||
+                    status == JarvisTaskStatus.NOT_EXECUTED ||
+                    status == JarvisTaskStatus.INTERRUPTED ||
                     status == JarvisTaskStatus.FAILED
                 ) {
                     TextButton(onClick = onRetry, enabled = enabled) {

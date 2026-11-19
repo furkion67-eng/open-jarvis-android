@@ -50,7 +50,9 @@ enum class JarvisTaskStatus(
     PLANNING("planning", "Planlanıyor", 10),
     RUNNING("running", "Çalışıyor", 50),
     WAITING_FOR_USER("waiting_for_user", "Senden bilgi / plan onayı bekliyor", 25),
-    WAITING_FOR_NETWORK("waiting_for_network", "Yürütücü bağlantısı bekleniyor", 25),
+    WAITING_FOR_NETWORK("waiting_for_network", "Ağ bağlantısı bekleniyor", 25),
+    NOT_EXECUTED("not_executed", "Yürütülmedi", 0),
+    INTERRUPTED("interrupted", "Kesintiye uğradı", 0),
     SUCCEEDED("succeeded", "Tamamlandı", 100),
     FAILED("failed", "Başarısız", 100),
     CANCELLED("cancelled", "İptal edildi", 0);
@@ -69,6 +71,7 @@ object JarvisTaskStateMachine {
         JarvisTaskStatus.QUEUED to setOf(
             JarvisTaskStatus.PLANNING,
             JarvisTaskStatus.WAITING_FOR_NETWORK,
+            JarvisTaskStatus.INTERRUPTED,
             JarvisTaskStatus.CANCELLED
         ),
         JarvisTaskStatus.PLANNING to setOf(
@@ -76,6 +79,7 @@ object JarvisTaskStateMachine {
             JarvisTaskStatus.WAITING_FOR_USER,
             JarvisTaskStatus.WAITING_FOR_NETWORK,
             JarvisTaskStatus.FAILED,
+            JarvisTaskStatus.INTERRUPTED,
             JarvisTaskStatus.CANCELLED
         ),
         JarvisTaskStatus.RUNNING to setOf(
@@ -83,18 +87,37 @@ object JarvisTaskStateMachine {
             JarvisTaskStatus.WAITING_FOR_NETWORK,
             JarvisTaskStatus.SUCCEEDED,
             JarvisTaskStatus.FAILED,
+            JarvisTaskStatus.INTERRUPTED,
             JarvisTaskStatus.CANCELLED
         ),
         JarvisTaskStatus.WAITING_FOR_USER to setOf(
             JarvisTaskStatus.RUNNING,
             JarvisTaskStatus.WAITING_FOR_NETWORK,
+            JarvisTaskStatus.NOT_EXECUTED,
+            JarvisTaskStatus.INTERRUPTED,
             JarvisTaskStatus.FAILED,
             JarvisTaskStatus.CANCELLED
         ),
         JarvisTaskStatus.WAITING_FOR_NETWORK to setOf(
             JarvisTaskStatus.QUEUED,
             JarvisTaskStatus.RUNNING,
+            JarvisTaskStatus.NOT_EXECUTED,
+            JarvisTaskStatus.INTERRUPTED,
             JarvisTaskStatus.FAILED,
+            JarvisTaskStatus.CANCELLED
+        ),
+        JarvisTaskStatus.NOT_EXECUTED to setOf(
+            JarvisTaskStatus.QUEUED,
+            JarvisTaskStatus.RUNNING,
+            JarvisTaskStatus.WAITING_FOR_USER,
+            JarvisTaskStatus.INTERRUPTED,
+            JarvisTaskStatus.CANCELLED
+        ),
+        JarvisTaskStatus.INTERRUPTED to setOf(
+            JarvisTaskStatus.QUEUED,
+            JarvisTaskStatus.RUNNING,
+            JarvisTaskStatus.WAITING_FOR_USER,
+            JarvisTaskStatus.NOT_EXECUTED,
             JarvisTaskStatus.CANCELLED
         ),
         JarvisTaskStatus.FAILED to setOf(JarvisTaskStatus.QUEUED, JarvisTaskStatus.CANCELLED),

@@ -43,4 +43,17 @@ class JarvisTaskStateMachineTest {
     fun unknownPersistedStateFailsClosed() {
         assertEquals(JarvisTaskStatus.FAILED, JarvisTaskStatus.fromStorage("unexpected"))
     }
+
+    @Test
+    fun nonExecutionAndInterruptionAreDurableRetryableStates() {
+        assertEquals(JarvisTaskStatus.NOT_EXECUTED, JarvisTaskStatus.fromStorage("not_executed"))
+        assertEquals(JarvisTaskStatus.INTERRUPTED, JarvisTaskStatus.fromStorage("interrupted"))
+        assertEquals(0, JarvisTaskStatus.NOT_EXECUTED.defaultProgress)
+        assertEquals(0, JarvisTaskStatus.INTERRUPTED.defaultProgress)
+        assertTrue(JarvisTaskStateMachine.canTransition(JarvisTaskStatus.WAITING_FOR_USER, JarvisTaskStatus.NOT_EXECUTED))
+        assertTrue(JarvisTaskStateMachine.canTransition(JarvisTaskStatus.RUNNING, JarvisTaskStatus.INTERRUPTED))
+        assertTrue(JarvisTaskStateMachine.canTransition(JarvisTaskStatus.NOT_EXECUTED, JarvisTaskStatus.RUNNING))
+        assertTrue(JarvisTaskStateMachine.canTransition(JarvisTaskStatus.INTERRUPTED, JarvisTaskStatus.RUNNING))
+    }
+
 }

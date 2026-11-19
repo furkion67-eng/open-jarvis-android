@@ -124,4 +124,14 @@ class TurkishTtsPolicyTest {
 
         assertEquals("Lifecycle release must not restart STT", 0, completed)
     }
+
+    @Test
+    fun nullOrNonExactActualEngineVoiceNeverProducesReadyLocale() {
+        assertNull(TurkishTtsPolicy.exactActualEngineLocale(null))
+        assertNull(TurkishTtsPolicy.exactActualEngineLocale(""))
+        assertNull(TurkishTtsPolicy.exactActualEngineLocale("tr"))
+        assertNull(TurkishTtsPolicy.exactActualEngineLocale("tr-CY"))
+        assertEquals("tr-TR", TurkishTtsPolicy.exactActualEngineLocale("tr-TR"))
+    }
+
 }

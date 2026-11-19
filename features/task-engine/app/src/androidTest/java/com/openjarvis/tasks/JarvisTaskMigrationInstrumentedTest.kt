@@ -78,6 +78,30 @@ class JarvisTaskMigrationInstrumentedTest {
                 NULL, 'stable-legacy-key', 'local_plan_preview', 0, 0
             )
         """.trimIndent())
+        legacy.execSQL("""
+            INSERT INTO jarvis_tasks (
+                id, goal, status, ownerAgent, currentStep, progressPercent, outputSummary,
+                artifactRefs, createdAt, updatedAt, retryCount, errorCode, errorMessage,
+                requiresNetwork, requiresApproval, approvalGranted, approvalReference,
+                checkpoint, idempotencyKey, executionMode, estimatedCostMicros, actualCostMicros
+            ) VALUES (
+                'legacy-not-executed', 'Yürütülmeyen eski görev', 'waiting_for_network', NULL, NULL, 25, NULL,
+                '[]', 3, 3, 0, 'EXECUTOR_NOT_CONFIGURED', 'Yürütücü yok', 0, 1, 1, 'stale-approval',
+                'plan_reviewed', 'legacy-not-executed-key', 'local_plan_preview', 0, 0
+            )
+        """.trimIndent())
+        legacy.execSQL("""
+            INSERT INTO jarvis_tasks (
+                id, goal, status, ownerAgent, currentStep, progressPercent, outputSummary,
+                artifactRefs, createdAt, updatedAt, retryCount, errorCode, errorMessage,
+                requiresNetwork, requiresApproval, approvalGranted, approvalReference,
+                checkpoint, idempotencyKey, executionMode, estimatedCostMicros, actualCostMicros
+            ) VALUES (
+                'legacy-interrupted', 'Kesilen eski görev', 'waiting_for_network', NULL, NULL, 65, NULL,
+                '[]', 4, 4, 0, 'APP_RESTARTED', 'Uygulama yeniden başladı', 0, 1, 1, 'stale-approval',
+                'plan_reviewed', 'legacy-interrupted-key', 'remote.device-action', 0, 0
+            )
+        """.trimIndent())
         legacy.execSQL("PRAGMA user_version = 1")
         legacy.close()
 
@@ -85,7 +109,7 @@ class JarvisTaskMigrationInstrumentedTest {
             context,
             JarvisTaskDatabase::class.java,
             databaseName
-        ).addMigrations(JarvisTaskDatabase.MIGRATION_1_2, JarvisTaskDatabase.MIGRATION_2_3).build()
+        ).addMigrations(JarvisTaskDatabase.MIGRATION_1_2, JarvisTaskDatabase.MIGRATION_2_3, JarvisTaskDatabase.MIGRATION_3_4).build()
 
         try {
             val task = migrated.taskDao().findById("legacy-task")!!
@@ -102,6 +126,20 @@ class JarvisTaskMigrationInstrumentedTest {
             }
             assertEquals(1, duplicateCount)
             assertEquals("legacy-task", migrated.taskDao().findByIdempotencyKey("stable-legacy-key")?.id)
+
+            val notExecuted = migrated.taskDao().findById("legacy-not-executed")!!
+            assertEquals(JarvisTaskStatus.NOT_EXECUTED.storageValue, notExecuted.status)
+            assertEquals(0, notExecuted.progressPercent)
+            assertEquals("Yürütülmedi · yürütücü yok", notExecuted.currentStep)
+            assertEquals(false, notExecuted.approvalGranted)
+            assertNull(notExecuted.approvalReference)
+
+            val interrupted = migrated.taskDao().findById("legacy-interrupted")!!
+            assertEquals(JarvisTaskStatus.INTERRUPTED.storageValue, interrupted.status)
+            assertEquals(0, interrupted.progressPercent)
+            assertEquals("Güvenli kurtarma beklemesi", interrupted.currentStep)
+            assertEquals(false, interrupted.approvalGranted)
+            assertNull(interrupted.approvalReference)
         } finally {
             migrated.close()
             context.deleteDatabase(databaseName)

@@ -92,7 +92,7 @@ class JarvisTaskPersistenceInstrumentedTest {
 
         repository.acceptPlan(id)
         val accepted = dao.findById(id)!!
-        assertEquals(JarvisTaskStatus.WAITING_FOR_NETWORK.storageValue, accepted.status)
+        assertEquals(JarvisTaskStatus.NOT_EXECUTED.storageValue, accepted.status)
         assertEquals(JarvisTaskCheckpoint.PLAN_REVIEWED, accepted.checkpoint)
         assertNotNull(accepted.planAcceptedAt)
         assertEquals("EXECUTOR_NOT_CONFIGURED", accepted.errorCode)
@@ -126,7 +126,7 @@ class JarvisTaskPersistenceInstrumentedTest {
 
         repository.recoverInterruptedTasks()
         val recovered = dao.findById("interrupted-task")!!
-        assertEquals(JarvisTaskStatus.WAITING_FOR_NETWORK.storageValue, recovered.status)
+        assertEquals(JarvisTaskStatus.INTERRUPTED.storageValue, recovered.status)
         assertEquals("APP_RESTARTED", recovered.errorCode)
         assertEquals(0, recovered.progressPercent)
         assertTrue(recovered.errorMessage!!.contains("otomatik yürütülmedi"))
@@ -161,7 +161,7 @@ class JarvisTaskPersistenceInstrumentedTest {
         repository.recoverInterruptedTasks()
 
         val recovered = dao.findById("interrupted-running-task")!!
-        assertEquals(JarvisTaskStatus.WAITING_FOR_NETWORK.storageValue, recovered.status)
+        assertEquals(JarvisTaskStatus.INTERRUPTED.storageValue, recovered.status)
         assertEquals("APP_RESTARTED", recovered.errorCode)
         assertEquals(0, recovered.progressPercent)
         assertEquals(now, recovered.planAcceptedAt)
@@ -175,7 +175,7 @@ class JarvisTaskPersistenceInstrumentedTest {
         val acceptedKey = dao.findById(id)!!.idempotencyKey
         repository.retry(id)
         val retried = dao.findById(id)!!
-        assertEquals(JarvisTaskStatus.WAITING_FOR_NETWORK.storageValue, retried.status)
+        assertEquals(JarvisTaskStatus.NOT_EXECUTED.storageValue, retried.status)
         assertEquals(1, retried.retryCount)
         assertEquals(acceptedKey, retried.idempotencyKey)
         assertEquals(0, retried.progressPercent)

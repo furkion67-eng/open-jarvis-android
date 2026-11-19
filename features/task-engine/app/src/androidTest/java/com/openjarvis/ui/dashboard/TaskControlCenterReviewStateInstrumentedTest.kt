@@ -60,9 +60,9 @@ class TaskControlCenterReviewStateInstrumentedTest {
     }
 
     @Test
-    fun missingExecutorIsClearlyNotExecutedAndDoesNotOfferRetry() {
+    fun missingExecutorIsPersistedNotExecutedAndAllowsExplicitRecheck() {
         val task = task(
-            status = JarvisTaskStatus.WAITING_FOR_NETWORK,
+            status = JarvisTaskStatus.NOT_EXECUTED,
             errorCode = "EXECUTOR_NOT_CONFIGURED"
         )
         composeRule.setContent {
@@ -77,7 +77,7 @@ class TaskControlCenterReviewStateInstrumentedTest {
         composeRule.onNodeWithText(
             "Bu görev yalnızca yerel plan taslağıdır; yürütücü yapılandırılmadığı için çalıştırılmadı."
         ).assertIsDisplayed()
-        assertTextAbsent("Yeniden dene")
+        composeRule.onNodeWithText("Yeniden dene").assertIsDisplayed()
     }
 
     @Test
@@ -101,7 +101,7 @@ class TaskControlCenterReviewStateInstrumentedTest {
     @Test
     fun interruptedVideoTaskShowsNotExecutedWithoutPercentOrProgressBar() {
         val task = task(
-            status = JarvisTaskStatus.WAITING_FOR_NETWORK,
+            status = JarvisTaskStatus.INTERRUPTED,
             errorCode = "APP_RESTARTED",
             executionMode = VIDEO_TASK_EXECUTION_MODE
         )
@@ -120,7 +120,7 @@ class TaskControlCenterReviewStateInstrumentedTest {
     @Test
     fun interruptedExternalTaskShowsNotExecutedWithoutStalePercentOrProgressBar() {
         val task = task(
-            status = JarvisTaskStatus.WAITING_FOR_NETWORK,
+            status = JarvisTaskStatus.INTERRUPTED,
             errorCode = "APP_RESTARTED",
             executionMode = "remote.device-action",
             progressPercent = 65
