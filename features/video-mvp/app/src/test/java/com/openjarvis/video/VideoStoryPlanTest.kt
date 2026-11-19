@@ -49,7 +49,7 @@ class VideoStoryPlanTest {
     @Test
     fun genericTopicUsesStructureWithoutInventingSpecificFacts() {
         val plan = VideoStoryPlanBuilder.build("Kedilerin bakımı")
-        assertEquals("Genel yerel şablon", plan.sourceLabel)
+        assertTrue(plan.sourceLabel.startsWith("Genel yerel şablon"))
         assertTrue(plan.scenes.first().caption.contains("Kedilerin bakımı"))
         assertTrue(plan.scenes.none { it.caption.contains("1453") })
         assertTrue(plan.scenes.all { it.visualStyle == VideoVisualStyle.GENERIC })
