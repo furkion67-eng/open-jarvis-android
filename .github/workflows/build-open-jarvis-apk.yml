@@ -3,9 +3,9 @@ name: Build Open Jarvis APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, "feature/approval-toggle", "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "infra/issue15-node24-mainline", "infra/issue8-video-ci-validation", "infra/issue8-video-ci-validation-current", "infra/issue8-video-ci-validation-latest", "infra/verify-pr31-tts-exact", "infra/verify-pr31-tts-exact-3dc58e6", "infra/verify-pr32-app-launch-exact-952a", "infra/verify-pr32-app-launch-exact-d465", "infra/verify-pr47-download-service-exact-6b837", "infra/verify-pr51-task-review-exact-a13d60" ]
+    branches: [ main, "feature/approval-toggle", "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "infra/issue15-node24-mainline", "infra/issue8-video-ci-validation", "infra/issue8-video-ci-validation-current", "infra/issue8-video-ci-validation-latest", "infra/verify-pr31-tts-exact", "infra/verify-pr31-tts-exact-3dc58e6", "infra/verify-pr32-app-launch-exact-952a", "infra/verify-pr32-app-launch-exact-d465", "infra/verify-pr47-download-service-exact-6b837", "infra/verify-pr51-task-review-exact-a13d60", "infra/verify-pr51-task-review-exact-9dd083a" ]
   pull_request:
-    branches: [ main, "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "feature/issue8-local-mp4-prototype" ]
+    branches: [ main, "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "feature/issue8-local-mp4-prototype", "feature/task-control-approval-state-stacked-2026-11-19" ]
 
 permissions:
   contents: read
@@ -36,7 +36,7 @@ jobs:
       - name: "Assert PR #47 combined source is unchanged by CI overlay"
         shell: bash
         env:
-          EXPECTED_COMBINED_SOURCE_SHA: a13d60e7bae83788c124c2b494cf7cdeba39848b
+          EXPECTED_COMBINED_SOURCE_SHA: 9dd083ab7e1bceec555d8c20b6b5a93d0eac9740
         run: |
           set -euo pipefail
           python3 - "$EXPECTED_COMBINED_SOURCE_SHA" <<'PY'
