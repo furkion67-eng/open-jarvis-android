@@ -49,6 +49,28 @@ class VideoNarrationComposerTest {
         assertEquals("İki. İkinci sahne", captions[1].text)
     }
 
+
+    @Test
+    fun sceneFrameDurationsFollowMeasuredSpeechWithOnlyShortVisualHold() {
+        val speechDurations = listOf(6_600L, 5_400L, 7_300L)
+        val frames = VideoNarrationTimeline.sceneFrameDurations(speechDurations, 24)
+
+        assertEquals(listOf(164, 135, 180), frames)
+        val renderedDurationMs = frames.sum().toLong() * 1_000L / 24L
+        assertTrue(renderedDurationMs >= speechDurations.sum())
+        assertTrue(renderedDurationMs - speechDurations.sum() <= 900L)
+    }
+
+    @Test
+    fun sceneFrameDurationsRejectEmptyOrInvalidSpeechTimeline() {
+        assertTrue(runCatching {
+            VideoNarrationTimeline.sceneFrameDurations(emptyList(), 24)
+        }.isFailure)
+        assertTrue(runCatching {
+            VideoNarrationTimeline.sceneFrameDurations(listOf(1_000L), 0)
+        }.isFailure)
+    }
+
     @Test
     fun finalCaptionDoesNotCoverPaddedSilentVideoTail() {
         val scenes = listOf(
