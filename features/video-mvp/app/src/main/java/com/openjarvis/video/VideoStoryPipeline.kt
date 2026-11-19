@@ -43,34 +43,37 @@ class VideoStoryPipeline(context: Context) {
         var captionsUri: Uri? = null
         try {
             onStage("Türkçe seslendirme hazırlanıyor…")
-            narratedVideo = VideoNarrationComposer(appContext).compose(plan, silentVideo)
-            captionsFile = File(
-                narratedVideo.video.file.parentFile,
-                narratedVideo.video.file.nameWithoutExtension + ".srt"
+            val composed = VideoNarrationComposer(appContext).compose(plan, silentVideo)
+            narratedVideo = composed
+            val srtFile = File(
+                composed.video.file.parentFile,
+                composed.video.file.nameWithoutExtension + ".srt"
             )
+            captionsFile = srtFile
             onStage("Altyazılar ve MP4 doğrulanıyor…")
-            withContext(Dispatchers.IO) {
-                captionsFile.writeText(
+            val srtUri = withContext(Dispatchers.IO) {
+                srtFile.writeText(
                     VideoStoryPlan(
                         title = plan.title,
                         scenes = plan.scenes,
                         narrationText = plan.narrationText,
-                        captions = narratedVideo.captions,
+                        captions = composed.captions,
                         sourceLabel = plan.sourceLabel
                     ).toSrt(),
                     StandardCharsets.UTF_8
                 )
-                exportedUri = VideoMediaStoreExporter.export(appContext, narratedVideo.video.file)
-                captionsUri = VideoMediaStoreExporter.exportCaptions(appContext, captionsFile)
+                val videoUri = VideoMediaStoreExporter.export(appContext, composed.video.file)
+                exportedUri = videoUri
+                VideoMediaStoreExporter.exportCaptions(appContext, srtFile).also { captionsUri = it }
             }
             onStage("Sesli MP4 galeriye kaydedildi.")
             silentVideo.file.delete()
             return VideoStoryRenderResult(
-                video = narratedVideo.video,
-                captionsFile = captionsFile,
+                video = composed.video,
+                captionsFile = srtFile,
                 exportedUri = exportedUri ?: throw VideoRenderException("MP4 dışa aktarma URI'si alınamadı."),
-                captionsUri = captionsUri ?: throw VideoRenderException("SRT dışa aktarma URI'si alınamadı."),
-                audioDurationMs = narratedVideo.audioDurationMs,
+                captionsUri = srtUri,
+                audioDurationMs = composed.audioDurationMs,
                 narrationText = plan.narrationText,
                 sceneCount = plan.scenes.size,
                 sourceLabel = plan.sourceLabel
