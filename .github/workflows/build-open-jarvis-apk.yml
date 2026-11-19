@@ -3,9 +3,9 @@ name: Build Open Jarvis APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, "feature/approval-toggle", "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "infra/issue15-node24-mainline", "infra/issue8-video-ci-validation", "infra/issue8-video-ci-validation-current", "infra/issue8-video-ci-validation-latest", "infra/verify-pr31-tts-exact", "infra/verify-pr31-tts-exact-3dc58e6", "infra/verify-pr32-app-launch-exact-952a", "infra/verify-pr32-app-launch-exact-d465", "infra/verify-pr47-download-service-exact-6b837", "infra/verify-pr51-task-review-exact-a13d60", "infra/verify-pr51-task-review-exact-9dd083a" ]
+    branches: [ main, "feature/approval-toggle", "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "infra/issue15-node24-mainline", "infra/issue8-video-ci-validation", "infra/issue8-video-ci-validation-current", "infra/issue8-video-ci-validation-latest", "infra/verify-pr31-tts-exact", "infra/verify-pr31-tts-exact-3dc58e6", "infra/verify-pr32-app-launch-exact-952a", "infra/verify-pr32-app-launch-exact-d465", "infra/verify-pr47-download-service-exact-6b837", "infra/verify-pr51-task-review-exact-a13d60", "infra/verify-pr51-task-review-exact-9dd083a", "infra/verify-pr57-task-dedup-exact-b778616" ]
   pull_request:
-    branches: [ main, "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "feature/issue8-local-mp4-prototype", "feature/task-control-approval-state-stacked-2026-11-19" ]
+    branches: [ main, "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "feature/issue8-local-mp4-prototype", "feature/task-control-approval-state-stacked-2026-11-19", "feature/task-idempotency-dedup-2026-11-19" ]
 
 permissions:
   contents: read
@@ -36,7 +36,7 @@ jobs:
       - name: "Assert PR #47 combined source is unchanged by CI overlay"
         shell: bash
         env:
-          EXPECTED_COMBINED_SOURCE_SHA: 9dd083ab7e1bceec555d8c20b6b5a93d0eac9740
+          EXPECTED_COMBINED_SOURCE_SHA: b7786167cc3fee24f4888a000c6b746d818f4d8f
         run: |
           set -euo pipefail
           python3 - "$EXPECTED_COMBINED_SOURCE_SHA" <<'PY'
@@ -175,7 +175,16 @@ jobs:
           test -f app/src/androidTest/java/com/openjarvis/ui/dashboard/TaskControlCenterReviewStateInstrumentedTest.kt
           grep -q "Yürütülmedi · yürütücü yok" app/src/main/java/com/openjarvis/ui/dashboard/TaskControlCenter.kt
           grep -q "ACTION_APPROVAL_REQUIRED" app/src/main/java/com/openjarvis/ui/dashboard/TaskControlCenter.kt
-          echo "TASK-REVIEW-TRUTHFUL-UI-SOURCE-OK"
+          grep -q "submissionKey" app/src/main/java/com/openjarvis/ui/dashboard/TaskControlCenter.kt
+          grep -q "distinctBy { it.id }" app/src/main/java/com/openjarvis/ui/dashboard/TaskControlCenter.kt
+          grep -q "findByIdempotencyKey" app/src/main/java/com/openjarvis/tasks/JarvisTaskDao.kt
+          grep -q "insertIfAbsent" app/src/main/java/com/openjarvis/tasks/JarvisTaskDao.kt
+          grep -q "unique = true" app/src/main/java/com/openjarvis/tasks/JarvisTaskModel.kt
+          grep -q "MIGRATION_2_3" app/src/main/java/com/openjarvis/tasks/JarvisTaskDatabase.kt
+          grep -q "concurrentSameRequestKeyCreatesSinglePersistedTask" app/src/androidTest/java/com/openjarvis/tasks/JarvisTaskPersistenceInstrumentedTest.kt
+          grep -q "sameGoalWithDifferentRequestKeysCreatesDistinctTasks" app/src/androidTest/java/com/openjarvis/tasks/JarvisTaskPersistenceInstrumentedTest.kt
+          grep -q "sameRequestKeyAfterRepositoryRecreationReturnsExistingTask" app/src/androidTest/java/com/openjarvis/tasks/JarvisTaskPersistenceInstrumentedTest.kt
+          echo "TASK-REVIEW-AND-IDEMPOTENCY-SOURCE-OK"
 
       - name: Audit declared Android permissions (no permission changes)
         working-directory: ${{ steps.source.outputs.project_dir }}
