@@ -129,6 +129,18 @@ internal object PcmWavReader {
 }
 
 internal object VideoNarrationTimeline {
+    /** Converts measured speech segments into frame-accurate visual scene boundaries. */
+    fun sceneFrameDurations(segmentDurationsMs: List<Long>, framesPerSecond: Int): List<Int> {
+        require(segmentDurationsMs.isNotEmpty() && segmentDurationsMs.all { it > 0L })
+        require(framesPerSecond in VideoRenderSpec.MIN_FPS..VideoRenderSpec.MAX_FPS)
+        return segmentDurationsMs.map { durationMs ->
+            // Round up to the next encoder frame; visual drift stays below one frame per scene.
+            (((durationMs * framesPerSecond) + 999L) / 1_000L)
+                .toInt()
+                .coerceAtLeast(framesPerSecond)
+        }
+    }
+
     fun captions(
         scenes: List<VideoScene>,
         segmentDurationsMs: List<Long>,
@@ -145,13 +157,12 @@ internal object VideoNarrationTimeline {
             val start = cursor
             cursor += segmentDurationsMs[index]
             // Match the exact words synthesized by synthesizeScene (heading + caption).
-            // Do not keep the last cue on screen through the encoder's padded silent tail.
+            // Visual transitions follow speech within one frame; cues end at actual speech.
             require(cursor > start)
             TimedVideoCaption(start, cursor, "${scene.heading}. ${scene.caption}")
         }
     }
 }
-
 internal data class NarratedVideoResult(
     val video: VideoRenderResult,
     val captions: List<TimedVideoCaption>,
@@ -166,10 +177,14 @@ class VideoNarrationComposer(private val context: Context) {
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    internal suspend fun compose(plan: VideoStoryPlan, silentVideo: VideoRenderResult): NarratedVideoResult {
+    internal suspend fun compose(
+        plan: VideoStoryPlan,
+        renderSilentVideo: suspend (VideoRenderSpec) -> VideoRenderResult
+    ): NarratedVideoResult {
         val tempDir = File(appContext.cacheDir, "jarvis-narration-${UUID.randomUUID()}")
         if (!tempDir.mkdirs()) throw VideoRenderException("Türkçe ses için geçici klasör oluşturulamadı.")
         var finalFile: File? = null
+        var silentVideo: VideoRenderResult? = null
         var engine: TextToSpeech? = null
         try {
             val activeEngine = createTurkishEngine()
@@ -190,6 +205,15 @@ class VideoNarrationComposer(private val context: Context) {
                 }) {
                 throw VideoRenderException("Türkçe ses motoru sahneler arasında farklı ses biçimleri üretti.")
             }
+            val sceneFrames = VideoNarrationTimeline.sceneFrameDurations(
+                segments.map { it.durationMs },
+                plan.renderSpec.framesPerSecond
+            )
+            val speechTimedSpec = plan.renderSpec.copy(sceneFrameDurations = sceneFrames).also { it.validate() }
+            // Render only after real TTS durations are known, so each visual transition follows speech.
+            val renderedVideo = renderSilentVideo(speechTimedSpec)
+            silentVideo = renderedVideo
+
             val pcmOutput = ByteArrayOutputStream()
             segments.forEach { segment ->
                 if (pcmOutput.size().toLong() + segment.pcm.size > MAX_COMBINED_PCM_BYTES) {
@@ -199,37 +223,44 @@ class VideoNarrationComposer(private val context: Context) {
             }
             val speechPcm = pcmOutput.toByteArray()
             val audioDurationMs = segments.sumOf { it.durationMs }
-            if (audioDurationMs > silentVideo.durationMs) {
-                throw VideoRenderException("Türkçe anlatım ${audioDurationMs / 1_000} saniye; video ${silentVideo.durationMs / 1_000} saniye. Daha kısa bir konu metni kullan.")
+            if (audioDurationMs > renderedVideo.durationMs) {
+                throw VideoRenderException(
+                    "Türkçe anlatım ${audioDurationMs / 1_000} saniye; video ${renderedVideo.durationMs / 1_000} saniye. Daha kısa bir konu metni kullan."
+                )
             }
-            val targetFrames = silentVideo.durationMs * first.sampleRate / 1_000L
+            val targetFrames = renderedVideo.durationMs * first.sampleRate / 1_000L
             val targetBytes = targetFrames * first.channels * 2L
             if (targetBytes < speechPcm.size || targetBytes > MAX_COMBINED_PCM_BYTES) {
                 throw VideoRenderException("Türkçe ses, MP4 süresine güvenli biçimde eşitlenemedi.")
             }
-            // Pad the tail with digital silence so the AAC and H.264 tracks have the same duration.
+            // Pad only frame-rounding silence so AAC and H.264 tracks have matching durations.
             val pcm = ByteArray(targetBytes.toInt())
             System.arraycopy(speechPcm, 0, pcm, 0, speechPcm.size)
             val captions = VideoNarrationTimeline.captions(
                 plan.scenes,
                 segments.map { it.durationMs },
-                silentVideo.durationMs
+                renderedVideo.durationMs
             )
 
             val audioFile = File(tempDir, "narration.m4a")
             finalFile = File(
-                silentVideo.file.parentFile,
-                silentVideo.file.nameWithoutExtension + "-turkish.mp4"
+                renderedVideo.file.parentFile,
+                renderedVideo.file.nameWithoutExtension + "-turkish.mp4"
             )
             val jobContext = currentCoroutineContext()
             withContext(Dispatchers.IO) {
                 encodeAac(pcm, first.sampleRate, first.channels, audioFile) { jobContext.ensureActive() }
-                muxVideoAndAudio(silentVideo.file, audioFile, finalFile!!) { jobContext.ensureActive() }
-                verifyMuxedFile(finalFile!!, silentVideo.width, silentVideo.height, silentVideo.durationMs)
+                muxVideoAndAudio(renderedVideo.file, audioFile, finalFile!!) { jobContext.ensureActive() }
+                verifyMuxedFile(
+                    finalFile!!,
+                    renderedVideo.width,
+                    renderedVideo.height,
+                    renderedVideo.durationMs
+                )
             }
             val final = finalFile!!
             return NarratedVideoResult(
-                video = silentVideo.copy(file = final, sizeBytes = final.length()),
+                video = renderedVideo.copy(file = final, sizeBytes = final.length()),
                 captions = captions,
                 audioDurationMs = audioDurationMs
             )
@@ -243,6 +274,7 @@ class VideoNarrationComposer(private val context: Context) {
             finalFile?.delete()
             throw VideoRenderException("Türkçe sesli MP4 oluşturulamadı: ${error.message ?: "bilinmeyen hata"}", error)
         } finally {
+            silentVideo?.file?.delete()
             engine?.let { active ->
                 withContext(NonCancellable + Dispatchers.Main.immediate) {
                     runCatching { active.stop() }
@@ -252,7 +284,6 @@ class VideoNarrationComposer(private val context: Context) {
             tempDir.deleteRecursively()
         }
     }
-
     private suspend fun createTurkishEngine(): TextToSpeech = withTimeout(TTS_INIT_TIMEOUT_MS) {
         withContext(Dispatchers.Main.immediate) {
             suspendCancellableCoroutine { continuation ->

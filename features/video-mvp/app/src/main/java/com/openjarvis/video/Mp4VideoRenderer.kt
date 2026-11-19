@@ -246,7 +246,7 @@ class Mp4VideoRenderer(context: Context) {
         paint.typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
         canvas.drawText("JARVIS  •  YEREL MP4 TASLAĞI", width / 2f, height * 0.17f, paint)
 
-        val sceneIndex = (frame / (spec.framesPerSecond * spec.secondsPerScene)).coerceAtMost(spec.scenes.lastIndex)
+        val sceneIndex = spec.sceneIndexForFrame(frame)
         val scene = spec.scenes[sceneIndex]
         paint.color = Color.WHITE
         paint.textSize = width * 0.085f
