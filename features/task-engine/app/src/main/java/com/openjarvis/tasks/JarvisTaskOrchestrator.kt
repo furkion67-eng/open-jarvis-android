@@ -176,7 +176,7 @@ class JarvisTaskOrchestrator(
                 expectedStatus = status.storageValue,
                 waitingStatus = JarvisTaskStatus.WAITING_FOR_NETWORK.storageValue,
                 currentStep = "Bulut/uzman ajan yürütücüsü bekleniyor",
-                progressPercent = JarvisTaskStatus.WAITING_FOR_NETWORK.defaultProgress,
+                progressPercent = 0,
                 errorCode = "EXECUTOR_NOT_CONFIGURED",
                 errorMessage = "Bu yetenek için çalıştırılabilir ajan veya bulut bağlantısı yapılandırılmadı; hiçbir gerçek işlem başlatılmadı.",
                 updatedAt = System.currentTimeMillis()
