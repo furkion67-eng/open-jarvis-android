@@ -3113,3 +3113,201 @@ elif new_llama_client not in llama_text:
     raise SystemExit("Issue #14: LlamaProvider HTTP client anchor not found")
 llama_text = llama_text.replace("import java.util.concurrent.TimeUnit" + chr(10), "")
 llama_provider_path.write_text(llama_text)
+
+
+# Issue #16: allowlisted Android app launch for typed and recognized Turkish speech.
+app_launch_feature_root = Path(__file__).resolve().parent.parent / "features" / "app-launch"
+if not app_launch_feature_root.is_dir():
+    raise SystemExit("Issue #16 app-launch source overlay is missing")
+
+for source in sorted(app_launch_feature_root.rglob("*.kt")):
+    relative = source.relative_to(app_launch_feature_root)
+    destination = root / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(source.read_bytes())
+
+
+def install_allowlisted_app_dispatcher(s):
+    anchor = "    private val executor = AndroidActionExecutor(context)"
+    property_line = anchor + "\n    private val appLaunchDispatcher = AppLaunchDispatcher(AndroidAppLaunchPlatform(context))"
+    if "private val appLaunchDispatcher = AppLaunchDispatcher" not in s:
+        if anchor not in s:
+            raise SystemExit("DeviceActionCoordinator.kt: executor anchor not found")
+        s = s.replace(anchor, property_line, 1)
+
+    start_marker = "    private suspend fun handleOpenApp("
+    end_marker = "    private suspend fun handleSms("
+    start = s.find(start_marker)
+    end = s.find(end_marker, start)
+    if start < 0 or end < 0:
+        if "suspend fun openApp(appName: String" in s:
+            return s
+        raise SystemExit("DeviceActionCoordinator.kt: app-launch handler boundary not found")
+
+    replacement = """    private suspend fun handleOpenApp(routed: RoutedCommand.OpenApp, command: String, setState: (AgentState) -> Unit) {
+        openApp(routed.appName, command, setState)
+    }
+
+    suspend fun openApp(appName: String, command: String, setState: (AgentState) -> Unit) {
+        setState(AgentState.Running(appName + " için açılış hedefi kontrol ediliyor..."))
+        val result = appLaunchDispatcher.dispatch(appName)
+        when (result) {
+            is AppLaunchResult.LaunchRequested -> {
+                setState(AgentState.Done(AppLaunchMessages.forResult(result)))
+                graphifyRepo.logTask(command, "app launch requested: " + result.packageName, "local-action", 0)
+            }
+            else -> {
+                setState(AgentState.Error(AppLaunchMessages.forResult(result)))
+                logFailure(command, "app launch rejected")
+            }
+        }
+    }
+
+"""
+    s = s[:start] + replacement + s[end:]
+    return s
+
+
+edit("app/src/main/java/com/openjarvis/commands/DeviceActionCoordinator.kt", install_allowlisted_app_dispatcher)
+
+
+def remove_unrestricted_app_launch_helpers(s):
+    start = s.find("    fun resolveAppPackage(label: String): String? {")
+    if start >= 0:
+        end = s.rfind("\n}")
+        if end < start:
+            raise SystemExit("AndroidActionExecutor.kt: class closing brace not found")
+        s = s[:start] + s[end:]
+    return s
+
+
+edit("app/src/main/java/com/openjarvis/commands/AndroidActionExecutor.kt", remove_unrestricted_app_launch_helpers)
+
+
+def route_model_app_launch_through_allowlist(s):
+    old = """                Action.OPEN_APP -> {
+                    val label = action.label
+                    if (label != null) {
+                        val packageName = findPackageByLabel(label)
+                        if (packageName != null) {
+                            JarvisAccessibilityService.instance?.openAppByPackage(packageName)
+                            graphifyRepo.logAppOpened(packageName, label)
+                        } else {
+                            _state.value = AgentState.Error("App not found: $label")
+                            return
+                        }
+                    }
+                }"""
+    new = """                Action.OPEN_APP -> {
+                    val requestedName = action.label ?: action.packageName
+                    if (requestedName.isNullOrBlank()) {
+                        _state.value = AgentState.Error("Açılacak uygulamanın adı eksik.")
+                        return
+                    }
+                    deviceActions.openApp(requestedName, "uygulama aç: " + requestedName) { newState ->
+                        _state.value = newState
+                    }
+                    if (_state.value is AgentState.Error) return
+                }"""
+    if old in s:
+        s = s.replace(old, new, 1)
+    elif "deviceActions.openApp(requestedName" not in s:
+        raise SystemExit("AgentCore.kt: OPEN_APP branch not found")
+
+    start = s.find("    private fun findPackageByLabel(label: String): String? {")
+    if start >= 0:
+        end_marker = "    /** Confirms the pending device action"
+        end = s.find(end_marker, start)
+        if end < 0:
+            raise SystemExit("AgentCore.kt: app resolver end marker not found")
+        s = s[:start] + s[end:]
+
+    for import_line in (
+        "import android.content.Intent\n",
+        "import android.content.pm.PackageManager\n",
+        "import android.content.pm.ResolveInfo\n"
+    ):
+        s = s.replace(import_line, "")
+    return s
+
+
+edit("app/src/main/java/com/openjarvis/agent/AgentCore.kt", route_model_app_launch_through_allowlist)
+
+
+def install_shared_app_launch_input_adapters(s):
+    imports = (
+        "import com.openjarvis.commands.AndroidAppLaunchPlatform",
+        "import com.openjarvis.commands.AppLaunchCommandEntryPoint",
+        "import com.openjarvis.commands.AppLaunchDispatcher",
+        "import com.openjarvis.commands.AppLaunchInputAdapter",
+        "import com.openjarvis.commands.AppLaunchMessages",
+    )
+    anchor = "import com.openjarvis.agent.AgentState"
+    if anchor not in s:
+        raise SystemExit("VoiceCommandActivity.kt: AgentState import anchor not found")
+    missing = [item for item in imports if item not in s]
+    if missing:
+        s = s.replace(anchor, anchor + "\n" + "\n".join(missing), 1)
+
+    property_anchor = "    private lateinit var voice: VoiceManager\n"
+    property = property_anchor + "    private lateinit var appLaunchInputAdapter: AppLaunchInputAdapter\n"
+    if "private lateinit var appLaunchInputAdapter: AppLaunchInputAdapter" not in s:
+        if property_anchor not in s:
+            raise SystemExit("VoiceCommandActivity.kt: VoiceManager property anchor not found")
+        s = s.replace(property_anchor, property, 1)
+
+    init_anchor = "        voice = VoiceManager(applicationContext)\n"
+    init = init_anchor + """        appLaunchInputAdapter = AppLaunchInputAdapter(
+            AppLaunchCommandEntryPoint(
+                AppLaunchDispatcher(AndroidAppLaunchPlatform(this))
+            )
+        )
+"""
+    if "appLaunchInputAdapter = AppLaunchInputAdapter(" not in s:
+        if init_anchor not in s:
+            raise SystemExit("VoiceCommandActivity.kt: VoiceManager initialization anchor not found")
+        s = s.replace(init_anchor, init, 1)
+
+    speech_old = "submitCommand(text) { message = it }"
+    speech_new = "submitRecognizedSpeechCommand(text) { message = it }"
+    if speech_old in s:
+        s = s.replace(speech_old, speech_new, 1)
+    elif speech_new not in s:
+        raise SystemExit("VoiceCommandActivity.kt: recognized-speech submit anchor not found")
+
+    typed_old = "submitCommand(command.trim()) { message = it }"
+    typed_new = "submitTypedCommand(command.trim()) { message = it }"
+    if typed_old in s:
+        s = s.replace(typed_old, typed_new, 1)
+    elif typed_new not in s:
+        raise SystemExit("VoiceCommandActivity.kt: typed submit anchor not found")
+
+    if "private fun submitTypedCommand(" not in s:
+        closing = s.rfind("}")
+        if closing < 0:
+            raise SystemExit("VoiceCommandActivity.kt: class closing brace not found")
+        helpers = """
+    private fun submitTypedCommand(text: String, updateStatus: (String) -> Unit) {
+        val result = appLaunchInputAdapter.fromTypedInput(text)
+        if (result != null) {
+            updateStatus(AppLaunchMessages.forResult(result))
+            return
+        }
+        submitCommand(text, updateStatus)
+    }
+
+    private fun submitRecognizedSpeechCommand(text: String, updateStatus: (String) -> Unit) {
+        val result = appLaunchInputAdapter.fromRecognizedSpeech(text)
+        if (result != null) {
+            updateStatus(AppLaunchMessages.forResult(result))
+            return
+        }
+        submitCommand(text, updateStatus)
+    }
+"""
+        s = s[:closing] + helpers + s[closing:]
+    return s
+
+
+edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", install_shared_app_launch_input_adapters)
+print("Installed Issue #16 allowlisted app launch dispatcher and shared typed/speech input adapters")
