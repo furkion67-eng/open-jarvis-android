@@ -307,4 +307,9 @@ if [ "$launcher_visible_exit" -ne 0 ]; then
   fail "MainActivity was not visibly resumed after instrumented tests"
 fi
 
+# The instrumentation test deliberately retains private MP4/SRT evidence until
+# this smoke script has copied and validated it. Clean those CI-only files only
+# after successful extraction/validation.
+adb shell run-as "$APP_PKG" rm -f files/ci-video-artifact.mp4 files/ci-video-artifact.srt files/ci-video-audio-status.txt >/dev/null 2>&1 || true
+
 echo "SMOKE-OK: fresh launch, legacy DB recovery, instrumented tests, narrated AAC/H.264 contract (or explicit no-tr-TR fail-closed result) and post-test MainActivity visibility all passed"
