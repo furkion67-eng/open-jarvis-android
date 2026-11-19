@@ -166,7 +166,7 @@ class VideoNarrationComposer(private val context: Context) {
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    suspend fun compose(plan: VideoStoryPlan, silentVideo: VideoRenderResult): NarratedVideoResult {
+    internal suspend fun compose(plan: VideoStoryPlan, silentVideo: VideoRenderResult): NarratedVideoResult {
         val tempDir = File(appContext.cacheDir, "jarvis-narration-${UUID.randomUUID()}")
         if (!tempDir.mkdirs()) throw VideoRenderException("Türkçe ses için geçici klasör oluşturulamadı.")
         var finalFile: File? = null
