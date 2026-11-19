@@ -128,6 +128,7 @@ class JarvisTaskRepository(
                     task.copy(
                         status = JarvisTaskStatus.WAITING_FOR_NETWORK.storageValue,
                         currentStep = "Güvenli kurtarma beklemesi",
+                        progressPercent = 0,
                         errorCode = "APP_RESTARTED",
                         errorMessage = "Uygulama yeniden başlatıldı. Yinelenen işlem riski olmaması için görev otomatik yürütülmedi.",
                         updatedAt = System.currentTimeMillis()
