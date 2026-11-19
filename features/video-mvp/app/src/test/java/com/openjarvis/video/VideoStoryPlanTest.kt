@@ -19,6 +19,22 @@ class VideoStoryPlanTest {
     }
 
     @Test
+    fun istanbulScenesUseDistinctLocalProceduralVisuals() {
+        val plan = VideoStoryPlanBuilder.build("İstanbul'un Fethi")
+        assertEquals(
+            listOf(
+                VideoVisualStyle.CITY_WALLS,
+                VideoVisualStyle.CANNON_SIEGE,
+                VideoVisualStyle.SHIPS,
+                VideoVisualStyle.SUNRISE,
+                VideoVisualStyle.CITY_MAP
+            ),
+            plan.scenes.map { it.visualStyle }
+        )
+        assertTrue(plan.sourceLabel.contains("prosedürel çizimler"))
+    }
+
+    @Test
     fun captionsAreMonotonicAndSrtUsesTurkishText() {
         val plan = VideoStoryPlanBuilder.build("1453")
         plan.captions.zipWithNext().forEach { (left, right) ->
@@ -36,6 +52,7 @@ class VideoStoryPlanTest {
         assertEquals("Genel yerel şablon", plan.sourceLabel)
         assertTrue(plan.scenes.first().caption.contains("Kedilerin bakımı"))
         assertTrue(plan.scenes.none { it.caption.contains("1453") })
+        assertTrue(plan.scenes.all { it.visualStyle == VideoVisualStyle.GENERIC })
     }
 
     @Test
