@@ -89,7 +89,7 @@ class VideoStoryTaskExecutor(context: Context) : JarvisTaskExecutor {
             ) {
                 videos.single() to captions.single()
             } else {
-                (videos + captions).forEach { appContext.contentResolver.delete(it, null, null) }
+                deleteExisting(videos + captions)
                 null
             }
         }
@@ -154,24 +154,30 @@ class VideoStoryTaskExecutor(context: Context) : JarvisTaskExecutor {
         return matches
     }
 
+    private fun deleteExisting(uris: List<Uri>) {
+        uris.forEach { uri ->
+            val deleted = appContext.contentResolver.delete(uri, null, null)
+            if (deleted <= 0) {
+                throw IllegalStateException("Önceki video çıktısı temizlenemedi; yinelenen dosya oluşturulmadı.")
+            }
+        }
+    }
+
     private fun isReadableVideoUri(uri: Uri): Boolean {
         if (uri.scheme != "content") return false
+        return hasTrackSample(uri, MediaFormat.MIMETYPE_VIDEO_AVC) &&
+            hasTrackSample(uri, MediaFormat.MIMETYPE_AUDIO_AAC)
+    }
+
+    private fun hasTrackSample(uri: Uri, mimeType: String): Boolean {
         val extractor = MediaExtractor()
         return try {
             extractor.setDataSource(appContext, uri, null)
-            val formats = (0 until extractor.trackCount).map(extractor::getTrackFormat)
-            val videoIndex = formats.indexOfFirst {
-                it.getString(MediaFormat.KEY_MIME) == MediaFormat.MIMETYPE_VIDEO_AVC
-            }
-            val audioIndex = formats.indexOfFirst {
-                it.getString(MediaFormat.KEY_MIME) == MediaFormat.MIMETYPE_AUDIO_AAC
-            }
-            if (videoIndex < 0 || audioIndex < 0) {
-                false
-            } else {
-                extractor.selectTrack(audioIndex)
-                extractor.readSampleData(ByteBuffer.allocate(256 * 1024), 0) > 0
-            }
+            val trackIndex = (0 until extractor.trackCount).firstOrNull { index ->
+                extractor.getTrackFormat(index).getString(MediaFormat.KEY_MIME) == mimeType
+            } ?: return false
+            extractor.selectTrack(trackIndex)
+            extractor.readSampleData(ByteBuffer.allocate(2 * 1024 * 1024), 0) > 0
         } catch (_: Exception) {
             false
         } finally {
