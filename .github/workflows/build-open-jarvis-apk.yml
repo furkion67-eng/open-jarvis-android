@@ -237,6 +237,7 @@ jobs:
 
       - name: Assert PR #83 hides retry when executor is unavailable
         shell: bash
+        working-directory: ${{ steps.source.outputs.project_dir }}
         run: |
           set -euo pipefail
           grep -Fq 'internal fun shouldOfferRetry(task: JarvisTaskEntity)' app/src/main/java/com/openjarvis/ui/dashboard/TaskControlCenter.kt
