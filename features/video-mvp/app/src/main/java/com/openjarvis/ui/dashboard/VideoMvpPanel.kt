@@ -23,9 +23,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.openjarvis.video.Mp4VideoRenderer
 import com.openjarvis.video.VideoRenderProgress
 import com.openjarvis.video.VideoRenderSpec
+import com.openjarvis.video.VideoStoryPipeline
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -39,6 +39,7 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
     var renderProgress by remember { mutableStateOf(VideoRenderProgress()) }
     val progress by renderProgress.progress.collectAsState()
     var output by remember { mutableStateOf<String?>(null) }
+    var narrationText by remember { mutableStateOf<String?>(null) }
     var rendering by remember { mutableStateOf(false) }
     var renderJob by remember { mutableStateOf<Job?>(null) }
 
@@ -50,9 +51,9 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text("Yerel MP4 denemesi", style = MaterialTheme.typography.titleMedium)
+            Text("Yerel video taslağı (sessiz)", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Konu başlığından cihaz içinde 6 saniyelik, sessiz ve dikey MP4 taslağı üretir.",
+                "Konu başlığından 20 saniyelik storyboard, zamanlı SRT altyazı ve sessiz dikey MP4 taslağı üretir.",
                 style = MaterialTheme.typography.bodySmall
             )
             OutlinedTextField(
@@ -70,16 +71,18 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
                     renderJob = scope.launch {
                         rendering = true
                         output = null
-                        status = "MP4 hazırlanıyor…"
+                        narrationText = null
+                        status = "Storyboard ve MP4 hazırlanıyor…"
                         try {
-                            val result = Mp4VideoRenderer(context).render(VideoRenderSpec.sample(topic)) { done, total ->
+                            val result = VideoStoryPipeline(context).render(topic) { done, total ->
                                 // Renderer invokes this callback on Dispatchers.IO. StateFlow is thread-safe;
                                 // Compose observes it through collectAsState on the UI side.
                                 progressForThisRender.report(done, total)
                             }
                             progressForThisRender.finish()
-                            output = "${result.file.name} · ${result.sizeBytes / 1024} KB"
-                            status = "Video hazır: ${result.width}×${result.height}, ${result.durationMs / 1000} sn"
+                            output = "${result.video.file.name} · ${result.video.sizeBytes / 1024} KB · ${result.captionsFile.name}"
+                            narrationText = result.narrationText
+                            status = "Sessiz taslak hazır: ${result.video.width}×${result.video.height}, ${result.video.durationMs / 1000} sn, ${result.sceneCount} sahne · ${result.sourceLabel}"
                         } catch (cancelled: CancellationException) {
                             progressForThisRender.stop()
                             status = "Video oluşturma iptal edildi."
@@ -100,7 +103,7 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
                 enabled = !rendering && topic.isNotBlank(),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(if (rendering) "Video hazırlanıyor" else "Örnek MP4 oluştur")
+                Text(if (rendering) "Video hazırlanıyor" else "Video taslağı oluştur")
             }
             if (rendering) {
                 LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth())
@@ -110,8 +113,11 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
             }
             Text(status, style = MaterialTheme.typography.bodySmall)
             output?.let { Text("Kaydedildi: $it", style = MaterialTheme.typography.bodySmall) }
+            narrationText?.let {
+                Text("Seslendirme metni (henüz ses dosyası değil): $it", style = MaterialTheme.typography.bodySmall)
+            }
             Text(
-                "Dosya uygulamanın özel alanında saklanır. Bu prototipte seslendirme, yapay zekâ görselleri, altyazı, galeri dışa aktarımı ve sosyal medya paylaşımı yoktur.",
+                "MP4 uygulamanın özel alanında, zamanlı altyazı ayrı SRT dosyasında saklanır. Video hâlâ sessizdir; Türkçe TTS ses izi, gerçek görsel varlıklar, galeri dışa aktarımı ve sosyal medya paylaşımı henüz eklenmedi.",
                 style = MaterialTheme.typography.bodySmall
             )
         }
