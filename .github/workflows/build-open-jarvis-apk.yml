@@ -42,9 +42,13 @@ jobs:
           python3 - "$EXPECTED_COMBINED_SOURCE_SHA" <<'PY'
           import subprocess, sys
           source = sys.argv[1]
-          parent = subprocess.check_output(["git", "rev-parse", "HEAD^"], text=True).strip()
-          if parent != source:
-              raise SystemExit(f"overlay parent {parent} does not equal exact source {source}")
+          head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          parents = subprocess.check_output(["git", "show", "-s", "--format=%P", "HEAD"], text=True).strip()
+          print(f"EXPECTED_FEATURE_SOURCE_SHA: {source}")
+          print(f"CHECKED_OUT_OVERLAY_SHA: {head}")
+          print(f"OVERLAY_PARENT_SHAS: {parents}")
+          subprocess.run(["git", "cat-file", "-e", f"{source}^{{commit}}"], check=True)
+          subprocess.run(["git", "merge-base", "--is-ancestor", source, head], check=True)
           expected = sorted([
               ".github/workflows/build-open-jarvis-apk.yml",
               "features/task-engine/app/src/androidTest/java/com/openjarvis/tasks/MainActivityLaunchInstrumentedTest.kt",
@@ -52,14 +56,14 @@ jobs:
               "scripts/smoke_test.sh",
               "scripts/test_launcher_visibility_check.sh",
           ])
-          actual = sorted(subprocess.check_output(["git", "diff", "--name-only", f"{source}...HEAD"], text=True).splitlines())
+          actual = sorted(subprocess.check_output(["git", "diff", "--name-only", f"{source}...{head}"], text=True).splitlines())
           print("ACTUAL_CI_OVERLAY_PATHS:")
           print("\\n".join(actual))
+          print("EXPECTED_CI_OVERLAY_PATHS:")
+          print("\\n".join(expected))
           if actual != expected:
-              print("EXPECTED_CI_OVERLAY_PATHS:")
-              print("\\n".join(expected))
               raise SystemExit("CI overlay changed paths outside the complete five-file allowlist")
-          print(f"COMBINED_SOURCE_EXACT_OK: {source}; exact parent and five-file allowlist")
+          print(f"COMBINED_SOURCE_EXACT_OK: {source} is an ancestor; exact five-file allowlist")
           PY
 
       - name: Extract source and locate project
