@@ -102,6 +102,18 @@ class JarvisTaskMigrationInstrumentedTest {
                 'plan_reviewed', 'legacy-interrupted-key', 'remote.device-action', 0, 0
             )
         """.trimIndent())
+        legacy.execSQL("""
+            INSERT INTO jarvis_tasks (
+                id, goal, status, ownerAgent, currentStep, progressPercent, outputSummary,
+                artifactRefs, createdAt, updatedAt, retryCount, errorCode, errorMessage,
+                requiresNetwork, requiresApproval, approvalGranted, approvalReference,
+                checkpoint, idempotencyKey, executionMode, estimatedCostMicros, actualCostMicros
+            ) VALUES (
+                'legacy-failed', 'Başarısız eski görev', 'failed', NULL, 'İşlem başarısız', 100, NULL,
+                '[]', 5, 5, 0, 'EXECUTION_FAILED', 'Görev tamamlanamadı', 0, 0, 0, NULL,
+                'plan_reviewed', 'legacy-failed-key', 'remote.device-action', 0, 0
+            )
+        """.trimIndent())
         legacy.execSQL("PRAGMA user_version = 1")
         legacy.close()
 
@@ -109,7 +121,7 @@ class JarvisTaskMigrationInstrumentedTest {
             context,
             JarvisTaskDatabase::class.java,
             databaseName
-        ).addMigrations(JarvisTaskDatabase.MIGRATION_1_2, JarvisTaskDatabase.MIGRATION_2_3, JarvisTaskDatabase.MIGRATION_3_4).build()
+        ).addMigrations(JarvisTaskDatabase.MIGRATION_1_2, JarvisTaskDatabase.MIGRATION_2_3, JarvisTaskDatabase.MIGRATION_3_4, JarvisTaskDatabase.MIGRATION_4_5).build()
 
         try {
             val task = migrated.taskDao().findById("legacy-task")!!
@@ -140,6 +152,10 @@ class JarvisTaskMigrationInstrumentedTest {
             assertEquals("Güvenli kurtarma beklemesi", interrupted.currentStep)
             assertEquals(false, interrupted.approvalGranted)
             assertNull(interrupted.approvalReference)
+
+            val failed = migrated.taskDao().findById("legacy-failed")!!
+            assertEquals(JarvisTaskStatus.FAILED.storageValue, failed.status)
+            assertEquals(0, failed.progressPercent)
         } finally {
             migrated.close()
             context.deleteDatabase(databaseName)

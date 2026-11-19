@@ -107,6 +107,43 @@ class TaskControlCenterReviewStateTest {
         assertEquals(TaskReviewUiState.NONE, taskReviewUiState(task))
     }
 
+    @Test
+    fun failedExternalTaskDoesNotShowSyntheticCompletionPercentOrProgressBar() {
+        val task = task(
+            status = JarvisTaskStatus.FAILED,
+            executionMode = "remote.device-action",
+            progressPercent = 100
+        )
+        assertEquals("Başarısız", taskStatusLabel(task))
+        assertFalse(shouldShowDeterminateProgress(task))
+        assertFalse(shouldShowIndeterminateProgress(task))
+        assertEquals(0, JarvisTaskStatus.FAILED.defaultProgress)
+    }
+
+    @Test
+    fun failedVideoTaskShowsFailureWithoutCompletionPercentOrProgressBar() {
+        val task = task(
+            status = JarvisTaskStatus.FAILED,
+            executionMode = VIDEO_TASK_EXECUTION_MODE,
+            progressPercent = 100
+        )
+        assertEquals("Türkçe video oluşturulamadı", taskStatusLabel(task))
+        assertFalse(shouldShowDeterminateProgress(task))
+        assertFalse(shouldShowIndeterminateProgress(task))
+    }
+
+    @Test
+    fun cancelledTaskDoesNotShowProgressOrCompletionPercent() {
+        val task = task(
+            status = JarvisTaskStatus.CANCELLED,
+            executionMode = "remote.device-action",
+            progressPercent = 0
+        )
+        assertEquals("İptal edildi", taskStatusLabel(task))
+        assertFalse(shouldShowDeterminateProgress(task))
+        assertFalse(shouldShowIndeterminateProgress(task))
+    }
+
     private fun task(
         status: JarvisTaskStatus,
         checkpoint: String? = null,

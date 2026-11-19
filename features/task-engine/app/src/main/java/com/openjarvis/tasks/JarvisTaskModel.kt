@@ -54,7 +54,7 @@ enum class JarvisTaskStatus(
     NOT_EXECUTED("not_executed", "Yürütülmedi", 0),
     INTERRUPTED("interrupted", "Kesintiye uğradı", 0),
     SUCCEEDED("succeeded", "Tamamlandı", 100),
-    FAILED("failed", "Başarısız", 100),
+    FAILED("failed", "Başarısız", 0),
     CANCELLED("cancelled", "İptal edildi", 0);
 
     val isFinal: Boolean

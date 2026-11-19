@@ -183,11 +183,38 @@ internal enum class TaskReviewUiState {
     NONE
 }
 
-internal fun shouldShowDeterminateProgress(task: JarvisTaskEntity): Boolean =
-    task.executionMode != "local_plan_preview" &&
+internal fun shouldShowDeterminateProgress(task: JarvisTaskEntity): Boolean {
+    val status = JarvisTaskStatus.fromStorage(task.status)
+    return status != JarvisTaskStatus.FAILED &&
+        status != JarvisTaskStatus.CANCELLED &&
+        task.executionMode != "local_plan_preview" &&
         task.executionMode != VIDEO_TASK_EXECUTION_MODE &&
         taskReviewUiState(task) != TaskReviewUiState.EXECUTOR_UNAVAILABLE &&
         taskReviewUiState(task) != TaskReviewUiState.INTERRUPTED
+}
+
+internal fun taskStatusLabel(task: JarvisTaskEntity): String {
+    val status = JarvisTaskStatus.fromStorage(task.status)
+    val reviewState = taskReviewUiState(task)
+    return when {
+        status == JarvisTaskStatus.NOT_EXECUTED ||
+            reviewState == TaskReviewUiState.EXECUTOR_UNAVAILABLE -> "Yürütülmedi · yürütücü yok"
+        status == JarvisTaskStatus.INTERRUPTED ||
+            reviewState == TaskReviewUiState.INTERRUPTED -> "Yürütülmedi · güvenli yeniden deneme bekliyor"
+        status == JarvisTaskStatus.FAILED && task.executionMode == VIDEO_TASK_EXECUTION_MODE ->
+            "Türkçe video oluşturulamadı"
+        status == JarvisTaskStatus.FAILED -> status.turkishLabel
+        status == JarvisTaskStatus.CANCELLED -> status.turkishLabel
+        task.executionMode == "local_plan_preview" -> "${status.turkishLabel} · önizleme"
+        task.executionMode == VIDEO_TASK_EXECUTION_MODE && status == JarvisTaskStatus.WAITING_FOR_NETWORK ->
+            "Yürütülmedi · güvenli yeniden deneme bekliyor"
+        task.executionMode == VIDEO_TASK_EXECUTION_MODE && status == JarvisTaskStatus.RUNNING ->
+            "Türkçe video oluşturuluyor"
+        task.executionMode == VIDEO_TASK_EXECUTION_MODE && status == JarvisTaskStatus.SUCCEEDED ->
+            "Türkçe sesli video hazır"
+        else -> "${status.turkishLabel} • ${task.progressPercent}%"
+    }
+}
 
 internal fun shouldShowIndeterminateProgress(task: JarvisTaskEntity): Boolean =
     task.executionMode == VIDEO_TASK_EXECUTION_MODE &&
@@ -239,18 +266,7 @@ internal fun TaskItem(
         ) {
             Text(task.goal, color = VoidColor.TextPrimary, fontWeight = FontWeight.Medium)
             Text(
-                text = when {
-                    status == JarvisTaskStatus.NOT_EXECUTED ||
-                        reviewState == TaskReviewUiState.EXECUTOR_UNAVAILABLE -> "Yürütülmedi · yürütücü yok"
-                    status == JarvisTaskStatus.INTERRUPTED ||
-                        reviewState == TaskReviewUiState.INTERRUPTED -> "Yürütülmedi · güvenli yeniden deneme bekliyor"
-                    task.executionMode == "local_plan_preview" -> "${status.turkishLabel} · önizleme"
-                    task.executionMode == VIDEO_TASK_EXECUTION_MODE && status == JarvisTaskStatus.WAITING_FOR_NETWORK -> "Yürütülmedi · güvenli yeniden deneme bekliyor"
-                    task.executionMode == VIDEO_TASK_EXECUTION_MODE && status == JarvisTaskStatus.RUNNING -> "Türkçe video oluşturuluyor"
-                    task.executionMode == VIDEO_TASK_EXECUTION_MODE && status == JarvisTaskStatus.SUCCEEDED -> "Türkçe sesli video hazır"
-                    task.executionMode == VIDEO_TASK_EXECUTION_MODE && status == JarvisTaskStatus.FAILED -> "Türkçe video oluşturulamadı"
-                    else -> "${status.turkishLabel} • ${task.progressPercent}%"
-                },
+                text = taskStatusLabel(task),
                 color = if (status == JarvisTaskStatus.FAILED) VoidColor.Red else VoidColor.Cyan,
                 style = MaterialTheme.typography.labelMedium
             )
