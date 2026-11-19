@@ -55,10 +55,10 @@ class VideoNarrationComposerTest {
         val speechDurations = listOf(6_600L, 5_400L, 7_300L)
         val frames = VideoNarrationTimeline.sceneFrameDurations(speechDurations, 24)
 
-        assertEquals(listOf(164, 135, 180), frames)
+        assertEquals(listOf(159, 130, 176), frames)
         val renderedDurationMs = frames.sum().toLong() * 1_000L / 24L
         assertTrue(renderedDurationMs >= speechDurations.sum())
-        assertTrue(renderedDurationMs - speechDurations.sum() <= 900L)
+        assertTrue(renderedDurationMs - speechDurations.sum() <= 250L)
     }
 
     @Test
