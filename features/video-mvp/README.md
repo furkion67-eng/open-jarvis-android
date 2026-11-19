@@ -1,17 +1,18 @@
-# Local MP4 prototype — Issue #8, Stage A foundation
+# Local video MVP — Turkish narrated vertical MP4
 
-This is a deliberately small Android-only renderer, not a full content-generation or publishing pipeline.
+Current feature stage:
 
-- Accepts a short topic and creates a 6-second 9:16 H.264/MP4 title-card draft.
-- Uses Android MediaCodec, MediaMuxer, EGL14 and OpenGL ES; no FFmpeg, cloud service, API key, paid service or extra manifest permission is required.
-- Runs on Dispatchers.IO, checks coroutine cancellation between frames, publishes progress through a thread-safe StateFlow collected by Compose, limits dimensions/FPS/duration/bitrate, checks free disk space before rendering and caps the output at 24 MB.
-- Stores output under app-private filesDir/jarvis-videos; partial files are deleted after failure/cancellation.
-- Validates the final MP4 with MediaExtractor before reporting success.
+- Accepts a natural-language topic and builds a five-scene Turkish storyboard.
+- The Istanbul conquest topic uses a small curated set of dated historical milestones; other topics use a clearly generic outline rather than invented topic-specific facts.
+- Renders a 20-second, 9:16 H.264 scene track locally with Android MediaCodec, EGL14 and OpenGL ES. Istanbul scenes include five locally drawn procedural vector illustrations (walls, cannon, ships, sunrise and map).
+- Synthesizes each scene with an installed Turkish Android TTS voice using `tr-TR`; there is no silent English fallback. If the device has no usable Turkish voice data, the pipeline stops with a Turkish explanation.
+- Encodes narration to AAC, muxes it with H.264, and validates that the final MP4 contains both audio and video tracks with compatible durations.
+- Builds SRT cues from each actual synthesized WAV segment duration, then exports the MP4 to Movies/Open JARVIS and the SRT to Downloads/Open JARVIS through MediaStore on Android 10+.
+- The share action only opens Android's chooser after the user presses the button. It does not upload or publish to YouTube/TikTok.
+- Runs render/encoding work off the main thread, checks cancellation, removes temporary WAV/AAC/silent files on failure, limits resolution/FPS/duration/bitrate and checks free storage.
 
-The current output is **silent** and contains only locally drawn text cards. It does not generate narration, images, captions, licensed music, a 15–60 second finished story, gallery export, YouTube upload or TikTok publishing. Those remain separate milestones and require separate approval for any external publishing or paid service.
+**Visual provenance:** the five scene images are procedural local Canvas vector drawings, not AI-generated images or licensed historical photographs.
 
-Tests:
-- JVM tests validate input bounds, portrait output constraints, worker-thread progress updates and terminal-state protection against late callbacks.
-- Android instrumentation renders an actual MP4, reopens it with MediaExtractor, checks H.264, dimensions, duration and app-private storage, then deletes the fixture.
+**Remaining validation:** the new narration/AAC/mux/export path needs exact-head Android 13/14 CI and physical TECNO acoustic/playback acceptance. Emulator or unit tests do not prove the installed TECNO TTS voice sounds natural. YouTube/TikTok OAuth, token storage and per-post approval are not included in this PR.
 
-The emulator test does not establish hardware encoder support on every OEM device. TECNO Spark 20 Pro / HiOS validation remains required.
+No secrets, paid providers, account settings or external publication are used.

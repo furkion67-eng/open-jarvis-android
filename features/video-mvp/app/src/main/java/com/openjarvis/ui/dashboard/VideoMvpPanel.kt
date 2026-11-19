@@ -1,5 +1,8 @@
 package com.openjarvis.ui.dashboard
 
+import android.content.ClipData
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,9 +26,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.openjarvis.video.Mp4VideoRenderer
 import com.openjarvis.video.VideoRenderProgress
 import com.openjarvis.video.VideoRenderSpec
+import com.openjarvis.video.VideoStoryPipeline
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -39,6 +42,9 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
     var renderProgress by remember { mutableStateOf(VideoRenderProgress()) }
     val progress by renderProgress.progress.collectAsState()
     var output by remember { mutableStateOf<String?>(null) }
+    var exportedUri by remember { mutableStateOf<Uri?>(null) }
+    var captionsUri by remember { mutableStateOf<Uri?>(null) }
+    var narrationText by remember { mutableStateOf<String?>(null) }
     var rendering by remember { mutableStateOf(false) }
     var renderJob by remember { mutableStateOf<Job?>(null) }
 
@@ -50,9 +56,9 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text("Yerel MP4 denemesi", style = MaterialTheme.typography.titleMedium)
+            Text("Türkçe sesli yerel video üretimi", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Konu başlığından cihaz içinde 6 saniyelik, sessiz ve dikey MP4 taslağı üretir.",
+                "Konu başlığından beş yerel prosedürel sahne, Türkçe TTS anlatım, AAC ses, dikey H.264 MP4 ve konuşma sürelerine göre SRT üretir.",
                 style = MaterialTheme.typography.bodySmall
             )
             OutlinedTextField(
@@ -70,16 +76,25 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
                     renderJob = scope.launch {
                         rendering = true
                         output = null
-                        status = "MP4 hazırlanıyor…"
+                        narrationText = null
+                        exportedUri = null
+                        captionsUri = null
+                        status = "Storyboard hazırlanıyor…"
                         try {
-                            val result = Mp4VideoRenderer(context).render(VideoRenderSpec.sample(topic)) { done, total ->
-                                // Renderer invokes this callback on Dispatchers.IO. StateFlow is thread-safe;
-                                // Compose observes it through collectAsState on the UI side.
-                                progressForThisRender.report(done, total)
-                            }
+                            val result = VideoStoryPipeline(context).render(
+                                prompt = topic,
+                                onProgress = { done, total ->
+                                    // Renderer invokes this callback on Dispatchers.IO. StateFlow is thread-safe.
+                                    progressForThisRender.report(done, total)
+                                },
+                                onStage = { stage -> status = stage }
+                            )
                             progressForThisRender.finish()
-                            output = "${result.file.name} · ${result.sizeBytes / 1024} KB"
-                            status = "Video hazır: ${result.width}×${result.height}, ${result.durationMs / 1000} sn"
+                            output = "${result.video.file.name} · ${result.video.sizeBytes / 1024} KB"
+                            exportedUri = result.exportedUri
+                            captionsUri = result.captionsUri
+                            narrationText = result.narrationText
+                            status = "Türkçe sesli MP4 hazır: ${result.video.width}×${result.video.height}, ${result.video.durationMs / 1000} sn, ${result.sceneCount} sahne, AAC ses · ${result.sourceLabel}"
                         } catch (cancelled: CancellationException) {
                             progressForThisRender.stop()
                             status = "Video oluşturma iptal edildi."
@@ -100,7 +115,7 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
                 enabled = !rendering && topic.isNotBlank(),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(if (rendering) "Video hazırlanıyor" else "Örnek MP4 oluştur")
+                Text(if (rendering) "Video hazırlanıyor" else "Türkçe sesli video oluştur")
             }
             if (rendering) {
                 LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth())
@@ -109,9 +124,27 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
                 }
             }
             Text(status, style = MaterialTheme.typography.bodySmall)
-            output?.let { Text("Kaydedildi: $it", style = MaterialTheme.typography.bodySmall) }
+            output?.let { Text("Dosya: $it", style = MaterialTheme.typography.bodySmall) }
+            captionsUri?.let { Text("SRT altyazı: İndirilenler / Open JARVIS", style = MaterialTheme.typography.bodySmall) }
+            exportedUri?.let { uri ->
+                Button(
+                    onClick = {
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "video/mp4"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            clipData = ClipData.newUri(context.contentResolver, "JARVIS video", uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(send, "Videoyu paylaş"))
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Videoyu paylaş…") }
+            }
+            narrationText?.let {
+                Text("Türkçe anlatım metni: $it", style = MaterialTheme.typography.bodySmall)
+            }
             Text(
-                "Dosya uygulamanın özel alanında saklanır. Bu prototipte seslendirme, yapay zekâ görselleri, altyazı, galeri dışa aktarımı ve sosyal medya paylaşımı yoktur.",
+                "MP4, Türkçe TTS anlatımını AAC ses iziyle ve yerel prosedürel vektör sahnelerini H.264 olarak içerir. Zamanlı SRT ayrıca İndirilenler/Open JARVIS klasörüne kaydedilir. Çizimler cihazda üretilir; AI görseli değildir. Paylaşım menüsü yalnızca kullanıcı seçtiğinde açılır; otomatik YouTube/TikTok yayını yapılmaz.",
                 style = MaterialTheme.typography.bodySmall
             )
         }
