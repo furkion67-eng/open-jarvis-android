@@ -2,7 +2,6 @@ package com.openjarvis.video
 
 import android.content.ContentValues
 import android.content.Context
-import android.media.AudioFormat
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaExtractor
@@ -391,7 +390,6 @@ class VideoNarrationComposer(private val context: Context) {
                 setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
                 setInteger(MediaFormat.KEY_BIT_RATE, AAC_BIT_RATE)
                 setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, AAC_INPUT_BUFFER_BYTES)
-                setInteger(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
             }
             val activeCodec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
             codec = activeCodec
