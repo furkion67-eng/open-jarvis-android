@@ -280,7 +280,7 @@ class Mp4VideoRenderer(context: Context) {
         val base = cy + height * 0.045f
         val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.style = Paint.Style.FILL }
         val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
+            this.style = Paint.Style.STROKE
             strokeWidth = width * 0.012f
             strokeCap = Paint.Cap.ROUND
             strokeJoin = Paint.Join.ROUND
