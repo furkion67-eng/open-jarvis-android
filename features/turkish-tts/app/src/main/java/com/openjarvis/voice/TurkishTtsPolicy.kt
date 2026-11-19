@@ -51,7 +51,7 @@ object TurkishTtsPolicy {
      */
     fun selectVoice(candidates: Iterable<TurkishTtsVoiceCandidate>): TurkishTtsVoiceCandidate? {
         return candidates
-            .filter { isTurkishLocaleTag(it.localeTag) }
+            .filter { isExactTurkishLocale(it.localeTag) }
             .sortedWith(
                 compareByDescending<TurkishTtsVoiceCandidate> { isExactTurkishLocale(it.localeTag) }
                     .thenBy { it.requiresNetwork }
