@@ -8,7 +8,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 /** Separate database keeps the new task schema independent from legacy graphify.db migrations. */
-@Database(entities = [JarvisTaskEntity::class], version = 2, exportSchema = false)
+@Database(entities = [JarvisTaskEntity::class], version = 3, exportSchema = false)
 abstract class JarvisTaskDatabase : RoomDatabase() {
     abstract fun taskDao(): JarvisTaskDao
 
@@ -20,6 +20,20 @@ abstract class JarvisTaskDatabase : RoomDatabase() {
             }
         }
 
+        /** Deduplicate legacy request keys before enforcing the unique index. */
+        val MIGRATION_2_3: Migration = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "DELETE FROM jarvis_tasks WHERE rowid NOT IN " +
+                        "(SELECT MIN(rowid) FROM jarvis_tasks GROUP BY idempotencyKey)"
+                )
+                database.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_jarvis_tasks_idempotencyKey " +
+                        "ON jarvis_tasks (idempotencyKey)"
+                )
+            }
+        }
+
         @Volatile
         private var instance: JarvisTaskDatabase? = null
 
@@ -28,7 +42,7 @@ abstract class JarvisTaskDatabase : RoomDatabase() {
                 context.applicationContext,
                 JarvisTaskDatabase::class.java,
                 "jarvis_tasks.db"
-            ).addMigrations(MIGRATION_1_2).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
         }
     }
 }
