@@ -84,12 +84,14 @@ class VideoStoryTaskExecutor(context: Context) : JarvisTaskExecutor {
             val videos = findByDisplayName(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, videoName)
             val captions = findByDisplayName(MediaStore.Downloads.EXTERNAL_CONTENT_URI, captionsName)
             if (videos.size == 1 && captions.size == 1 &&
-                isReadableVideoUri(videos.single()) &&
-                isReadableCaptionsUri(captions.single())
+                !videos.single().isPending &&
+                !captions.single().isPending &&
+                isReadableVideoUri(videos.single().uri) &&
+                isReadableCaptionsUri(captions.single().uri)
             ) {
-                videos.single() to captions.single()
+                videos.single().uri to captions.single().uri
             } else {
-                deleteExisting(videos + captions)
+                deleteExisting((videos + captions).map { it.uri })
                 null
             }
         }
@@ -136,19 +138,25 @@ class VideoStoryTaskExecutor(context: Context) : JarvisTaskExecutor {
             verified = true
         )
 
-    private fun findByDisplayName(collection: Uri, displayName: String): List<Uri> {
-        val matches = mutableListOf<Uri>()
+    private data class MediaStoreArtifactRow(val uri: Uri, val isPending: Boolean)
+
+    private fun findByDisplayName(collection: Uri, displayName: String): List<MediaStoreArtifactRow> {
+        val matches = mutableListOf<MediaStoreArtifactRow>()
         val cursor = appContext.contentResolver.query(
             collection,
-            arrayOf(BaseColumns._ID),
+            arrayOf(BaseColumns._ID, MediaStore.MediaColumns.IS_PENDING),
             MediaStore.MediaColumns.DISPLAY_NAME + " = ?",
             arrayOf(displayName),
             null
         ) ?: throw IllegalStateException("Önceki video çıktısı MediaStore üzerinden kontrol edilemedi.")
         cursor.use {
             val idColumn = it.getColumnIndexOrThrow(BaseColumns._ID)
+            val pendingColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns.IS_PENDING)
             while (it.moveToNext()) {
-                matches += ContentUris.withAppendedId(collection, it.getLong(idColumn))
+                matches += MediaStoreArtifactRow(
+                    uri = ContentUris.withAppendedId(collection, it.getLong(idColumn)),
+                    isPending = it.getInt(pendingColumn) != 0
+                )
             }
         }
         return matches
