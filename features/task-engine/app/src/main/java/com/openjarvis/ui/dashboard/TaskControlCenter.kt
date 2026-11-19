@@ -190,7 +190,9 @@ internal fun shouldShowDeterminateProgress(task: JarvisTaskEntity): Boolean {
         task.executionMode != "local_plan_preview" &&
         task.executionMode != VIDEO_TASK_EXECUTION_MODE &&
         taskReviewUiState(task) != TaskReviewUiState.EXECUTOR_UNAVAILABLE &&
-        taskReviewUiState(task) != TaskReviewUiState.INTERRUPTED
+        taskReviewUiState(task) != TaskReviewUiState.INTERRUPTED &&
+        taskReviewUiState(task) != TaskReviewUiState.PLAN_REVIEW &&
+        taskReviewUiState(task) != TaskReviewUiState.ACTION_APPROVAL_REQUIRED
 }
 
 internal fun taskStatusLabel(task: JarvisTaskEntity): String {
@@ -201,6 +203,10 @@ internal fun taskStatusLabel(task: JarvisTaskEntity): String {
             reviewState == TaskReviewUiState.EXECUTOR_UNAVAILABLE -> "Yürütülmedi · yürütücü yok"
         status == JarvisTaskStatus.INTERRUPTED ||
             reviewState == TaskReviewUiState.INTERRUPTED -> "Yürütülmedi · güvenli yeniden deneme bekliyor"
+        reviewState == TaskReviewUiState.ACTION_APPROVAL_REQUIRED ->
+            "Harici işlem onayı bekleniyor · yürütülmedi"
+        reviewState == TaskReviewUiState.PLAN_REVIEW && task.executionMode != "local_plan_preview" ->
+            "Plan onayı bekleniyor · yürütülmedi"
         status == JarvisTaskStatus.FAILED && task.executionMode == VIDEO_TASK_EXECUTION_MODE ->
             "Türkçe video oluşturulamadı"
         status == JarvisTaskStatus.FAILED -> status.turkishLabel
@@ -267,7 +273,14 @@ internal fun TaskItem(
             Text(task.goal, color = VoidColor.TextPrimary, fontWeight = FontWeight.Medium)
             Text(
                 text = taskStatusLabel(task),
-                color = if (status == JarvisTaskStatus.FAILED) VoidColor.Red else VoidColor.Cyan,
+                color = when {
+                    status == JarvisTaskStatus.FAILED -> VoidColor.Red
+                    reviewState == TaskReviewUiState.ACTION_APPROVAL_REQUIRED ||
+                        reviewState == TaskReviewUiState.PLAN_REVIEW ||
+                        reviewState == TaskReviewUiState.EXECUTOR_UNAVAILABLE ||
+                        reviewState == TaskReviewUiState.INTERRUPTED -> VoidColor.Amber
+                    else -> VoidColor.Cyan
+                },
                 style = MaterialTheme.typography.labelMedium
             )
             if (task.executionMode == "local_plan_preview") {
