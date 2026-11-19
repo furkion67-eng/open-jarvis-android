@@ -8,7 +8,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 /** Separate database keeps the new task schema independent from legacy graphify.db migrations. */
-@Database(entities = [JarvisTaskEntity::class], version = 4, exportSchema = false)
+@Database(entities = [JarvisTaskEntity::class], version = 5, exportSchema = false)
 abstract class JarvisTaskDatabase : RoomDatabase() {
     abstract fun taskDao(): JarvisTaskDao
 
@@ -52,6 +52,15 @@ abstract class JarvisTaskDatabase : RoomDatabase() {
             }
         }
 
+        /** Failed is terminal but not completed; old 100% values were synthetic. */
+        val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "UPDATE jarvis_tasks SET progressPercent = 0 WHERE status = 'failed'"
+                )
+            }
+        }
+
         @Volatile
         private var instance: JarvisTaskDatabase? = null
 
@@ -60,7 +69,7 @@ abstract class JarvisTaskDatabase : RoomDatabase() {
                 context.applicationContext,
                 JarvisTaskDatabase::class.java,
                 "jarvis_tasks.db"
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
         }
     }
 }
