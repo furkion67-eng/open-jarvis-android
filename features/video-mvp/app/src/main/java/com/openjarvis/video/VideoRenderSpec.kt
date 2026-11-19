@@ -17,11 +17,30 @@ data class VideoRenderSpec(
     val height: Int = 640,
     val framesPerSecond: Int = 24,
     val secondsPerScene: Int = 2,
-    val bitRate: Int = 900_000
+    val bitRate: Int = 900_000,
+    /** Optional exact frame count per scene, derived from the real TTS segment durations. */
+    val sceneFrameDurations: List<Int>? = null
 ) {
-    val durationSeconds: Int get() = scenes.size * secondsPerScene
-    val frameCount: Int get() = durationSeconds * framesPerSecond
+    val frameCount: Int
+        get() = sceneFrameDurations?.sum() ?: scenes.size * secondsPerScene * framesPerSecond
+    val durationSeconds: Int
+        get() = (frameCount + framesPerSecond - 1) / framesPerSecond
+    val durationMs: Long
+        get() = frameCount.toLong() * 1_000L / framesPerSecond
     val estimatedOutputBytes: Long get() = bitRate.toLong() * durationSeconds / 8L * 2L
+
+    /** Resolves the visual scene for a frame using speech-derived boundaries when present. */
+    fun sceneIndexForFrame(frame: Int): Int {
+        require(frame in 0 until frameCount)
+        val durations = sceneFrameDurations
+            ?: List(scenes.size) { secondsPerScene * framesPerSecond }
+        var boundary = 0
+        durations.forEachIndexed { index, frames ->
+            boundary += frames
+            if (frame < boundary) return index
+        }
+        return scenes.lastIndex
+    }
 
     fun validate() {
         require(title.isNotBlank()) { "Video başlığı boş olamaz." }
@@ -43,9 +62,22 @@ data class VideoRenderSpec(
             "İlk sürüm yalnızca 9:16 dikey video üretir."
         }
         require(framesPerSecond in MIN_FPS..MAX_FPS) { "Kare hızı 15–30 FPS aralığında olmalı." }
-        require(secondsPerScene in 1..MAX_SECONDS_PER_SCENE) { "Sahne süresi 1–5 saniye olmalı." }
+        if (sceneFrameDurations == null) {
+            require(secondsPerScene in MIN_SECONDS_PER_SCENE..MAX_SECONDS_PER_SCENE) {
+                "Sahne süresi 1–20 saniye aralığında olmalı."
+            }
+        } else {
+            require(sceneFrameDurations.size == scenes.size) {
+                "Konuşma zaman çizelgesindeki sahne sayısı storyboard ile eşleşmiyor."
+            }
+            val minFrames = framesPerSecond * MIN_SECONDS_PER_SCENE
+            val maxFrames = framesPerSecond * MAX_SECONDS_PER_SCENE
+            require(sceneFrameDurations.all { it in minFrames..maxFrames }) {
+                "Konuşma süresine göre hesaplanan sahne sınırların dışında."
+            }
+        }
         require(durationSeconds in MIN_DURATION_SECONDS..MAX_DURATION_SECONDS) {
-            "İlk prototip 3–20 saniye arasında video üretir."
+            "Video 3–60 saniye aralığında olmalı."
         }
         require(frameCount <= MAX_FRAMES) { "Video kare sayısı cihaz sınırını aşıyor." }
         require(bitRate in MIN_BIT_RATE..MAX_BIT_RATE) { "Video bit hızı desteklenen sınırların dışında." }
@@ -65,9 +97,10 @@ data class VideoRenderSpec(
         const val MIN_FPS = 15
         const val MAX_FPS = 30
         const val MIN_DURATION_SECONDS = 3
-        const val MAX_DURATION_SECONDS = 20
-        const val MAX_SECONDS_PER_SCENE = 5
-        const val MAX_FRAMES = 600
+        const val MAX_DURATION_SECONDS = 60
+        const val MIN_SECONDS_PER_SCENE = 1
+        const val MAX_SECONDS_PER_SCENE = 20
+        const val MAX_FRAMES = 1_800
         const val MIN_BIT_RATE = 300_000
         const val MAX_BIT_RATE = 3_000_000
         const val MAX_OUTPUT_BYTES = 24L * 1024L * 1024L
