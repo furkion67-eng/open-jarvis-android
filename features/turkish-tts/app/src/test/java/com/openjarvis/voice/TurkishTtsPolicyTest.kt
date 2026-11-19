@@ -39,13 +39,20 @@ class TurkishTtsPolicyTest {
     }
 
     @Test
-    fun compatibleTurkishLocaleIsAllowedWhenExactTrTrIsUnavailable() {
+    fun genericAndOtherRegionTurkishVoicesAreRejectedWithoutExactTrTr() {
         val selected = TurkishTtsPolicy.selectVoice(
-            listOf(TurkishTtsVoiceCandidate("turkish", "tr", 300, 30, false))
+            listOf(
+                TurkishTtsVoiceCandidate("generic-turkish", "tr", 500, 1, false),
+                TurkishTtsVoiceCandidate("other-region", "tr-CY", 500, 1, false)
+            )
         )
-        assertEquals("turkish", selected?.name)
+        assertNull(selected)
         assertTrue(TurkishTtsPolicy.isTurkishLocaleTag("tr-TR"))
+        assertTrue(TurkishTtsPolicy.isTurkishLocaleTag("tr"))
         assertFalse(TurkishTtsPolicy.isTurkishLocaleTag("en-GB"))
+        assertTrue(TurkishTtsPolicy.isExactTurkishLocale("tr-TR"))
+        assertFalse(TurkishTtsPolicy.isExactTurkishLocale("tr"))
+        assertFalse(TurkishTtsPolicy.isExactTurkishLocale("tr-CY"))
     }
 
     @Test

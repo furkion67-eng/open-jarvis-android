@@ -90,7 +90,7 @@ class AndroidTTSEngine(context: Context) {
         }
 
         val actualLocale = runCatching { engine.voice?.locale ?: selectedVoice.locale }.getOrDefault(selectedVoice.locale)
-        if (!TurkishTtsPolicy.isTurkishLocaleTag(actualLocale.toLanguageTag())) {
+        if (!TurkishTtsPolicy.isExactTurkishLocale(actualLocale.toLanguageTag())) {
             mutableStatus.value = TurkishTtsStatus.TurkishVoiceMissing
             return
         }
