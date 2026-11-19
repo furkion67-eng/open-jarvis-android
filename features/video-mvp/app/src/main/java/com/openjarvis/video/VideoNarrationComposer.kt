@@ -137,7 +137,7 @@ internal object VideoNarrationTimeline {
             // Round up to the next encoder frame; visual drift stays below one frame per scene.
             (((durationMs * framesPerSecond) + 999L) / 1_000L)
                 .toInt()
-                .coerceAtLeast(1)
+                .coerceAtLeast(framesPerSecond)
         }
     }
 
