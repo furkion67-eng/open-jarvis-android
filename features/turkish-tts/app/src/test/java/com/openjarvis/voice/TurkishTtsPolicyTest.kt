@@ -56,6 +56,37 @@ class TurkishTtsPolicyTest {
     }
 
     @Test
+    fun exactTrTrRejectsLocaleVariantsAndExtensions() {
+        val nonExactTags = listOf(
+            "tr-TR-u-nu-latn",
+            "tr-TR-x-private",
+            "tr-TR-variant"
+        )
+        nonExactTags.forEach { tag ->
+            assertFalse("Must reject non-canonical Turkish locale: $tag", TurkishTtsPolicy.isExactTurkishLocale(tag))
+            assertNull("Must not publish Ready for actual engine locale: $tag", TurkishTtsPolicy.exactActualEngineLocale(tag))
+        }
+
+        val selected = TurkishTtsPolicy.selectVoice(
+            nonExactTags.mapIndexed { index, tag ->
+                TurkishTtsVoiceCandidate("non-exact-$index", tag, 500, 1, false)
+            }
+        )
+        assertNull("No variant/extension voice may be selected", selected)
+    }
+
+    @Test
+    fun actualEngineLocaleIsCanonicalExactTrTrOnly() {
+        assertNull(TurkishTtsPolicy.exactActualEngineLocale(null))
+        assertNull(TurkishTtsPolicy.exactActualEngineLocale(""))
+        assertNull(TurkishTtsPolicy.exactActualEngineLocale("tr"))
+        assertNull(TurkishTtsPolicy.exactActualEngineLocale("tr-CY"))
+        assertNull(TurkishTtsPolicy.exactActualEngineLocale("tr-TR-u-nu-latn"))
+        assertEquals("tr-TR", TurkishTtsPolicy.exactActualEngineLocale("tr-TR"))
+        assertEquals("tr-TR", TurkishTtsPolicy.exactActualEngineLocale("TR-tr"))
+    }
+
+    @Test
     fun unsupportedLanguageAvailabilityIsRejected() {
         assertTrue(TurkishTtsPolicy.isLanguageAvailable(0))
         assertTrue(TurkishTtsPolicy.isLanguageAvailable(1))
@@ -70,6 +101,7 @@ class TurkishTtsPolicyTest {
         assertTrue(message.contains("Türkçe"))
         assertTrue(message.contains("Android ses ayarlarından"))
     }
+
     @Test
     fun initializationFailureMessageIsTurkishAndActionable() {
         val message = TurkishTtsPolicy.messageFor(TurkishTtsStatus.InitializationFailed)
@@ -83,7 +115,6 @@ class TurkishTtsPolicyTest {
         assertTrue(TurkishTtsPolicy.requiresNetwork(setOf("network")))
         assertFalse(TurkishTtsPolicy.requiresNetwork(setOf("embeddedTts")))
     }
-
 
     @Test
     fun stopDrainsPendingHandoffsExactlyOnce() {
@@ -133,5 +164,4 @@ class TurkishTtsPolicyTest {
         assertNull(TurkishTtsPolicy.exactActualEngineLocale("tr-CY"))
         assertEquals("tr-TR", TurkishTtsPolicy.exactActualEngineLocale("tr-TR"))
     }
-
 }
