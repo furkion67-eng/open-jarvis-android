@@ -45,6 +45,11 @@ def verify_command_task_source() -> None:
     tts_policy = read("features/turkish-tts/app/src/main/java/com/openjarvis/voice/TurkishTtsPolicy.kt")
     tts_engine = read("features/turkish-tts/app/src/main/java/com/openjarvis/voice/AndroidTTSEngine.kt")
     tts_policy_test = read("features/turkish-tts/app/src/test/java/com/openjarvis/voice/TurkishTtsPolicyTest.kt")
+    exact_method_start = tts_policy.find("fun isExactTurkishLocale(localeTag: String): Boolean")
+    exact_method_end = tts_policy.find("\n    }", exact_method_start)
+    if exact_method_start < 0 or exact_method_end < 0:
+        raise AssertionError("exact tr-TR locale method is missing or malformed")
+    exact_turkish_method = tts_policy[exact_method_start:exact_method_end]
     tts_engine_test = read("features/turkish-tts/app/src/androidTest/java/com/openjarvis/voice/TurkishTtsEngineInstrumentedTest.kt")
     video_pipeline_test = read("features/video-mvp/app/src/androidTest/java/com/openjarvis/video/VideoStoryPipelineInstrumentedTest.kt")
     task_model = read("features/task-engine/app/src/main/java/com/openjarvis/tasks/JarvisTaskModel.kt")
@@ -80,14 +85,15 @@ def verify_command_task_source() -> None:
         "task UI distinguishes unavailable and interrupted execution":
             "EXECUTOR_UNAVAILABLE" in task_ui and "INTERRUPTED" in task_ui and "Yürütülmedi · yürütücü yok" in task_ui,
         "only exact tr-TR voices are selectable":
-            ".filter { isExactTurkishLocale(it.localeTag) }" in tts_policy and 'private const val EXACT_TURKISH_LOCALE_TAG = "tr-TR"' in tts_policy and "Locale.forLanguageTag(localeTag).toLanguageTag() == EXACT_TURKISH_LOCALE_TAG" in tts_policy,
+            ".filter { isExactTurkishLocale(it.localeTag) }" in tts_policy and 'private const val EXACT_TURKISH_LOCALE_TAG = "tr-TR"' in tts_policy and "localeTag.equals(EXACT_TURKISH_LOCALE_TAG, ignoreCase = true)" in exact_turkish_method and
+            "Locale.forLanguageTag" not in exact_turkish_method,
         "engine checks the actual nullable engine voice before Ready":
             "actualVoiceLocaleProvider.read(engine)" in tts_engine and
             "exactActualEngineLocale(actualLocaleTag)" in tts_engine and
             "engine.voice?.locale?.toLanguageTag()" in tts_engine and
             "fun exactActualEngineLocale(localeTag: String?)" in tts_policy,
         "unit tests reject generic tr and tr-CY":
-            "genericAndOtherRegionTurkishVoicesAreRejectedWithoutExactTrTr" in tts_policy_test and "exactTrTrRejectsLocaleVariantsAndExtensions" in tts_policy_test and "actualEngineLocaleIsCanonicalExactTrTrOnly" in tts_policy_test and "tr-TR-u-nu-latn" in tts_policy_test,
+            "genericAndOtherRegionTurkishVoicesAreRejectedWithoutExactTrTr" in tts_policy_test and "exactTrTrRejectsLocaleVariantsExtensionsAndMalformedTags" in tts_policy_test and "actualEngineLocaleIsCanonicalExactTrTrOnly" in tts_policy_test and "tr-TR-u-nu-latn" in tts_policy_test,
         "instrumentation asserts Ready always means exact tr-TR":
             "TurkishTtsPolicy.isExactTurkishLocale(status.voiceLocale)" in tts_engine_test,
         "Android instrumentation rejects a variant actual-engine locale before Ready":
