@@ -203,6 +203,22 @@ else
   echo "TASK-REVIEW-UI-INSTRUMENTATION-DISCOVERED"
 fi
 
+if ! grep -q "JarvisTaskPersistenceInstrumentedTest" instrumented.log; then
+  echo "TASK-IDEMPOTENCY-FAIL: persistence instrumentation was not discovered"
+  instrumented_exit=1
+else
+  echo "TASK-IDEMPOTENCY-INSTRUMENTATION-DISCOVERED"
+fi
+for test_name in \
+  concurrentSameRequestKeyCreatesSinglePersistedTask \
+  sameGoalWithDifferentRequestKeysCreatesDistinctTasks \
+  sameRequestKeyAfterRepositoryRecreationReturnsExistingTask; do
+  if ! grep -q "INSTRUMENTATION_STATUS: test=$test_name" instrumented.log; then
+    echo "TASK-IDEMPOTENCY-FAIL: missing executed test $test_name"
+    instrumented_exit=1
+  fi
+done
+
 
 # Report conditional TTS playback skips separately. Only these two active-utterance
 # tests may be skipped when the emulator has no installed Turkish voice.
