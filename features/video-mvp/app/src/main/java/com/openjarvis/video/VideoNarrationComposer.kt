@@ -129,17 +129,15 @@ internal object PcmWavReader {
 }
 
 internal object VideoNarrationTimeline {
-    const val VISUAL_HOLD_MS = 200L
-
     /** Converts measured speech segments into frame-accurate visual scene boundaries. */
     fun sceneFrameDurations(segmentDurationsMs: List<Long>, framesPerSecond: Int): List<Int> {
         require(segmentDurationsMs.isNotEmpty() && segmentDurationsMs.all { it > 0L })
         require(framesPerSecond in VideoRenderSpec.MIN_FPS..VideoRenderSpec.MAX_FPS)
         return segmentDurationsMs.map { durationMs ->
-            val paddedMs = durationMs + VISUAL_HOLD_MS
-            (((paddedMs * framesPerSecond) + 999L) / 1_000L)
+            // Round up to the next encoder frame; visual drift stays below one frame per scene.
+            (((durationMs * framesPerSecond) + 999L) / 1_000L)
                 .toInt()
-                .coerceAtLeast(framesPerSecond)
+                .coerceAtLeast(1)
         }
     }
 
@@ -159,7 +157,7 @@ internal object VideoNarrationTimeline {
             val start = cursor
             cursor += segmentDurationsMs[index]
             // Match the exact words synthesized by synthesizeScene (heading + caption).
-            // The visual scene gets only a short 200ms hold; cues end at actual speech.
+            // Visual transitions follow speech within one frame; cues end at actual speech.
             require(cursor > start)
             TimedVideoCaption(start, cursor, "${scene.heading}. ${scene.caption}")
         }
@@ -235,7 +233,7 @@ class VideoNarrationComposer(private val context: Context) {
             if (targetBytes < speechPcm.size || targetBytes > MAX_COMBINED_PCM_BYTES) {
                 throw VideoRenderException("Türkçe ses, MP4 süresine güvenli biçimde eşitlenemedi.")
             }
-            // Pad only the short per-scene visual holds with digital silence.
+            // Pad only frame-rounding silence so AAC and H.264 tracks have matching durations.
             val pcm = ByteArray(targetBytes.toInt())
             System.arraycopy(speechPcm, 0, pcm, 0, speechPcm.size)
             val captions = VideoNarrationTimeline.captions(
