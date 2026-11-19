@@ -3400,7 +3400,7 @@ def install_video_command_routing(s):
         val intent = VideoCommandRouter.parse(text, origin) ?: return false
         val topic = intent.topic
         if (topic.isNullOrBlank()) {
-            val prompt = "Hangi konuda Türkçe sesli video oluşturayım? Örneğin: İstanbul'un Fethi hakkında video oluştur."
+            val prompt = "Video konusu eksik. Konuyu da içeren komutu tekrar söyle: İstanbul'un Fethi hakkında video oluştur."
             updateStatus(prompt)
             speakAndResume(prompt)
             return true
