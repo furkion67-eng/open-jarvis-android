@@ -29,6 +29,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
@@ -171,6 +172,10 @@ internal enum class TaskReviewUiState {
     NONE
 }
 
+internal fun shouldShowDeterminateProgress(task: JarvisTaskEntity): Boolean =
+    task.executionMode != "local_plan_preview" &&
+        taskReviewUiState(task) != TaskReviewUiState.EXECUTOR_UNAVAILABLE
+
 internal fun taskReviewUiState(task: JarvisTaskEntity): TaskReviewUiState {
     val status = JarvisTaskStatus.fromStorage(task.status)
     return when {
@@ -212,7 +217,11 @@ internal fun TaskItem(
         ) {
             Text(task.goal, color = VoidColor.TextPrimary, fontWeight = FontWeight.Medium)
             Text(
-                text = "${if (reviewState == TaskReviewUiState.EXECUTOR_UNAVAILABLE) "Yürütülmedi · yürütücü yok" else status.turkishLabel} • ${task.progressPercent}%",
+                text = when {
+                    reviewState == TaskReviewUiState.EXECUTOR_UNAVAILABLE -> "Yürütülmedi · yürütücü yok"
+                    task.executionMode == "local_plan_preview" -> "${status.turkishLabel} · önizleme"
+                    else -> "${status.turkishLabel} • ${task.progressPercent}%"
+                },
                 color = if (status == JarvisTaskStatus.FAILED) VoidColor.Red else VoidColor.Cyan,
                 style = MaterialTheme.typography.labelMedium
             )
@@ -223,10 +232,12 @@ internal fun TaskItem(
                     style = MaterialTheme.typography.bodySmall
                 )
             }
-            LinearProgressIndicator(
-                progress = task.progressPercent.coerceIn(0, 100) / 100f,
-                modifier = Modifier.fillMaxWidth()
-            )
+            if (shouldShowDeterminateProgress(task)) {
+                LinearProgressIndicator(
+                    progress = task.progressPercent.coerceIn(0, 100) / 100f,
+                    modifier = Modifier.fillMaxWidth().testTag("task-progress-indicator")
+                )
+            }
             task.currentStep?.let {
                 Text(it, color = VoidColor.TextSecondary, style = MaterialTheme.typography.bodySmall)
             }
