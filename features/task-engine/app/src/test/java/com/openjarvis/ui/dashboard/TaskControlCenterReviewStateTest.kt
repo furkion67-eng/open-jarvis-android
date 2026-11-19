@@ -34,6 +34,38 @@ class TaskControlCenterReviewStateTest {
     }
 
     @Test
+    fun acceptedPlanAwaitingExternalApprovalShowsNoSyntheticProgress() {
+        val task = task(
+            status = JarvisTaskStatus.WAITING_FOR_USER,
+            checkpoint = JarvisTaskCheckpoint.PLAN_REVIEWED,
+            planAcceptedAt = 123L,
+            requiresApproval = true,
+            approvalGranted = false,
+            errorCode = "APPROVAL_REQUIRED",
+            executionMode = "remote.device-action",
+            progressPercent = 25
+        )
+        assertEquals(TaskReviewUiState.ACTION_APPROVAL_REQUIRED, taskReviewUiState(task))
+        assertEquals("Harici işlem onayı bekleniyor · yürütülmedi", taskStatusLabel(task))
+        assertFalse(shouldShowDeterminateProgress(task))
+        assertFalse(shouldShowIndeterminateProgress(task))
+    }
+
+    @Test
+    fun unacceptedExternalPlanShowsNoExecutionProgressOrPercent() {
+        val task = task(
+            status = JarvisTaskStatus.WAITING_FOR_USER,
+            checkpoint = JarvisTaskCheckpoint.PLAN_CREATED,
+            executionMode = "remote.device-action",
+            progressPercent = 25
+        )
+        assertEquals(TaskReviewUiState.PLAN_REVIEW, taskReviewUiState(task))
+        assertEquals("Plan onayı bekleniyor · yürütülmedi", taskStatusLabel(task))
+        assertFalse(shouldShowDeterminateProgress(task))
+        assertFalse(shouldShowIndeterminateProgress(task))
+    }
+
+    @Test
     fun configuredExecutorMissingIsNotPresentedAsRetryableExecution() {
         val task = task(
             status = JarvisTaskStatus.NOT_EXECUTED,
