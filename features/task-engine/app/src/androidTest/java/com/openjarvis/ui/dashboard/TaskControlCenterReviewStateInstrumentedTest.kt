@@ -1,15 +1,16 @@
 package com.openjarvis.ui.dashboard
 
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.openjarvis.tasks.JarvisTaskCheckpoint
 import com.openjarvis.tasks.JarvisTaskEntity
 import com.openjarvis.tasks.JarvisTaskStatus
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -35,7 +36,7 @@ class TaskControlCenterReviewStateInstrumentedTest {
             }
         }
 
-        composeRule.onNodeWithText("Planı kabul et").assertDoesNotExist()
+        assertTextAbsent("Planı kabul et")
         composeRule.onNodeWithText(
             "Plan onaylandı; dış işlem için ayrıca onay gerekiyor. Bu işlem yürütülmedi."
         ).assertIsDisplayed()
@@ -69,12 +70,19 @@ class TaskControlCenterReviewStateInstrumentedTest {
         }
 
         composeRule.onNodeWithText("Yürütülmedi · yürütücü yok").assertIsDisplayed()
-        composeRule.onNodeWithText("25%").assertDoesNotExist()
-        composeRule.onNodeWithTag("task-progress-indicator").assertDoesNotExist()
+        assertTextAbsent("25%")
+        assertTrue(composeRule.onAllNodesWithTag("task-progress-indicator").fetchSemanticsNodes().isEmpty())
         composeRule.onNodeWithText(
             "Bu görev yalnızca yerel plan taslağıdır; yürütücü yapılandırılmadığı için çalıştırılmadı."
         ).assertIsDisplayed()
-        composeRule.onNodeWithText("Yeniden dene").assertDoesNotExist()
+        assertTextAbsent("Yeniden dene")
+    }
+
+    private fun assertTextAbsent(text: String) {
+        assertTrue(
+            "Expected no semantics node with text: $text",
+            composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isEmpty()
+        )
     }
 
     private fun task(
