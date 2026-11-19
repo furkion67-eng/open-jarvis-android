@@ -173,13 +173,14 @@ class VideoNarrationComposer(private val context: Context) {
         var finalFile: File? = null
         var engine: TextToSpeech? = null
         try {
-            engine = createTurkishEngine()
-            configureTurkishVoice(engine)
+            val activeEngine = createTurkishEngine()
+            engine = activeEngine
+            configureTurkishVoice(activeEngine)
             val segments = mutableListOf<PcmWav>()
             plan.scenes.forEachIndexed { index, scene ->
                 val wavFile = File(tempDir, "scene-${index + 1}.wav")
                 val spokenText = "${scene.heading}. ${scene.caption}"
-                synthesizeScene(engine, spokenText, wavFile)
+                synthesizeScene(activeEngine, spokenText, wavFile)
                 segments += withContext(Dispatchers.IO) { PcmWavReader.read(wavFile) }
             }
 
@@ -325,26 +326,24 @@ class VideoNarrationComposer(private val context: Context) {
                     engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                         override fun onStart(utteranceId: String?) = Unit
 
-                        override fun onDone(utteranceId: String?) {
-                            if (utteranceId == this@VideoNarrationComposer.currentUtteranceId) {
-                                if (continuation.isActive) continuation.resume(Unit)
+                        override fun onDone(callbackId: String?) {
+                            if (callbackId == utteranceId && continuation.isActive) {
+                                continuation.resume(Unit)
                             }
                         }
 
-                        override fun onError(utteranceId: String?) {
-                            if (utteranceId == this@VideoNarrationComposer.currentUtteranceId &&
-                                continuation.isActive) {
+                        override fun onError(callbackId: String?) {
+                            if (callbackId == utteranceId && continuation.isActive) {
                                 continuation.resumeWithException(
                                     VideoRenderException("Türkçe seslendirme sırasında Android TTS hatası oluştu.")
                                 )
                             }
                         }
 
-                        override fun onError(utteranceId: String?, errorCode: Int) {
-                            onError(utteranceId)
+                        override fun onError(callbackId: String?, errorCode: Int) {
+                            onError(callbackId)
                         }
                     })
-                    currentUtteranceId = utteranceId
                     val result = runCatching {
                         engine.synthesizeToFile(text, Bundle(), output, utteranceId)
                     }.getOrDefault(TextToSpeech.ERROR)
@@ -363,8 +362,6 @@ class VideoNarrationComposer(private val context: Context) {
             throw VideoRenderException("Türkçe ses motoru boş bir ses dosyası üretti.")
         }
     }
-
-    @Volatile private var currentUtteranceId: String = ""
 
     private fun encodeAac(
         pcm: ByteArray,
@@ -593,6 +590,38 @@ class VideoNarrationComposer(private val context: Context) {
 
 /** Saves a verified MP4 to the public Movies collection without requesting broad storage access. */
 object VideoMediaStoreExporter {
+    fun exportCaptions(context: Context, file: File): Uri {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            throw VideoRenderException("Altyazı dışa aktarma Android 10 ve üzeri gerektirir.")
+        }
+        if (!file.isFile || file.length() == 0L) {
+            throw VideoRenderException("Dışa aktarılacak SRT altyazısı bulunamadı.")
+        }
+        val resolver = context.applicationContext.contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
+            put(MediaStore.MediaColumns.MIME_TYPE, "application/x-subrip")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/Open JARVIS")
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: throw VideoRenderException("SRT altyazısı İndirilenler klasörüne kaydedilemedi.")
+        try {
+            resolver.openOutputStream(uri, "w")?.use { output ->
+                file.inputStream().use { input -> input.copyTo(output) }
+            } ?: throw VideoRenderException("SRT dosyasına yazılamadı.")
+            val published = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
+            if (resolver.update(uri, published, null, null) != 1) {
+                throw VideoRenderException("SRT dışa aktarma tamamlanamadı.")
+            }
+            return uri
+        } catch (error: Exception) {
+            resolver.delete(uri, null, null)
+            if (error is VideoRenderException) throw error
+            throw VideoRenderException("SRT altyazısı dışa aktarılamadı.", error)
+        }
+    }
+
     fun export(context: Context, file: File): Uri {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             throw VideoRenderException("Galeriye güvenli dışa aktarma Android 10 ve üzeri gerektirir.")
