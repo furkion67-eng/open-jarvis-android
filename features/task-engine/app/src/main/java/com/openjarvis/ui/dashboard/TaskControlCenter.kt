@@ -113,7 +113,10 @@ fun TaskControlCenter(modifier: Modifier = Modifier) {
             )
             OutlinedTextField(
                 value = goal,
-                onValueChange = { value ->\n                    goal = value.take(1000)\n                    submissionKey = UUID.randomUUID().toString()\n                },
+                onValueChange = { value ->
+                    goal = value.take(1000)
+                    submissionKey = UUID.randomUUID().toString()
+                },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Yeni görev") },
                 placeholder = { Text("Örn. Sakarya'daki etkinlikleri araştır ve özetle") },
