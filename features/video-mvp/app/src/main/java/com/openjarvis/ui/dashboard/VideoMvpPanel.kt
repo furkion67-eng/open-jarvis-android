@@ -53,7 +53,7 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
         ) {
             Text("Yerel video taslağı (sessiz)", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Konu başlığından 20 saniyelik storyboard, zamanlı SRT altyazı ve sessiz dikey MP4 taslağı üretir.",
+                "Konu başlığından yerel prosedürel vektör sahneleri, 20 saniyelik storyboard, zamanlı SRT ve sessiz dikey MP4 taslağı üretir.",
                 style = MaterialTheme.typography.bodySmall
             )
             OutlinedTextField(
@@ -117,7 +117,7 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
                 Text("Seslendirme metni (henüz ses dosyası değil): $it", style = MaterialTheme.typography.bodySmall)
             }
             Text(
-                "MP4 uygulamanın özel alanında, zamanlı altyazı ayrı SRT dosyasında saklanır. Video hâlâ sessizdir; Türkçe TTS ses izi, gerçek görsel varlıklar, galeri dışa aktarımı ve sosyal medya paylaşımı henüz eklenmedi.",
+                "MP4 uygulamanın özel alanında, zamanlı altyazı ayrı SRT dosyasında saklanır. Video hâlâ sessizdir. Görseller cihazda çizilen prosedürel vektörlerdir; AI üretimi veya tarihî fotoğraf değildir. Türkçe TTS ses izi, galeri dışa aktarımı ve sosyal medya paylaşımı henüz eklenmedi.",
                 style = MaterialTheme.typography.bodySmall
             )
         }
