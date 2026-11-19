@@ -42,6 +42,33 @@ class AppLaunchDispatcherTest {
     }
 
     @Test
+    fun ambiguousNormalizedAliasesFailClosedBeforePlatformAccess() {
+        val candidates = listOf(
+            AppLaunchTarget(
+                "Birinci uygulama",
+                setOf("ortak uygulama"),
+                listOf("com.example.first")
+            ),
+            AppLaunchTarget(
+                "İkinci uygulama",
+                setOf("ortak-uygulama"),
+                listOf("com.example.second")
+            )
+        )
+        val fake = FakePlatform(
+            mapOf(
+                "com.example.first" to AppLaunchAttempt.Started,
+                "com.example.second" to AppLaunchAttempt.Started
+            )
+        )
+
+        val result = AppLaunchDispatcher(fake, candidates).dispatch("ortak uygulama")
+
+        assertTrue(result is AppLaunchResult.Unsupported)
+        assertTrue("Ambiguous aliases must not reach PackageManager", fake.calls.isEmpty())
+    }
+
+    @Test
     fun distinguishesNotInstalledFromMissingLauncherActivity() {
         val missing = AppLaunchDispatcher(FakePlatform(emptyMap())).dispatch("WhatsApp")
         val noActivity = AppLaunchDispatcher(
