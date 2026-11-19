@@ -3380,6 +3380,13 @@ def install_video_command_routing(s):
     elif "submitVideoCommandIfMatched(text, VideoCommandOrigin.RECOGNIZED_SPEECH" not in s:
         raise SystemExit("VoiceCommandActivity.kt: recognized-speech video routing anchor not found")
 
+    property_anchor = "    private lateinit var appLaunchInputAdapter: AppLaunchInputAdapter\n"
+    property = property_anchor + "    private var videoCommandSubmissionInFlight = false\n"
+    if "private var videoCommandSubmissionInFlight = false" not in s:
+        if property_anchor not in s:
+            raise SystemExit("VoiceCommandActivity.kt: app launch adapter property anchor not found")
+        s = s.replace(property_anchor, property, 1)
+
     if "private fun submitVideoCommandIfMatched(" not in s:
         closing = s.rfind("}")
         if closing < 0:
@@ -3399,6 +3406,11 @@ def install_video_command_routing(s):
             return true
         }
 
+        if (videoCommandSubmissionInFlight) {
+            updateStatus("Video planı zaten kaydediliyor; aynı komut yeniden eklenmedi.")
+            return true
+        }
+        videoCommandSubmissionInFlight = true
         lifecycleScope.launch {
             updateStatus("Video planı görev merkezine kaydediliyor…")
             try {
@@ -3413,6 +3425,8 @@ def install_video_command_routing(s):
                 val message = error.localizedMessage ?: "Video planı kaydedilemedi."
                 updateStatus(message)
                 speakAndResume(message)
+            } finally {
+                videoCommandSubmissionInFlight = false
             }
         }
         return true

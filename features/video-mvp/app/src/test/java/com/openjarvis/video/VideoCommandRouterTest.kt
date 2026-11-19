@@ -36,6 +36,20 @@ class VideoCommandRouterTest {
     }
 
     @Test
+    fun stripsTrailingPunctuationAndPoliteTurkishVerbForms() {
+        val punctuated = VideoCommandRouter.parse(
+            "İstanbul'un Fethi hakkında video oluştur.",
+            VideoCommandOrigin.RECOGNIZED_SPEECH
+        )
+        val polite = VideoCommandRouter.parse(
+            "İstanbul'un Fethi hakkında video hazırlar mısın?",
+            VideoCommandOrigin.TYPED
+        )
+        assertEquals("İstanbul'un Fethi", punctuated?.topic)
+        assertEquals("İstanbul'un Fethi", polite?.topic)
+    }
+
+    @Test
     fun videoCommandWithoutTopicRequestsMoreInformation() {
         val parsed = VideoCommandRouter.parse("Video oluştur", VideoCommandOrigin.RECOGNIZED_SPEECH)
         assertNotNull(parsed)

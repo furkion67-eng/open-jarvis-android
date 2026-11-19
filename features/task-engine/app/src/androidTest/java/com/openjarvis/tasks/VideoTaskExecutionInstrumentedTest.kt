@@ -32,7 +32,7 @@ class VideoTaskExecutionInstrumentedTest {
     }
 
     @Test
-    fun videoTaskWaitsForPlanAcceptanceThenPersistsVerifiedMediaStoreEvidence() = runBlocking {
+    fun videoTaskWaitsForPlanAcceptanceThenPersistsExecutorVerifiedEvidence() = runBlocking {
         val executor = FakeVideoExecutor(
             JarvisTaskExecutionResult(
                 outputSummary = "Türkçe sesli MP4 hazır: 54 sn. MP4: content://media/external/video/media/123",

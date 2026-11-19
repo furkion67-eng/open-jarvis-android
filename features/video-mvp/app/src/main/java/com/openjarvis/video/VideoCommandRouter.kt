@@ -14,10 +14,10 @@ data class VideoCommandIntent(
 /** Deterministic Turkish CREATE_VIDEO intent parser shared by typed, speech and task replay paths. */
 object VideoCommandRouter {
     private val videoFirstPattern = Regex(
-        """(?iu)\b(?:bir\s+)?(?:video\w*|shorts?\w*|reels\w*)\s+(?:oluştur|olustur|hazırla|hazirla|yap|üret|uret)(?:alım|elim|yalım|yelim|un|ın|in|yın|yin|abilir|ebilir|yabilir|yebilir|abilirim|ar|ır|ir|ur|ür|acak|ecek|mak|mek)?(?:\s+(?:musun|mısın|misin|mısınız|misiniz|lütfen))?\b"""
+        """(?iu)\b(?:bir\s+)?(?:video\w*|shorts?\w*|reels\w*)\s+(?:oluştur|olustur|hazırla|hazirla|yap|üret|uret)(?:alım|elim|yalım|yelim|un|ın|in|yın|yin|abilir|ebilir|yabilir|yebilir|abilirim|ar|ır|ir|ur|ür|acak|ecek|mak|mek|r)?(?:\s+(?:musun|mısın|misin|mısınız|misiniz|lütfen))?\b"""
     )
     private val actionFirstPattern = Regex(
-        """(?iu)\b(?:oluştur|olustur|hazırla|hazirla|yap|üret|uret)(?:alım|elim|yalım|yelim|un|ın|in|yın|yin|abilir|ebilir|yabilir|yebilir|abilirim|ar|ır|ir|ur|ür|acak|ecek|mak|mek)?\s+(?:bir\s+)?(?:video\w*|shorts?\w*|reels\w*)\b"""
+        """(?iu)\b(?:oluştur|olustur|hazırla|hazirla|yap|üret|uret)(?:alım|elim|yalım|yelim|un|ın|in|yın|yin|abilir|ebilir|yabilir|yebilir|abilirim|ar|ır|ir|ur|ür|acak|ecek|mak|mek|r)?\s+(?:bir\s+)?(?:video\w*|shorts?\w*|reels\w*)\b"""
     )
     private val leadingFiller = Regex("""(?iu)^\s*(?:(?:lütfen|bana)\s+)+""")
     private val trailingFiller = Regex("""(?iu)\s+(?:hakkında|konulu|konusunda|için|lütfen|musun|mısın|misin|mısınız|misiniz)\s*$""")
@@ -36,6 +36,8 @@ object VideoCommandRouter {
         topic = videoFirstPattern.replace(topic, " ")
         topic = actionFirstPattern.replace(topic, " ")
         topic = leadingFiller.replace(topic, "")
+        topic = leadingPunctuation.replace(topic, "")
+        topic = trailingPunctuation.replace(topic, "")
         topic = trailingFiller.replace(topic, "")
         topic = leadingPunctuation.replace(topic, "")
         topic = trailingPunctuation.replace(topic, "")
