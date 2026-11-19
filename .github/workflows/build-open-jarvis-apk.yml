@@ -3,7 +3,7 @@ name: Build Open Jarvis APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, "feature/approval-toggle", "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "infra/issue15-node24-mainline", "infra/issue8-video-ci-validation", "infra/issue8-video-ci-validation-current", "infra/issue8-video-ci-validation-latest", "infra/verify-pr31-tts-exact", "infra/verify-pr31-tts-exact-3dc58e6", "infra/verify-pr32-app-launch-exact-952a", "infra/verify-pr32-app-launch-exact-d465", "infra/verify-pr47-download-service-exact-6b837", "infra/verify-pr51-task-review-exact-a13d60", "infra/verify-pr51-task-review-exact-9dd083a", "infra/verify-pr57-task-dedup-exact-b778616" ]
+    branches: [ main, "feature/approval-toggle", "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "infra/issue15-node24-mainline", "infra/issue8-video-ci-validation", "infra/issue8-video-ci-validation-current", "infra/issue8-video-ci-validation-latest", "infra/verify-pr31-tts-exact", "infra/verify-pr31-tts-exact-3dc58e6", "infra/verify-pr32-app-launch-exact-952a", "infra/verify-pr32-app-launch-exact-d465", "infra/verify-pr47-download-service-exact-6b837", "infra/verify-pr51-task-review-exact-a13d60", "infra/verify-pr51-task-review-exact-9dd083a", "infra/verify-pr57-task-dedup-exact-b778616", "infra/verify-pr57-task-dedup-exact-c772bbb" ]
   pull_request:
     branches: [ main, "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "feature/issue8-local-mp4-prototype", "feature/task-control-approval-state-stacked-2026-11-19", "feature/task-idempotency-dedup-2026-11-19" ]
 
@@ -36,7 +36,7 @@ jobs:
       - name: "Assert PR #47 combined source is unchanged by CI overlay"
         shell: bash
         env:
-          EXPECTED_COMBINED_SOURCE_SHA: b7786167cc3fee24f4888a000c6b746d818f4d8f
+          EXPECTED_COMBINED_SOURCE_SHA: c772bbb01d742ea8ef8dc7ce9439f4a7a164e486
         run: |
           set -euo pipefail
           python3 - "$EXPECTED_COMBINED_SOURCE_SHA" <<'PY'
