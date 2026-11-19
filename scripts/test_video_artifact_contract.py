@@ -68,16 +68,21 @@ def verify_command_task_source() -> None:
             "VideoStoryPipeline(appContext).render(topic, artifactKey = artifactKey)" in integration,
         "executor verifies MP4 and SRT before success":
             "isReadableVideoUri" in integration and "isReadableCaptionsUri" in integration and "verified = true" in integration,
-        "missing executor records zero progress and an explicit error":
-            "progressPercent = 0" in orchestrator and "EXECUTOR_NOT_CONFIGURED" in orchestrator,
-        "process recovery clears stale progress":
-            "APP_RESTARTED" in repository and "progressPercent = 0" in repository,
+        "missing executor persists NOT_EXECUTED with zero progress and an explicit error":
+            "markNotExecutedIfCurrent" in orchestrator and
+            "EXECUTOR_NOT_CONFIGURED" in orchestrator and "progressPercent = 0" in task_dao,
+        "process recovery persists INTERRUPTED and clears stale progress":
+            "APP_RESTARTED" in repository and "markInterruptedIfCurrent" in repository and
+            "progressPercent = 0" in task_dao,
         "task UI distinguishes unavailable and interrupted execution":
             "EXECUTOR_UNAVAILABLE" in task_ui and "INTERRUPTED" in task_ui and "Yürütülmedi · yürütücü yok" in task_ui,
         "only exact tr-TR voices are selectable":
             ".filter { isExactTurkishLocale(it.localeTag) }" in tts_policy and "locale.country.equals(\"TR\"" in tts_policy,
-        "engine checks actual selected locale before Ready":
-            "isExactTurkishLocale(actualLocale.toLanguageTag())" in tts_engine,
+        "engine checks the actual nullable engine voice before Ready":
+            "actualVoiceLocaleProvider.read(engine)" in tts_engine and
+            "exactActualEngineLocale(actualLocaleTag)" in tts_engine and
+            "engine.voice?.locale?.toLanguageTag()" in tts_engine and
+            "fun exactActualEngineLocale(localeTag: String?)" in tts_policy,
         "unit tests reject generic tr and tr-CY":
             "genericAndOtherRegionTurkishVoicesAreRejectedWithoutExactTrTr" in tts_policy_test,
         "instrumentation asserts Ready always means exact tr-TR":
