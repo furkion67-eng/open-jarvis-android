@@ -201,7 +201,8 @@ capture_post_instrumentation
 # explicit status file: either a verified AAC+H.264 export, or a verified fail-closed
 # result when this emulator has no installed tr-TR voice data.
 video_contract_exit=1
-if ! grep -q "VideoStoryPipelineInstrumentedTest" instrumented.log; then
+if ! grep -q "VideoStoryPipelineInstrumentedTest" instrumented.log ||
+   ! grep -q "VideoNarratedExportInstrumentedTest" instrumented.log; then
   echo "VIDEO-NARRATED-ACCEPTANCE-FAIL: narrated pipeline instrumentation was not discovered"
 else
   adb exec-out run-as "$APP_PKG" cat files/ci-video-audio-status.txt > video-audio-status.txt 2>/dev/null || true
@@ -227,8 +228,8 @@ else
   fi
 fi
 
-# Report conditional TTS playback skips separately. Only these two active-utterance
-# tests may be skipped when the emulator has no installed Turkish voice.
+# Report conditional skips separately. Only the two active-utterance TTS tests and
+# the feature-owned narrated export test may be skipped when exact tr-TR data is absent.
 python3 - instrumented.log <<'PY'
 import pathlib, sys
 lines = pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines()
@@ -240,11 +241,12 @@ for line in lines:
         current_class = line.split("=", 1)[1].strip()
     elif line.startswith("INSTRUMENTATION_STATUS: test="):
         current_test = line.split("=", 1)[1].strip()
-    elif line.startswith("INSTRUMENTATION_STATUS_CODE: ") and line.rsplit(" ", 1)[-1] == "-3":
+    elif line.startswith("INSTRUMENTATION_STATUS_CODE: ") and line.rsplit(" ", 1)[-1] in {"-3", "-4"}:
         skipped.append((current_class, current_test))
 allowed = {
     ("com.openjarvis.voice.TurkishTtsEngineInstrumentedTest", "releaseDuringCurrentUtteranceDoesNotRestartSttAfterTeardown"),
     ("com.openjarvis.voice.TurkishTtsEngineInstrumentedTest", "stopDuringCurrentUtteranceCompletesHandoffExactlyOnce"),
+    ("com.openjarvis.video.VideoNarratedExportInstrumentedTest", "exactTrTrVoiceExportsAacH264AndSpeechTimedCaptions"),
 }
 unexpected = [item for item in skipped if item not in allowed]
 for class_name, test_name in skipped:
