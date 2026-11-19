@@ -89,7 +89,7 @@ object VideoStoryPlanBuilder {
                 "${scene.heading}. ${scene.caption}"
             },
             captions = captions,
-            sourceLabel = if (isIstanbulConquest) "Yerel tarih şablonu" else "Genel yerel şablon"
+            sourceLabel = if (isIstanbulConquest) "Yerel tarih şablonu · prosedürel çizimler" else "Genel yerel şablon · prosedürel çizimler"
         )
         plan.renderSpec.validate()
         return plan
@@ -98,23 +98,28 @@ object VideoStoryPlanBuilder {
     private val ISTANBUL_CONQUEST_SCENES = listOf(
         VideoScene(
             "1453: Hedef Konstantiniyye",
-            "Fatih Sultan Mehmet, Bizans'ın başkentini almak için hazırlıklarını tamamladı."
+            "Fatih Sultan Mehmet, Bizans'ın başkentini almak için hazırlıklarını tamamladı.",
+            VideoVisualStyle.CITY_WALLS
         ),
         VideoScene(
             "Kuşatma başladı",
-            "6 Nisan 1453'te Osmanlı ordusu surları kuşattı. Şahi topları surlarda gedikler açtı."
+            "6 Nisan 1453'te Osmanlı ordusu surları kuşattı. Şahi topları surlarda gedikler açtı.",
+            VideoVisualStyle.CANNON_SIEGE
         ),
         VideoScene(
             "Haliç'te beklenmedik hamle",
-            "Osmanlı gemileri karadan yürütülerek Haliç'e indirildi ve savunma hattı zorlandı."
+            "Osmanlı gemileri karadan yürütülerek Haliç'e indirildi ve savunma hattı zorlandı.",
+            VideoVisualStyle.SHIPS
         ),
         VideoScene(
             "29 Mayıs sabahı",
-            "Haftalar süren kuşatmanın ardından 29 Mayıs 1453 sabahı genel hücum başladı."
+            "Haftalar süren kuşatmanın ardından 29 Mayıs 1453 sabahı genel hücum başladı.",
+            VideoVisualStyle.SUNRISE
         ),
         VideoScene(
             "Tarihi sonuç",
-            "Şehir Osmanlı hakimiyetine girdi ve imparatorluğun önemli merkezlerinden biri oldu."
+            "Şehir Osmanlı hakimiyetine girdi ve imparatorluğun önemli merkezlerinden biri oldu.",
+            VideoVisualStyle.CITY_MAP
         )
     )
 
