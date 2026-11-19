@@ -3,11 +3,17 @@ package com.openjarvis.tasks
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -34,6 +40,44 @@ class JarvisTaskPersistenceInstrumentedTest {
     @After
     fun tearDown() {
         database.close()
+    }
+
+    @Test
+    fun concurrentSameRequestKeyCreatesSinglePersistedTask() = runBlocking {
+        val ids = coroutineScope {
+            awaitAll(
+                async(Dispatchers.IO) { repository.createTask("Aynı görev", "same-request-001") },
+                async(Dispatchers.IO) { repository.createTask("Aynı görev", "same-request-001") }
+            )
+        }
+
+        assertEquals(ids[0], ids[1])
+        val persisted = dao.observeRecent(20).first()
+        assertEquals(1, persisted.count { it.idempotencyKey == "same-request-001" })
+    }
+
+    @Test
+    fun sameGoalWithDifferentRequestKeysCreatesDistinctTasks() = runBlocking {
+        val first = repository.createTask("Aynı hedef", "request-first")
+        val second = repository.createTask("Aynı hedef", "request-second")
+
+        assertNotEquals(first, second)
+        val persisted = dao.observeRecent(20).first()
+        assertEquals(2, persisted.count { it.goal == "Aynı hedef" })
+    }
+
+    @Test
+    fun sameRequestKeyAfterRepositoryRecreationReturnsExistingTask() = runBlocking {
+        val first = repository.createTask("Uygulamayı yeniden başlat", "persisted-request-001")
+        val recreated = JarvisTaskRepository(
+            dao,
+            JarvisTaskOrchestrator(dao, JarvisTaskCapabilityRegistry.localPreviewOnly())
+        )
+
+        val second = recreated.createTask("Uygulamayı yeniden başlat", "persisted-request-001")
+
+        assertEquals(first, second)
+        assertEquals(1, dao.observeRecent(20).first().count { it.idempotencyKey == "persisted-request-001" })
     }
 
     @Test
