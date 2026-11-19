@@ -2,7 +2,13 @@ package com.openjarvis.video
 
 import kotlin.math.abs
 
-data class VideoScene(val heading: String, val caption: String)
+enum class VideoVisualStyle { GENERIC, CITY_WALLS, CANNON_SIEGE, SHIPS, SUNRISE, CITY_MAP }
+
+data class VideoScene(
+    val heading: String,
+    val caption: String,
+    val visualStyle: VideoVisualStyle = VideoVisualStyle.GENERIC
+)
 
 data class VideoRenderSpec(
     val title: String,
