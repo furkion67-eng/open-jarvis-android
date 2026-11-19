@@ -98,6 +98,25 @@ class TaskControlCenterReviewStateInstrumentedTest {
         assertTrue(composeRule.onAllNodesWithTag("task-progress-indicator").fetchSemanticsNodes().isEmpty())
     }
 
+    @Test
+    fun interruptedVideoTaskShowsNotExecutedWithoutPercentOrProgressBar() {
+        val task = task(
+            status = JarvisTaskStatus.WAITING_FOR_NETWORK,
+            errorCode = "APP_RESTARTED",
+            executionMode = VIDEO_TASK_EXECUTION_MODE
+        )
+        composeRule.setContent {
+            MaterialTheme {
+                TaskItem(task, enabled = true, onAcceptPlan = {}, onRetry = {}, onCancel = {})
+            }
+        }
+
+        composeRule.onNodeWithText("Yürütülmedi · güvenli yeniden deneme bekliyor").assertIsDisplayed()
+        assertTextAbsent("25%")
+        assertTrue(composeRule.onAllNodesWithTag("task-progress-indicator").fetchSemanticsNodes().isEmpty())
+        assertTrue(composeRule.onAllNodesWithTag("task-progress-indeterminate").fetchSemanticsNodes().isEmpty())
+    }
+
     private fun assertTextAbsent(text: String) {
         assertTrue(
             "Expected no semantics node with text: $text",

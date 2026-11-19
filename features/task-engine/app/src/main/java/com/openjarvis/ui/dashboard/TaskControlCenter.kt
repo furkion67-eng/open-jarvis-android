@@ -235,6 +235,7 @@ internal fun TaskItem(
                 text = when {
                     reviewState == TaskReviewUiState.EXECUTOR_UNAVAILABLE -> "Yürütülmedi · yürütücü yok"
                     task.executionMode == "local_plan_preview" -> "${status.turkishLabel} · önizleme"
+                    task.executionMode == VIDEO_TASK_EXECUTION_MODE && status == JarvisTaskStatus.WAITING_FOR_NETWORK -> "Yürütülmedi · güvenli yeniden deneme bekliyor"
                     task.executionMode == VIDEO_TASK_EXECUTION_MODE && status == JarvisTaskStatus.RUNNING -> "Türkçe video oluşturuluyor"
                     task.executionMode == VIDEO_TASK_EXECUTION_MODE && status == JarvisTaskStatus.SUCCEEDED -> "Türkçe sesli video hazır"
                     task.executionMode == VIDEO_TASK_EXECUTION_MODE && status == JarvisTaskStatus.FAILED -> "Türkçe video oluşturulamadı"

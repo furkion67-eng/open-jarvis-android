@@ -62,6 +62,17 @@ class TaskControlCenterReviewStateTest {
     }
 
     @Test
+    fun interruptedVideoTaskShowsNoSyntheticProgress() {
+        val task = task(
+            status = JarvisTaskStatus.WAITING_FOR_NETWORK,
+            errorCode = "APP_RESTARTED",
+            executionMode = VIDEO_TASK_EXECUTION_MODE
+        )
+        assertFalse(shouldShowDeterminateProgress(task))
+        assertFalse(shouldShowIndeterminateProgress(task))
+    }
+
+    @Test
     fun videoPreviewDoesNotShowExecutionProgressBeforePlanAcceptance() {
         val task = task(
             status = JarvisTaskStatus.WAITING_FOR_USER,
