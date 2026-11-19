@@ -36,7 +36,7 @@ jobs:
       - name: "Assert PR #63 Turkish narrated video source is unchanged by CI overlay"
         shell: bash
         env:
-          EXPECTED_VIDEO_SOURCE_SHA: 989cff1a2d4677e2354c755bae6843cd83897e37
+          EXPECTED_VIDEO_SOURCE_SHA: c2af382325e22b9598832008dda2dca3ae851ac6
         run: |
           set -euo pipefail
           python3 - "$EXPECTED_VIDEO_SOURCE_SHA" <<'PY'
