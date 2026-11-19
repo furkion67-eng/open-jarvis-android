@@ -40,6 +40,15 @@ class TaskControlCenterReviewStateTest {
     }
 
     @Test
+    fun localPlanPreviewNeverClaimsDeterminateExecutionProgress() {
+        val task = task(
+            status = JarvisTaskStatus.WAITING_FOR_NETWORK,
+            errorCode = "EXECUTOR_NOT_CONFIGURED"
+        )
+        assertEquals(false, shouldShowDeterminateProgress(task))
+    }
+
+    @Test
     fun legacyWaitingTaskWithoutReviewCheckpointCannotBeAcceptedAgain() {
         val task = task(
             status = JarvisTaskStatus.WAITING_FOR_USER,
