@@ -81,7 +81,8 @@ class VideoStoryPipelineInstrumentedTest {
             val cueCount = Regex("(?m)^\\d+$").findAll(srt).count()
             assertEquals(5, cueCount)
             assertTrue("SRT must start at zero", srt.contains("00:00:00,000 -->"))
-            assertTrue("Last SRT cue must reach video end", srt.contains("00:00:20,000"))
+            val expectedSpeechEnd = formatSrtTime(result.audioDurationMs)
+            assertTrue("Last SRT cue must end at actual speech duration", srt.contains("--> $expectedSpeechEnd"))
             assertTrue(srt.contains("29 Mayıs 1453"))
             statusFile.writeText("VIDEO-NARRATED-PIPELINE-OK\nAAC+H264\nMediaStore MP4+SRT verified\n")
             Log.i("OpenJarvisVideoCI", "VIDEO-NARRATED-PIPELINE-OK: 360x640, AAC+H.264, 5 speech-timed SRT cues")
@@ -94,5 +95,13 @@ class VideoStoryPipelineInstrumentedTest {
             evidenceCaptions.delete()
         }
         Unit
+    }
+
+    private fun formatSrtTime(valueMs: Long): String {
+        val hours = valueMs / 3_600_000L
+        val minutes = (valueMs % 3_600_000L) / 60_000L
+        val seconds = (valueMs % 60_000L) / 1_000L
+        val millis = valueMs % 1_000L
+        return String.format(java.util.Locale.ROOT, "%02d:%02d:%02d,%03d", hours, minutes, seconds, millis)
     }
 }
