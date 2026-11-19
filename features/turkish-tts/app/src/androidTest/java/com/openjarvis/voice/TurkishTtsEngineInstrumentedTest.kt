@@ -33,7 +33,7 @@ class TurkishTtsEngineInstrumentedTest {
         when (status) {
             is TurkishTtsStatus.Ready -> assertTrue(
                 "Ready status must always identify a Turkish voice",
-                TurkishTtsPolicy.isTurkishLocaleTag(status.voiceLocale)
+                TurkishTtsPolicy.isExactTurkishLocale(status.voiceLocale)
             )
             TurkishTtsStatus.TurkishVoiceMissing,
             TurkishTtsStatus.InitializationFailed -> Unit // Honest, supported fallback on emulator images without Turkish voice data.
