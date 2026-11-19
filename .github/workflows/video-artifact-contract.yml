@@ -1,0 +1,61 @@
+name: Video artifact acceptance contract
+
+on:
+  push:
+    branches:
+      - infra/video-artifact-contract-exact-9ac302
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  video-artifact-contract:
+    name: Validate video artifact acceptance contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact CI overlay
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Assert exact feature source and complete CI-only allowlist
+        env:
+          EXPECTED_SOURCE_SHA: 9ac30210a672f6b84e30e9c31f219f999b4cbcbe
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_SOURCE_SHA"
+          mapfile -t actual < <(git diff --name-only "$EXPECTED_SOURCE_SHA"...HEAD | sort)
+          printf '%s\n' \
+            .github/workflows/video-artifact-contract.yml \
+            scripts/test_video_artifact_contract.py \
+            scripts/validate_video_artifact.py > expected-paths.txt
+          sort -o expected-paths.txt expected-paths.txt
+          printf '%s\n' "${actual[@]}" > actual-paths.txt
+          diff -u expected-paths.txt actual-paths.txt
+          git diff --check "$EXPECTED_SOURCE_SHA"...HEAD
+          echo "EXACT-SOURCE-OK: $EXPECTED_SOURCE_SHA"
+          echo "CI-ALLOWLIST-OK: exactly three CI/test files"
+
+      - name: Install ffmpeg for deterministic MP4 fixtures
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffmpeg -version | head -n 2
+          ffprobe -version | head -n 1
+
+      - name: Validate Python syntax
+        run: python3 -m py_compile scripts/validate_video_artifact.py scripts/test_video_artifact_contract.py
+
+      - name: Run video artifact contract tests
+        run: python3 scripts/test_video_artifact_contract.py
+
+      - name: Upload contract test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Video-Artifact-Contract-Report
+          path: video-contract-test-report.txt
+          if-no-files-found: warn
+          retention-days: 7
