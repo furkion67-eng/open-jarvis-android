@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.openjarvis.video.VideoRenderProgress
+import com.openjarvis.video.VideoRenderSpec
 import com.openjarvis.video.VideoStoryPipeline
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
