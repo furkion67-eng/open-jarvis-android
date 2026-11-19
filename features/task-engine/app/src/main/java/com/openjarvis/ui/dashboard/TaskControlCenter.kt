@@ -226,6 +226,15 @@ internal fun shouldShowIndeterminateProgress(task: JarvisTaskEntity): Boolean =
     task.executionMode == VIDEO_TASK_EXECUTION_MODE &&
         JarvisTaskStatus.fromStorage(task.status) == JarvisTaskStatus.RUNNING
 
+/** A missing executor is a configuration state, not an actionable retry. */
+internal fun shouldOfferRetry(task: JarvisTaskEntity): Boolean {
+    val status = JarvisTaskStatus.fromStorage(task.status)
+    if (taskReviewUiState(task) == TaskReviewUiState.EXECUTOR_UNAVAILABLE) return false
+    return status == JarvisTaskStatus.WAITING_FOR_NETWORK ||
+        status == JarvisTaskStatus.INTERRUPTED ||
+        status == JarvisTaskStatus.FAILED
+}
+
 internal fun taskReviewUiState(task: JarvisTaskEntity): TaskReviewUiState {
     val status = JarvisTaskStatus.fromStorage(task.status)
     return when {
@@ -331,12 +340,7 @@ internal fun TaskItem(
                 TaskReviewUiState.NONE -> Unit
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if ((status == JarvisTaskStatus.WAITING_FOR_NETWORK &&
-                        reviewState != TaskReviewUiState.EXECUTOR_UNAVAILABLE) ||
-                    status == JarvisTaskStatus.NOT_EXECUTED ||
-                    status == JarvisTaskStatus.INTERRUPTED ||
-                    status == JarvisTaskStatus.FAILED
-                ) {
+                if (shouldOfferRetry(task)) {
                     TextButton(onClick = onRetry, enabled = enabled) {
                         Text("Yeniden dene")
                     }
