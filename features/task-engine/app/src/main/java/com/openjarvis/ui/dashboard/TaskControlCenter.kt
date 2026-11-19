@@ -179,13 +179,15 @@ internal enum class TaskReviewUiState {
     PLAN_REVIEW,
     ACTION_APPROVAL_REQUIRED,
     EXECUTOR_UNAVAILABLE,
+    INTERRUPTED,
     NONE
 }
 
 internal fun shouldShowDeterminateProgress(task: JarvisTaskEntity): Boolean =
     task.executionMode != "local_plan_preview" &&
         task.executionMode != VIDEO_TASK_EXECUTION_MODE &&
-        taskReviewUiState(task) != TaskReviewUiState.EXECUTOR_UNAVAILABLE
+        taskReviewUiState(task) != TaskReviewUiState.EXECUTOR_UNAVAILABLE &&
+        taskReviewUiState(task) != TaskReviewUiState.INTERRUPTED
 
 internal fun shouldShowIndeterminateProgress(task: JarvisTaskEntity): Boolean =
     task.executionMode == VIDEO_TASK_EXECUTION_MODE &&
@@ -203,6 +205,9 @@ internal fun taskReviewUiState(task: JarvisTaskEntity): TaskReviewUiState {
             task.checkpoint == JarvisTaskCheckpoint.PLAN_REVIEWED &&
             (task.errorCode == "APPROVAL_REQUIRED" || (task.requiresApproval && !task.approvalGranted)) ->
             TaskReviewUiState.ACTION_APPROVAL_REQUIRED
+
+        status == JarvisTaskStatus.WAITING_FOR_NETWORK &&
+            task.errorCode == "APP_RESTARTED" -> TaskReviewUiState.INTERRUPTED
 
         status == JarvisTaskStatus.WAITING_FOR_NETWORK &&
             task.errorCode == "EXECUTOR_NOT_CONFIGURED" -> TaskReviewUiState.EXECUTOR_UNAVAILABLE
@@ -234,6 +239,7 @@ internal fun TaskItem(
             Text(
                 text = when {
                     reviewState == TaskReviewUiState.EXECUTOR_UNAVAILABLE -> "Yürütülmedi · yürütücü yok"
+                    reviewState == TaskReviewUiState.INTERRUPTED -> "Yürütülmedi · güvenli yeniden deneme bekliyor"
                     task.executionMode == "local_plan_preview" -> "${status.turkishLabel} · önizleme"
                     task.executionMode == VIDEO_TASK_EXECUTION_MODE && status == JarvisTaskStatus.WAITING_FOR_NETWORK -> "Yürütülmedi · güvenli yeniden deneme bekliyor"
                     task.executionMode == VIDEO_TASK_EXECUTION_MODE && status == JarvisTaskStatus.RUNNING -> "Türkçe video oluşturuluyor"
@@ -281,6 +287,11 @@ internal fun TaskItem(
                 )
                 TaskReviewUiState.EXECUTOR_UNAVAILABLE -> Text(
                     "Bu görev yalnızca yerel plan taslağıdır; yürütücü yapılandırılmadığı için çalıştırılmadı.",
+                    color = VoidColor.Amber,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                TaskReviewUiState.INTERRUPTED -> Text(
+                    "Uygulama yeniden başlatıldığı için görev otomatik yürütülmedi. Sonucu kontrol edip güvenli biçimde yeniden deneyebilirsin.",
                     color = VoidColor.Amber,
                     style = MaterialTheme.typography.bodySmall
                 )

@@ -117,6 +117,29 @@ class TaskControlCenterReviewStateInstrumentedTest {
         assertTrue(composeRule.onAllNodesWithTag("task-progress-indeterminate").fetchSemanticsNodes().isEmpty())
     }
 
+    @Test
+    fun interruptedExternalTaskShowsNotExecutedWithoutStalePercentOrProgressBar() {
+        val task = task(
+            status = JarvisTaskStatus.WAITING_FOR_NETWORK,
+            errorCode = "APP_RESTARTED",
+            executionMode = "remote.device-action",
+            progressPercent = 65
+        )
+        composeRule.setContent {
+            MaterialTheme {
+                TaskItem(task, enabled = true, onAcceptPlan = {}, onRetry = {}, onCancel = {})
+            }
+        }
+
+        composeRule.onNodeWithText("Yürütülmedi · güvenli yeniden deneme bekliyor").assertIsDisplayed()
+        composeRule.onNodeWithText(
+            "Uygulama yeniden başlatıldığı için görev otomatik yürütülmedi. Sonucu kontrol edip güvenli biçimde yeniden deneyebilirsin."
+        ).assertIsDisplayed()
+        assertTextAbsent("65%")
+        assertTrue(composeRule.onAllNodesWithTag("task-progress-indicator").fetchSemanticsNodes().isEmpty())
+        assertTrue(composeRule.onAllNodesWithTag("task-progress-indeterminate").fetchSemanticsNodes().isEmpty())
+    }
+
     private fun assertTextAbsent(text: String) {
         assertTrue(
             "Expected no semantics node with text: $text",
@@ -131,7 +154,8 @@ class TaskControlCenterReviewStateInstrumentedTest {
         requiresApproval: Boolean = false,
         approvalGranted: Boolean = false,
         errorCode: String? = null,
-        executionMode: String = "local_plan_preview"
+        executionMode: String = "local_plan_preview",
+        progressPercent: Int = 0
     ) = JarvisTaskEntity(
         id = "task-1",
         goal = "WhatsApp mesajı gönder",
@@ -142,6 +166,7 @@ class TaskControlCenterReviewStateInstrumentedTest {
         approvalGranted = approvalGranted,
         errorCode = errorCode,
         executionMode = executionMode,
+        progressPercent = progressPercent,
         idempotencyKey = "test-key"
     )
 }

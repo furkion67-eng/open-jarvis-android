@@ -73,6 +73,19 @@ class TaskControlCenterReviewStateTest {
     }
 
     @Test
+    fun interruptedExternalTaskDoesNotShowStaleDeterminateProgress() {
+        val task = task(
+            status = JarvisTaskStatus.WAITING_FOR_NETWORK,
+            errorCode = "APP_RESTARTED",
+            executionMode = "remote.device-action",
+            progressPercent = 65
+        )
+        assertEquals(TaskReviewUiState.INTERRUPTED, taskReviewUiState(task))
+        assertFalse(shouldShowDeterminateProgress(task))
+        assertFalse(shouldShowIndeterminateProgress(task))
+    }
+
+    @Test
     fun videoPreviewDoesNotShowExecutionProgressBeforePlanAcceptance() {
         val task = task(
             status = JarvisTaskStatus.WAITING_FOR_USER,
@@ -101,7 +114,8 @@ class TaskControlCenterReviewStateTest {
         requiresApproval: Boolean = false,
         approvalGranted: Boolean = false,
         errorCode: String? = null,
-        executionMode: String = "local_plan_preview"
+        executionMode: String = "local_plan_preview",
+        progressPercent: Int = 0
     ) = JarvisTaskEntity(
         id = "task-1",
         goal = "WhatsApp mesajı gönder",
@@ -112,6 +126,7 @@ class TaskControlCenterReviewStateTest {
         approvalGranted = approvalGranted,
         errorCode = errorCode,
         executionMode = executionMode,
+        progressPercent = progressPercent,
         idempotencyKey = "test-key"
     )
 }

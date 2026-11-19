@@ -117,6 +117,7 @@ class JarvisTaskPersistenceInstrumentedTest {
                 goal = "Bir e-posta taslağı hazırla",
                 status = JarvisTaskStatus.QUEUED.storageValue,
                 currentStep = "Önceki adım",
+                progressPercent = 65,
                 createdAt = now,
                 updatedAt = now,
                 idempotencyKey = "stable-idempotency-key"
@@ -127,6 +128,7 @@ class JarvisTaskPersistenceInstrumentedTest {
         val recovered = dao.findById("interrupted-task")!!
         assertEquals(JarvisTaskStatus.WAITING_FOR_NETWORK.storageValue, recovered.status)
         assertEquals("APP_RESTARTED", recovered.errorCode)
+        assertEquals(0, recovered.progressPercent)
         assertTrue(recovered.errorMessage!!.contains("otomatik yürütülmedi"))
 
         repository.retry("interrupted-task")
@@ -134,6 +136,36 @@ class JarvisTaskPersistenceInstrumentedTest {
         assertEquals(JarvisTaskStatus.WAITING_FOR_USER.storageValue, replanned.status)
         assertEquals(JarvisTaskCheckpoint.PLAN_CREATED, replanned.checkpoint)
         assertNull(replanned.planAcceptedAt)
+    }
+
+    @Test
+    fun interruptedRunningTaskResetsStaleProgressAndIsNotAutoReplayed() = runBlocking {
+        val now = System.currentTimeMillis()
+        dao.insert(
+            JarvisTaskEntity(
+                id = "interrupted-running-task",
+                goal = "Onaylı yerel işlem",
+                status = JarvisTaskStatus.RUNNING.storageValue,
+                ownerAgent = "remote.device-action",
+                currentStep = "Önceki yürütme",
+                progressPercent = 65,
+                checkpoint = JarvisTaskCheckpoint.PLAN_REVIEWED,
+                planAcceptedAt = now,
+                createdAt = now,
+                updatedAt = now,
+                idempotencyKey = "interrupted-running-key",
+                executionMode = "remote.device-action"
+            )
+        )
+
+        repository.recoverInterruptedTasks()
+
+        val recovered = dao.findById("interrupted-running-task")!!
+        assertEquals(JarvisTaskStatus.WAITING_FOR_NETWORK.storageValue, recovered.status)
+        assertEquals("APP_RESTARTED", recovered.errorCode)
+        assertEquals(0, recovered.progressPercent)
+        assertEquals(now, recovered.planAcceptedAt)
+        assertFalse(recovered.status == JarvisTaskStatus.SUCCEEDED.storageValue)
     }
 
     @Test
@@ -146,6 +178,7 @@ class JarvisTaskPersistenceInstrumentedTest {
         assertEquals(JarvisTaskStatus.WAITING_FOR_NETWORK.storageValue, retried.status)
         assertEquals(1, retried.retryCount)
         assertEquals(acceptedKey, retried.idempotencyKey)
+        assertEquals(0, retried.progressPercent)
         assertTrue(retried.errorMessage!!.contains("yapılandırılmadı"))
     }
 
