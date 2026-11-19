@@ -42,6 +42,19 @@ class AppLaunchDispatcherTest {
     }
 
     @Test
+    fun everyRegisteredAliasResolvesToItsDeclaredTarget() {
+        for (target in AppLaunchRegistry.targets) {
+            for (alias in target.aliases) {
+                assertEquals(
+                    "Alias '$alias' must resolve to its declared target",
+                    target,
+                    AppLaunchRegistry.find(alias)
+                )
+            }
+        }
+    }
+
+    @Test
     fun ambiguousNormalizedAliasesFailClosedBeforePlatformAccess() {
         val candidates = listOf(
             AppLaunchTarget(
