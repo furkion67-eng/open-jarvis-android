@@ -15,11 +15,18 @@ interface JarvisTaskDao {
     @Query("SELECT * FROM jarvis_tasks WHERE id = :id LIMIT 1")
     suspend fun findById(id: String): JarvisTaskEntity?
 
+    @Query("SELECT * FROM jarvis_tasks WHERE idempotencyKey = :idempotencyKey LIMIT 1")
+    suspend fun findByIdempotencyKey(idempotencyKey: String): JarvisTaskEntity?
+
     @Query("SELECT * FROM jarvis_tasks WHERE status IN (:statuses)")
     suspend fun findByStatuses(statuses: List<String>): List<JarvisTaskEntity>
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(task: JarvisTaskEntity)
+
+    /** Atomic idempotent insert: -1 means an existing request key won the race. */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIfAbsent(task: JarvisTaskEntity): Long
 
     @Update
     suspend fun update(task: JarvisTaskEntity): Int
