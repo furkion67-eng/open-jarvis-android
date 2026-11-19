@@ -111,6 +111,8 @@ interface JarvisTaskDao {
         SET status = :notExecutedStatus,
             currentStep = :currentStep,
             progressPercent = 0,
+            approvalGranted = 0,
+            approvalReference = NULL,
             errorCode = :errorCode,
             errorMessage = :errorMessage,
             updatedAt = :updatedAt

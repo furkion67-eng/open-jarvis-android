@@ -86,7 +86,7 @@ class JarvisTaskMigrationInstrumentedTest {
                 checkpoint, idempotencyKey, executionMode, estimatedCostMicros, actualCostMicros
             ) VALUES (
                 'legacy-not-executed', 'Yürütülmeyen eski görev', 'waiting_for_network', NULL, NULL, 25, NULL,
-                '[]', 3, 3, 0, 'EXECUTOR_NOT_CONFIGURED', 'Yürütücü yok', 0, 0, 0, NULL,
+                '[]', 3, 3, 0, 'EXECUTOR_NOT_CONFIGURED', 'Yürütücü yok', 0, 1, 1, 'stale-approval',
                 'plan_reviewed', 'legacy-not-executed-key', 'local_plan_preview', 0, 0
             )
         """.trimIndent())
@@ -130,6 +130,8 @@ class JarvisTaskMigrationInstrumentedTest {
             val notExecuted = migrated.taskDao().findById("legacy-not-executed")!!
             assertEquals(JarvisTaskStatus.NOT_EXECUTED.storageValue, notExecuted.status)
             assertEquals(0, notExecuted.progressPercent)
+            assertEquals(false, notExecuted.approvalGranted)
+            assertNull(notExecuted.approvalReference)
 
             val interrupted = migrated.taskDao().findById("legacy-interrupted")!!
             assertEquals(JarvisTaskStatus.INTERRUPTED.storageValue, interrupted.status)

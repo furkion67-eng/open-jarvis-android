@@ -38,7 +38,8 @@ abstract class JarvisTaskDatabase : RoomDatabase() {
         val MIGRATION_3_4: Migration = object : Migration(3, 4) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL(
-                    "UPDATE jarvis_tasks SET status = 'not_executed', progressPercent = 0 " +
+                    "UPDATE jarvis_tasks SET status = 'not_executed', progressPercent = 0, " +
+                        "approvalGranted = 0, approvalReference = NULL " +
                         "WHERE status = 'waiting_for_network' AND errorCode = 'EXECUTOR_NOT_CONFIGURED'"
                 )
                 database.execSQL(

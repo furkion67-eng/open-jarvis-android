@@ -202,4 +202,27 @@ class JarvisTaskExecutionSafetyInstrumentedTest {
             )
         }
     }
+
+    @Test
+    fun missingExecutorRevokesPreviouslyGrantedExternalApproval() = runBlocking {
+        val now = System.currentTimeMillis()
+        val task = task(
+            id = "approved-without-executor",
+            status = JarvisTaskStatus.WAITING_FOR_USER,
+            checkpoint = JarvisTaskCheckpoint.PLAN_REVIEWED,
+            planAcceptedAt = now,
+            requiresApproval = true,
+            approvalGranted = true
+        ).copy(approvalReference = "stale-action-approval")
+        dao.insert(task)
+
+        JarvisTaskOrchestrator(dao, JarvisTaskCapabilityRegistry.localPreviewOnly()).execute(task.id)
+
+        val persisted = dao.findById(task.id)!!
+        assertEquals(JarvisTaskStatus.NOT_EXECUTED.storageValue, persisted.status)
+        assertEquals(0, persisted.progressPercent)
+        assertFalse(persisted.approvalGranted)
+        assertNull(persisted.approvalReference)
+    }
+
 }
