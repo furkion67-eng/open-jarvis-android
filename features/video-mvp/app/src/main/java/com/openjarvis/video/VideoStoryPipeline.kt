@@ -32,8 +32,12 @@ class VideoStoryPipeline(context: Context) {
     suspend fun render(
         prompt: String,
         onProgress: (completedFrames: Int, totalFrames: Int) -> Unit = { _, _ -> },
-        onStage: (String) -> Unit = {}
+        onStage: (String) -> Unit = {},
+        artifactKey: String? = null
     ): VideoStoryRenderResult {
+        require(artifactKey == null || artifactKey.matches(Regex("[a-f0-9]{32}"))) {
+            "Video dışa aktarma kimliği geçersiz."
+        }
         val plan = VideoStoryPlanBuilder.build(prompt)
         onStage("Türkçe anlatım hazırlanıyor…")
         var narratedVideo: NarratedVideoResult? = null
@@ -63,9 +67,18 @@ class VideoStoryPipeline(context: Context) {
                     ).toSrt(),
                     StandardCharsets.UTF_8
                 )
-                val videoUri = VideoMediaStoreExporter.export(appContext, composed.video.file)
+                val stableBaseName = artifactKey?.let { "jarvis-$it" }
+                val videoUri = VideoMediaStoreExporter.export(
+                    appContext,
+                    composed.video.file,
+                    stableBaseName?.plus(".mp4")
+                )
                 exportedUri = videoUri
-                VideoMediaStoreExporter.exportCaptions(appContext, srtFile).also { captionsUri = it }
+                VideoMediaStoreExporter.exportCaptions(
+                    appContext,
+                    srtFile,
+                    stableBaseName?.plus(".srt")
+                ).also { captionsUri = it }
             }
             onStage("Türkçe sesli MP4 galeriye kaydedildi.")
             return VideoStoryRenderResult(

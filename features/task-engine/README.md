@@ -32,3 +32,9 @@ persisted as the task evidence reference and both URIs are shown in the output s
 exact tr-TR voice is unavailable or export verification fails, the task is failed with a Turkish
 error; no success or public upload is claimed. The video executor is local-only and does not
 publish to YouTube/TikTok or trigger SMS/calls/other external actions.
+
+
+Video render retries reuse deterministic MP4/SRT MediaStore names derived from the task's durable
+idempotency key. A process restart after export but before Room success persistence therefore
+reuses the verified H.264/AAC and SRT pair instead of creating duplicate gallery files. Incomplete
+or unreadable partial exports are removed before a new render.
