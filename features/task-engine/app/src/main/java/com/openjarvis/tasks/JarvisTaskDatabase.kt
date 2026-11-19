@@ -39,11 +39,13 @@ abstract class JarvisTaskDatabase : RoomDatabase() {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL(
                     "UPDATE jarvis_tasks SET status = 'not_executed', progressPercent = 0, " +
+                        "currentStep = 'Yürütülmedi · yürütücü yok', " +
                         "approvalGranted = 0, approvalReference = NULL " +
                         "WHERE status = 'waiting_for_network' AND errorCode = 'EXECUTOR_NOT_CONFIGURED'"
                 )
                 database.execSQL(
                     "UPDATE jarvis_tasks SET status = 'interrupted', progressPercent = 0, " +
+                        "currentStep = 'Güvenli kurtarma beklemesi', " +
                         "approvalGranted = 0, approvalReference = NULL " +
                         "WHERE status = 'waiting_for_network' AND errorCode = 'APP_RESTARTED'"
                 )

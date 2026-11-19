@@ -130,12 +130,14 @@ class JarvisTaskMigrationInstrumentedTest {
             val notExecuted = migrated.taskDao().findById("legacy-not-executed")!!
             assertEquals(JarvisTaskStatus.NOT_EXECUTED.storageValue, notExecuted.status)
             assertEquals(0, notExecuted.progressPercent)
+            assertEquals("Yürütülmedi · yürütücü yok", notExecuted.currentStep)
             assertEquals(false, notExecuted.approvalGranted)
             assertNull(notExecuted.approvalReference)
 
             val interrupted = migrated.taskDao().findById("legacy-interrupted")!!
             assertEquals(JarvisTaskStatus.INTERRUPTED.storageValue, interrupted.status)
             assertEquals(0, interrupted.progressPercent)
+            assertEquals("Güvenli kurtarma beklemesi", interrupted.currentStep)
             assertEquals(false, interrupted.approvalGranted)
             assertNull(interrupted.approvalReference)
         } finally {
