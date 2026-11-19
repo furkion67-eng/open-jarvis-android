@@ -182,7 +182,7 @@ jobs:
           grep -Fq 'EXECUTOR_NOT_CONFIGURED' app/src/main/java/com/openjarvis/tasks/JarvisTaskOrchestrator.kt
           grep -Fq 'progressPercent = 0' app/src/main/java/com/openjarvis/tasks/JarvisTaskOrchestrator.kt
           grep -Fq 'APP_RESTARTED' app/src/main/java/com/openjarvis/tasks/JarvisTaskRepository.kt
-          grep -Fq 'progressPercent = 0' app/src/main/java/com/openjarvis/tasks/JarvisTaskRepository.kt
+          grep -Fq 'markInterruptedIfCurrent' app/src/main/java/com/openjarvis/tasks/JarvisTaskRepository.kt
           grep -Fq 'Yürütülmedi · yürütücü yok' app/src/main/java/com/openjarvis/ui/dashboard/TaskControlCenter.kt
           grep -Fq 'Yürütülmedi · güvenli yeniden deneme bekliyor' app/src/main/java/com/openjarvis/ui/dashboard/TaskControlCenter.kt
           echo "VIDEO-COMMAND-TASK-SOURCE-OK"
