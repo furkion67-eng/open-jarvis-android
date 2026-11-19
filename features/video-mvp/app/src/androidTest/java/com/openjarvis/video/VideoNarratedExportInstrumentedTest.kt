@@ -16,6 +16,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.nio.ByteBuffer
 import java.util.Locale
 import kotlin.coroutines.resume
 import kotlin.math.abs
@@ -63,6 +64,15 @@ class VideoNarratedExportInstrumentedTest {
                 assertEquals(MediaFormat.MIMETYPE_AUDIO_AAC, audio.getString(MediaFormat.KEY_MIME))
                 assertEquals(360, video.getInteger(MediaFormat.KEY_WIDTH))
                 assertEquals(640, video.getInteger(MediaFormat.KEY_HEIGHT))
+
+                val audioTrackIndex = formats.indexOf(audio)
+                assertTrue("AAC track must contain encoded samples", audioTrackIndex >= 0)
+                extractor.selectTrack(audioTrackIndex)
+                val firstAacSample = ByteBuffer.allocate(256 * 1024)
+                assertTrue(
+                    "AAC track must be readable, not just present in metadata",
+                    extractor.readSampleData(firstAacSample, 0) > 0
+                )
 
                 val videoDurationMs = video.getLong(MediaFormat.KEY_DURATION) / 1_000L
                 val audioTrackDurationMs = audio.getLong(MediaFormat.KEY_DURATION) / 1_000L
