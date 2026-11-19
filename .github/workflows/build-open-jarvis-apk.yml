@@ -33,10 +33,10 @@ jobs:
           echo "Checked out SHA: $actual"
           test "$actual" = "$GITHUB_SHA"
 
-      - name: "Assert PR #52 video storyboard source is unchanged by CI overlay"
+      - name: "Assert PR #63 Turkish narrated video source is unchanged by CI overlay"
         shell: bash
         env:
-          EXPECTED_VIDEO_SOURCE_SHA: 8beff652aa30a93a5bf0e7307d6d04a805591c70
+          EXPECTED_VIDEO_SOURCE_SHA: 989cff1a2d4677e2354c755bae6843cd83897e37
         run: |
           set -euo pipefail
           python3 - "$EXPECTED_VIDEO_SOURCE_SHA" <<'PY'
@@ -66,7 +66,7 @@ jobs:
               print("EXPECTED_CI_OVERLAY_PATHS:")
               print("\\n".join(expected))
               raise SystemExit("CI overlay changed paths outside the complete eight-file allowlist")
-          print(f"VIDEO_SOURCE_EXACT_OK: {source} is an ancestor; exact eight-file allowlist")
+          print(f"NARRATED_VIDEO_SOURCE_EXACT_OK: {source} is an ancestor; exact eight-file allowlist")
           PY
 
       - name: Extract source and locate project
@@ -154,8 +154,9 @@ jobs:
         run: |
           test -f app/src/main/java/com/openjarvis/video/VideoStoryPipeline.kt
           test -f app/src/main/java/com/openjarvis/video/VideoStoryPlan.kt
+          test -f app/src/main/java/com/openjarvis/video/VideoNarrationComposer.kt
           test -f app/src/androidTest/java/com/openjarvis/video/VideoStoryPipelineInstrumentedTest.kt
-          echo "VIDEO-STORYBOARD-SOURCE-OK"
+          echo "VIDEO-NARRATED-SOURCE-OK"
 
       - name: Audit declared Android permissions (no permission changes)
         working-directory: ${{ steps.source.outputs.project_dir }}
@@ -311,9 +312,16 @@ jobs:
               },
               "VideoStoryPlanTest": {
                   "istanbulConquestCreatesFiveScenesAndTwentySecondsOfCaptions",
+                  "istanbulScenesUseDistinctLocalProceduralVisuals",
                   "captionsAreMonotonicAndSrtUsesTurkishText",
                   "genericTopicUsesStructureWithoutInventingSpecificFacts",
                   "blankPromptIsRejected",
+              },
+              "VideoNarrationComposerTest": {
+                  "pcmWavReaderCalculatesOneSecondMonoDuration",
+                  "pcmWavReaderRejectsNonPcmEncoding",
+                  "captionsFollowActualPerSceneSpeechDurations",
+                  "narrationLongerThanRenderedVideoIsRejected",
               },
           }
           for class_name, required in requirements.items():
@@ -475,8 +483,8 @@ jobs:
             windows-main-activity-visible.txt
             screen-main-activity-visible.png
             crashlog-after-visible-launch.txt
-            video-storyboard-preview.mp4
-            video-storyboard-preview.srt
+            video-narrated.mp4
+            video-narrated.srt
             video-contract-test-report.txt
           if-no-files-found: warn
           retention-days: 7
