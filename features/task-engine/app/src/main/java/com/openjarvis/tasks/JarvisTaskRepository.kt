@@ -10,24 +10,40 @@ class JarvisTaskRepository(
 ) {
     fun observeRecentTasks(limit: Int = 8): Flow<List<JarvisTaskEntity>> = dao.observeRecent(limit)
 
-    suspend fun createTask(goal: String): String {
+    suspend fun createTask(
+        goal: String,
+        idempotencyKey: String = UUID.randomUUID().toString()
+    ): String {
         val normalizedGoal = goal.trim()
         require(normalizedGoal.isNotEmpty()) { "Görev metni boş olamaz." }
         require(normalizedGoal.length <= 1000) { "Görev metni 1000 karakterden kısa olmalı." }
+        val stableKey = idempotencyKey.trim()
+        require(stableKey.isNotEmpty() && stableKey.length <= 200) {
+            "Görev isteği kimliği geçersiz."
+        }
+
+        // Fast path for a retry after process recreation.
+        dao.findByIdempotencyKey(stableKey)?.let { return it.id }
 
         val now = System.currentTimeMillis()
         val id = UUID.randomUUID().toString()
-        dao.insert(
-            JarvisTaskEntity(
-                id = id,
-                goal = normalizedGoal,
-                status = JarvisTaskStatus.QUEUED.storageValue,
-                currentStep = "Görev sıraya alındı",
-                createdAt = now,
-                updatedAt = now,
-                idempotencyKey = UUID.randomUUID().toString()
-            )
+        val task = JarvisTaskEntity(
+            id = id,
+            goal = normalizedGoal,
+            status = JarvisTaskStatus.QUEUED.storageValue,
+            currentStep = "Görev sıraya alındı",
+            createdAt = now,
+            updatedAt = now,
+            idempotencyKey = stableKey
         )
+        // The unique Room index is the race-safe source of truth. Only the insert winner
+        // may prepare the plan; duplicate callers return the same persisted task identity.
+        val insertedRowId = dao.insertIfAbsent(task)
+        if (insertedRowId == -1L) {
+            return dao.findByIdempotencyKey(stableKey)?.id
+                ?: throw IllegalStateException("Tekrarlanan görev kimliği çözümlenemedi.")
+        }
+
         orchestrator.prepare(id)
         return id
     }
