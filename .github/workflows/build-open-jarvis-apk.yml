@@ -485,6 +485,7 @@ jobs:
             crashlog-after-visible-launch.txt
             video-narrated.mp4
             video-narrated.srt
+            video-audio-status.txt
             video-contract-test-report.txt
           if-no-files-found: warn
           retention-days: 7
@@ -589,8 +590,9 @@ jobs:
             windows-main-activity-visible.txt
             screen-main-activity-visible.png
             crashlog-after-visible-launch.txt
-            video-storyboard-preview.mp4
-            video-storyboard-preview.srt
+            video-narrated.mp4
+            video-narrated.srt
+            video-audio-status.txt
             video-contract-test-report.txt
           if-no-files-found: warn
           retention-days: 7
