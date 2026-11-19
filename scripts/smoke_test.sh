@@ -192,7 +192,7 @@ echo "=== Scenario C: instrumented tests (Room recovery end-to-end + analysis en
 adb install -r "$TEST_APK" >/dev/null || fail "test APK install failed"
 adb shell run-as "$APP_PKG" rm -f files/ci-video-artifact.mp4 files/ci-video-artifact.srt >/dev/null 2>&1 || true
 set +e
-adb shell am instrument -w "$APP_PKG.test/androidx.test.runner.AndroidJUnitRunner" | tee instrumented.log
+adb shell am instrument -w -r "$APP_PKG.test/androidx.test.runner.AndroidJUnitRunner" | tee instrumented.log
 instrumented_exit=${PIPESTATUS[0]}
 set -e
 capture_post_instrumentation
