@@ -197,8 +197,9 @@ jobs:
           test -f app/src/test/java/com/openjarvis/voice/TurkishTtsPolicyTest.kt
           test -f app/src/androidTest/java/com/openjarvis/voice/TurkishTtsEngineInstrumentedTest.kt
           grep -Fq '.filter { isExactTurkishLocale(it.localeTag) }' app/src/main/java/com/openjarvis/voice/TurkishTtsPolicy.kt
-          grep -Fq 'isExactTurkishLocale(actualLocale.toLanguageTag())' app/src/main/java/com/openjarvis/voice/AndroidTTSEngine.kt
-          grep -Fq 'TurkishTtsPolicy.isExactTurkishLocale(status.voiceLocale)' app/src/androidTest/java/com/openjarvis/voice/TurkishTtsEngineInstrumentedTest.kt
+          grep -Fq 'TurkishTtsPolicy.exactActualEngineLocale(actualLocaleTag)' app/src/main/java/com/openjarvis/voice/AndroidTTSEngine.kt
+          grep -Fq 'TurkishVoiceMissing' app/src/androidTest/java/com/openjarvis/voice/TurkishTtsEngineInstrumentedTest.kt
+          grep -Fq 'nullActualEngineVoiceNeverReportsReadyAndCompletesSttHandoffExactlyOnce' app/src/androidTest/java/com/openjarvis/voice/TurkishTtsEngineInstrumentedTest.kt
           echo "EXACT-TR-TR-TTS-SOURCE-OK"
 
       - name: Assert PR #77 durable task states, Room migration, production video executor and null-voice handling
