@@ -66,6 +66,18 @@ class JarvisTaskMigrationInstrumentedTest {
                 'plan_created', 'stable-legacy-key', 'local_plan_preview', 0, 0
             )
         """.trimIndent())
+        legacy.execSQL("""
+            INSERT INTO jarvis_tasks (
+                id, goal, status, ownerAgent, currentStep, progressPercent, outputSummary,
+                artifactRefs, createdAt, updatedAt, retryCount, errorCode, errorMessage,
+                requiresNetwork, requiresApproval, approvalGranted, approvalReference,
+                checkpoint, idempotencyKey, executionMode, estimatedCostMicros, actualCostMicros
+            ) VALUES (
+                'duplicate-legacy-task', 'Eski yinelenen görev', 'queued', NULL, NULL, 0, NULL,
+                '[]', 2, 2, 0, NULL, NULL, 0, 0, 0, NULL,
+                NULL, 'stable-legacy-key', 'local_plan_preview', 0, 0
+            )
+        """.trimIndent())
         legacy.execSQL("PRAGMA user_version = 1")
         legacy.close()
 
@@ -73,7 +85,7 @@ class JarvisTaskMigrationInstrumentedTest {
             context,
             JarvisTaskDatabase::class.java,
             databaseName
-        ).addMigrations(JarvisTaskDatabase.MIGRATION_1_2).build()
+        ).addMigrations(JarvisTaskDatabase.MIGRATION_1_2, JarvisTaskDatabase.MIGRATION_2_3).build()
 
         try {
             val task = migrated.taskDao().findById("legacy-task")!!
@@ -81,6 +93,15 @@ class JarvisTaskMigrationInstrumentedTest {
             assertEquals("stable-legacy-key", task.idempotencyKey)
             assertEquals(JarvisTaskStatus.WAITING_FOR_USER.storageValue, task.status)
             assertNull(task.planAcceptedAt)
+            val duplicateCount = migrated.openHelper.readableDatabase.query(
+                "SELECT COUNT(*) FROM jarvis_tasks WHERE idempotencyKey = ?",
+                arrayOf("stable-legacy-key")
+            ).use { cursor ->
+                cursor.moveToFirst()
+                cursor.getInt(0)
+            }
+            assertEquals(1, duplicateCount)
+            assertEquals("legacy-task", migrated.taskDao().findByIdempotencyKey("stable-legacy-key")?.id)
         } finally {
             migrated.close()
             context.deleteDatabase(databaseName)
