@@ -32,6 +32,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.ByteBuffer
 import java.util.Locale
+import kotlin.math.abs
 import java.util.UUID
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -196,11 +197,19 @@ class VideoNarrationComposer(private val context: Context) {
                 }
                 pcmOutput.write(segment.pcm)
             }
-            val pcm = pcmOutput.toByteArray()
+            val speechPcm = pcmOutput.toByteArray()
             val audioDurationMs = segments.sumOf { it.durationMs }
             if (audioDurationMs > silentVideo.durationMs) {
                 throw VideoRenderException("Türkçe anlatım ${audioDurationMs / 1_000} saniye; video ${silentVideo.durationMs / 1_000} saniye. Daha kısa bir konu metni kullan.")
             }
+            val targetFrames = silentVideo.durationMs * first.sampleRate / 1_000L
+            val targetBytes = targetFrames * first.channels * 2L
+            if (targetBytes < speechPcm.size || targetBytes > MAX_COMBINED_PCM_BYTES) {
+                throw VideoRenderException("Türkçe ses, MP4 süresine güvenli biçimde eşitlenemedi.")
+            }
+            // Pad the tail with digital silence so the AAC and H.264 tracks have the same duration.
+            val pcm = ByteArray(targetBytes.toInt())
+            System.arraycopy(speechPcm, 0, pcm, 0, speechPcm.size)
             val captions = VideoNarrationTimeline.captions(
                 plan.scenes,
                 segments.map { it.durationMs },
@@ -566,8 +575,8 @@ class VideoNarrationComposer(private val context: Context) {
             val videoDuration = videoFormat.getLong(MediaFormat.KEY_DURATION) / 1_000L
             val audioDuration = audioFormat.getLong(MediaFormat.KEY_DURATION) / 1_000L
             if (videoDuration < expectedVideoDurationMs * 700L / 1_000L ||
-                audioDuration < 1_000L || audioDuration > videoDuration + 300L) {
-                throw VideoRenderException("Son MP4 ses/video süre doğrulamasından geçemedi.")
+                audioDuration < 1_000L || abs(audioDuration - videoDuration) > 750L) {
+                throw VideoRenderException("Son MP4 ses/video süreleri 750 ms içinde eşleşmedi.")
             }
         } finally {
             extractor.release()
