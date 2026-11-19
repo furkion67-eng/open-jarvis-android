@@ -3311,3 +3311,17 @@ def install_shared_app_launch_input_adapters(s):
 
 edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", install_shared_app_launch_input_adapters)
 print("Installed Issue #16 allowlisted app launch dispatcher and shared typed/speech input adapters")
+
+# Feature-owned DownloadService lifecycle replacement. Manifest permissions and service type
+# remain in the infrastructure-owned integration audit.
+download_service_feature_root = Path(__file__).resolve().parent.parent / "features" / "download-service"
+if not download_service_feature_root.is_dir():
+    raise SystemExit("DownloadService lifecycle source overlay is missing")
+
+for source in sorted(download_service_feature_root.rglob("*.kt")):
+    relative = source.relative_to(download_service_feature_root)
+    destination = root / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(source.read_bytes())
+
+print("Installed DownloadService startId/generation lifecycle guard")
