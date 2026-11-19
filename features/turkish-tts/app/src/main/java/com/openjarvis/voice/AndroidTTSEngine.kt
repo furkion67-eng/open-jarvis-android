@@ -32,7 +32,8 @@ class AndroidTTSEngine private constructor(
         context: Context,
         actualVoiceLocaleProvider: ActualTtsVoiceLocaleProvider,
         @Suppress("UNUSED_PARAMETER") testSeam: Unit = Unit
-    ) : this(context, actualVoiceLocaleProvider) {
+    ) : this(context, actualVoiceLocaleProvider)
+
     private val mainHandler = Handler(Looper.getMainLooper())
     private val appContext = context.applicationContext
     private val mutableStatus = MutableStateFlow<TurkishTtsStatus>(TurkishTtsStatus.Initializing)
