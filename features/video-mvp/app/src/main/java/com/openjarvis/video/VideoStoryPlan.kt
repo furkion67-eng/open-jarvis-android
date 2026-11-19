@@ -49,7 +49,7 @@ data class VideoStoryPlan(
     }
 
     companion object {
-        const val SECONDS_PER_SCENE = 4
+        const val SECONDS_PER_SCENE = 9
     }
 }
 
@@ -98,27 +98,27 @@ object VideoStoryPlanBuilder {
     private val ISTANBUL_CONQUEST_SCENES = listOf(
         VideoScene(
             "1453: Hedef Konstantiniyye",
-            "Fatih Sultan Mehmet, Konstantiniyye için hazırlıklarını tamamladı.",
+            "Fatih Sultan Mehmet, Konstantiniyye için hazırlıklarını tamamladı. Rumeli Hisarı, Boğaz geçişini denetlemek için önceden inşa edilmişti.",
             VideoVisualStyle.CITY_WALLS
         ),
         VideoScene(
             "Kuşatma başladı",
-            "6 Nisan 1453'te Osmanlı ordusu surları kuşattı; toplar gedikler açtı.",
+            "6 Nisan 1453'te Osmanlı ordusu surları kuşattı; toplar gedikler açtı. Büyük toplar, surlarda gedikler açmak için kullanıldı.",
             VideoVisualStyle.CANNON_SIEGE
         ),
         VideoScene(
             "Haliç'te beklenmedik hamle",
-            "Gemiler karadan Haliç'e indirildi ve savunma hattı zorlandı.",
+            "Gemiler karadan Haliç'e indirildi ve savunma hattı zorlandı. Bu hamle, savunmayı Haliç yönünde de meşgul etti.",
             VideoVisualStyle.SHIPS
         ),
         VideoScene(
             "29 Mayıs sabahı",
-            "29 Mayıs 1453 sabahı genel hücum başladı.",
+            "29 Mayıs 1453 sabahı genel hücum başladı. Kuşatma haftalar sürdü ve savunma sürekli baskı altındaydı.",
             VideoVisualStyle.SUNRISE
         ),
         VideoScene(
             "Tarihi sonuç",
-            "Şehir fethedildi ve Osmanlı'nın önemli merkezlerinden biri oldu.",
+            "Şehir fethedildi ve Osmanlı'nın önemli merkezlerinden biri oldu. Fetih, bölgenin siyasi ve ticari dengelerini değiştirdi.",
             VideoVisualStyle.CITY_MAP
         )
     )
@@ -126,10 +126,10 @@ object VideoStoryPlanBuilder {
     private fun istanbulConquestScenes(): List<VideoScene> = ISTANBUL_CONQUEST_SCENES
 
     private fun genericScenes(topic: String): List<VideoScene> = listOf(
-        VideoScene("Konuya giriş", "$topic konusunu kısa ve anlaşılır biçimde ele alıyoruz."),
-        VideoScene("Arka plan", "Konunun ortaya çıktığı koşulları ve temel kavramları tanıyoruz."),
-        VideoScene("Öne çıkan gelişmeler", "Önemli gelişmeleri ve kararları sırasıyla inceliyoruz."),
-        VideoScene("Dönüm noktası", "Sürecin yönünü değiştiren temel noktaya odaklanıyoruz."),
-        VideoScene("Sonuç ve etki", "Başlıca sonuçları ve bugüne uzanan etkileri özetliyoruz.")
+        VideoScene("Konuya giriş", "$topic konusunu kısa ve anlaşılır biçimde ele alıyoruz. Önce temel soruyu, neden önemli olduğunu ve hangi çerçevede değerlendireceğimizi açıklıyoruz."),
+        VideoScene("Arka plan", "Konunun ortaya çıktığı koşulları ve temel kavramları tanıyoruz. Böylece gelişmeleri doğru sırayla izleyip aralarındaki bağlantıları daha kolay kurabiliriz."),
+        VideoScene("Öne çıkan gelişmeler", "Öne çıkan gelişmeleri ve kararları sırasıyla inceliyoruz. Her adımın sonraki aşamayı nasıl etkilediğine ve hangi seçeneklerin öne çıktığına bakıyoruz."),
+        VideoScene("Dönüm noktası", "Sürecin yönünü değiştiren temel noktaya odaklanıyoruz. Bu aşamada belirleyici nedenleri, karşılaşılan güçlükleri ve sonuçlara giden yolu karşılaştırıyoruz."),
+        VideoScene("Sonuç ve etki", "Başlıca sonuçları ve bugüne uzanan etkileri özetliyoruz. Sonunda konunun ana fikrini, akılda kalacak kısa bir değerlendirmeyle tamamlıyoruz.")
     )
 }
