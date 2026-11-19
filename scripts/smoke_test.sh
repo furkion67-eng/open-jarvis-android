@@ -191,7 +191,7 @@ echo "legacy-db: recovery backup created, app stayed alive"
 echo "=== Scenario C: instrumented tests (Room recovery end-to-end + analysis engine) ==="
 adb install -r "$TEST_APK" >/dev/null || fail "test APK install failed"
 set +e
-adb shell am instrument -w "$APP_PKG.test/androidx.test.runner.AndroidJUnitRunner" | tee instrumented.log
+adb shell am instrument -w -r "$APP_PKG.test/androidx.test.runner.AndroidJUnitRunner" | tee instrumented.log
 instrumented_exit=${PIPESTATUS[0]}
 set -e
 capture_post_instrumentation
