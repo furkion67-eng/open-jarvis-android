@@ -313,14 +313,17 @@ class VideoNarrationComposer(private val context: Context) {
         }
         val selected = TurkishTtsPolicy.selectVoice(candidates)
             ?: throw VideoRenderException("Kurulu Android ses motorunda kullanılabilir Türkçe ses bulunamadı.")
+        if (!TurkishTtsPolicy.isExactTurkishLocale(selected.localeTag)) {
+            throw VideoRenderException("Kurulu Android ses motorunda kullanılabilir Türkçe ses bulunamadı (tr-TR gerekli).")
+        }
         val voice = installed.firstOrNull { it.name == selected.name }
             ?: throw VideoRenderException("Seçilen Türkçe ses motoru artık kullanılamıyor.")
         if (runCatching { engine.setVoice(voice) }.getOrDefault(TextToSpeech.ERROR) != TextToSpeech.SUCCESS) {
             throw VideoRenderException("Türkçe ses seçilemedi.")
         }
         val actualLocale = runCatching { engine.voice?.locale ?: voice.locale }.getOrDefault(voice.locale)
-        if (!TurkishTtsPolicy.isTurkishLocaleTag(actualLocale.toLanguageTag())) {
-            throw VideoRenderException("Ses motoru Türkçe yerine başka bir dil seçti; video oluşturulmadı.")
+        if (!TurkishTtsPolicy.isExactTurkishLocale(actualLocale.toLanguageTag())) {
+            throw VideoRenderException("Kurulu Android ses motorunda kullanılabilir Türkçe ses bulunamadı (tr-TR gerekli).")
         }
         runCatching { engine.setSpeechRate(1.08f) }
         runCatching { engine.setPitch(1.0f) }
