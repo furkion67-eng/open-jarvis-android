@@ -253,7 +253,7 @@ required = {
     ("com.openjarvis.tasks.VideoTaskExecutionInstrumentedTest", "videoTaskWaitsForPlanAcceptanceThenPersistsExecutorVerifiedEvidence"),
     ("com.openjarvis.tasks.VideoTaskExecutionInstrumentedTest", "unverifiedVideoExportCannotPersistSuccessOrArtifactReference"),
     ("com.openjarvis.tasks.VideoTaskExecutionInstrumentedTest", "videoCapabilityCreatesLocalPlanWithoutNetworkOrExternalApproval"),
-    ("com.openjarvis.ui.dashboard.TaskControlCenterReviewStateInstrumentedTest", "missingExecutorIsClearlyNotExecutedAndDoesNotOfferRetry"),
+    ("com.openjarvis.ui.dashboard.TaskControlCenterReviewStateInstrumentedTest", "acceptedPlanShowsSeparateApprovalMessageAndNoPlanAcceptButton"),
     ("com.openjarvis.ui.dashboard.TaskControlCenterReviewStateInstrumentedTest", "activeVideoRenderShowsIndeterminateProgressWithoutPercentage"),
     ("com.openjarvis.ui.dashboard.TaskControlCenterReviewStateInstrumentedTest", "interruptedVideoTaskShowsNotExecutedWithoutPercentOrProgressBar"),
     ("com.openjarvis.ui.dashboard.TaskControlCenterReviewStateInstrumentedTest", "interruptedExternalTaskShowsNotExecutedWithoutStalePercentOrProgressBar"),
