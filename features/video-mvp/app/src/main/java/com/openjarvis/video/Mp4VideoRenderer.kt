@@ -252,6 +252,7 @@ class Mp4VideoRenderer(context: Context) {
         paint.textSize = width * 0.085f
         paint.typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
         drawCenteredWrapped(canvas, spec.title, paint, width / 2f, height * 0.34f, width * 0.82f, width * 0.105f)
+        drawSceneVisual(canvas, width, height, scene.visualStyle)
 
         paint.color = Color.rgb(91, 224, 225)
         paint.textSize = width * 0.062f
@@ -268,6 +269,111 @@ class Mp4VideoRenderer(context: Context) {
         paint.color = Color.rgb(91, 224, 225)
         val progress = (frame + 1).toFloat() / spec.frameCount.toFloat()
         canvas.drawRoundRect(RectF(width * 0.08f, height * 0.91f, width * (0.08f + 0.84f * progress), height * 0.925f), 8f, 8f, paint)
+    }
+
+
+    /** Local vector illustrations; these are procedural graphics, not AI-generated images. */
+    private fun drawSceneVisual(canvas: Canvas, width: Float, height: Float, style: VideoVisualStyle) {
+        val cx = width / 2f
+        val cy = height * 0.455f
+        val half = width * 0.32f
+        val base = cy + height * 0.045f
+        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.style = Paint.Style.FILL }
+        val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = width * 0.012f
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+        val stone = Color.rgb(58, 72, 108)
+        val aqua = Color.rgb(91, 224, 225)
+        val gold = Color.rgb(238, 177, 83)
+
+        when (style) {
+            VideoVisualStyle.CITY_WALLS -> {
+                fill.color = stone
+                canvas.drawRect(cx - half, base - height * 0.055f, cx + half, base, fill)
+                canvas.drawRect(cx - half * 0.82f, base - height * 0.15f, cx - half * 0.52f, base, fill)
+                canvas.drawRect(cx + half * 0.52f, base - height * 0.15f, cx + half * 0.82f, base, fill)
+                for (i in 0..5) {
+                    val x = cx - half + i * (half * 0.4f)
+                    canvas.drawRect(x, base - height * 0.075f, x + width * 0.045f, base - height * 0.055f, fill)
+                }
+                line.color = aqua
+                canvas.drawLine(cx - half, base - height * 0.055f, cx + half, base - height * 0.055f, line)
+                fill.color = Color.rgb(12, 18, 36)
+                canvas.drawRoundRect(RectF(cx - width * 0.035f, base - height * 0.075f, cx + width * 0.035f, base), width * 0.025f, width * 0.025f, fill)
+            }
+            VideoVisualStyle.CANNON_SIEGE -> {
+                fill.color = stone
+                canvas.drawRect(cx - half, base - height * 0.06f, cx + half, base, fill)
+                canvas.drawRect(cx - half * 0.65f, base - height * 0.13f, cx - half * 0.38f, base - height * 0.06f, fill)
+                fill.color = Color.rgb(166, 112, 67)
+                canvas.drawRoundRect(RectF(cx - width * 0.16f, base - height * 0.085f, cx + width * 0.18f, base - height * 0.045f), width * 0.02f, width * 0.02f, fill)
+                fill.color = aqua
+                canvas.drawCircle(cx - width * 0.09f, base - height * 0.025f, width * 0.035f, fill)
+                canvas.drawCircle(cx + width * 0.10f, base - height * 0.025f, width * 0.035f, fill)
+                line.color = gold
+                canvas.drawLine(cx + width * 0.08f, base - height * 0.075f, cx + half * 0.78f, base - height * 0.18f, line)
+                fill.color = gold
+                canvas.drawCircle(cx + half * 0.78f, base - height * 0.18f, width * 0.012f, fill)
+            }
+            VideoVisualStyle.SHIPS -> {
+                line.color = aqua
+                for (i in 0..2) {
+                    val y = base - height * (0.015f + i * 0.025f)
+                    canvas.drawLine(cx - half, y, cx + half, y, line)
+                }
+                val hull = android.graphics.Path().apply {
+                    moveTo(cx - half * 0.85f, base - height * 0.06f)
+                    lineTo(cx + half * 0.85f, base - height * 0.06f)
+                    lineTo(cx + half * 0.55f, base - height * 0.015f)
+                    lineTo(cx - half * 0.55f, base - height * 0.015f)
+                    close()
+                }
+                fill.color = Color.rgb(156, 92, 57)
+                canvas.drawPath(hull, fill)
+                val sail = android.graphics.Path().apply {
+                    moveTo(cx, base - height * 0.07f)
+                    lineTo(cx, base - height * 0.24f)
+                    lineTo(cx + half * 0.55f, base - height * 0.07f)
+                    close()
+                }
+                fill.color = Color.rgb(224, 219, 198)
+                canvas.drawPath(sail, fill)
+                line.color = gold
+                canvas.drawLine(cx, base - height * 0.25f, cx, base - height * 0.005f, line)
+            }
+            VideoVisualStyle.SUNRISE -> {
+                fill.color = gold
+                canvas.drawCircle(cx, cy - height * 0.055f, width * 0.105f, fill)
+                line.color = gold
+                canvas.drawLine(cx, cy - height * 0.20f, cx, cy - height * 0.16f, line)
+                canvas.drawLine(cx - width * 0.18f, cy - height * 0.15f, cx - width * 0.14f, cy - height * 0.12f, line)
+                canvas.drawLine(cx + width * 0.18f, cy - height * 0.15f, cx + width * 0.14f, cy - height * 0.12f, line)
+                fill.color = stone
+                canvas.drawRect(cx - half, base - height * 0.055f, cx + half, base, fill)
+                canvas.drawRect(cx - half * 0.7f, base - height * 0.14f, cx - half * 0.42f, base, fill)
+                canvas.drawRect(cx + half * 0.42f, base - height * 0.14f, cx + half * 0.7f, base, fill)
+            }
+            VideoVisualStyle.CITY_MAP -> {
+                line.color = aqua
+                canvas.drawCircle(cx, cy - height * 0.015f, width * 0.22f, line)
+                canvas.drawCircle(cx, cy - height * 0.015f, width * 0.13f, line)
+                canvas.drawLine(cx - width * 0.22f, cy - height * 0.015f, cx + width * 0.22f, cy - height * 0.015f, line)
+                canvas.drawLine(cx, cy - height * 0.12f, cx, cy + height * 0.09f, line)
+                fill.color = gold
+                canvas.drawCircle(cx, cy - height * 0.015f, width * 0.045f, fill)
+            }
+            VideoVisualStyle.GENERIC -> {
+                line.color = aqua
+                canvas.drawCircle(cx, cy - height * 0.02f, width * 0.14f, line)
+                canvas.drawLine(cx - width * 0.22f, cy - height * 0.02f, cx + width * 0.22f, cy - height * 0.02f, line)
+                canvas.drawLine(cx, cy - height * 0.13f, cx, cy + height * 0.09f, line)
+                fill.color = Color.rgb(124, 92, 255)
+                canvas.drawCircle(cx, cy - height * 0.02f, width * 0.035f, fill)
+            }
+        }
     }
 
     private fun drawCenteredWrapped(
