@@ -71,11 +71,8 @@ object VideoStoryPlanBuilder {
         require(clean.isNotBlank()) { "Video konusu boş olamaz." }
 
         val normalized = clean.lowercase(Locale.forLanguageTag("tr-TR"))
-        val scenes = if (istanbulConquestAliases.any(normalized::contains)) {
-            istanbulConquestScenes()
-        } else {
-            genericScenes(clean)
-        }
+        val isIstanbulConquest = istanbulConquestAliases.any(normalized::contains)
+        val scenes = if (isIstanbulConquest) istanbulConquestScenes() else genericScenes(clean)
 
         val captions = scenes.mapIndexed { index, scene ->
             TimedVideoCaption(
@@ -92,11 +89,7 @@ object VideoStoryPlanBuilder {
                 "${scene.heading}. ${scene.caption}"
             },
             captions = captions,
-            sourceLabel = if (scenes === ISTANBUL_CONQUEST_SCENES) {
-                "Yerel tarih şablonu"
-            } else {
-                "Genel yerel şablon"
-            }
+            sourceLabel = if (isIstanbulConquest) "Yerel tarih şablonu" else "Genel yerel şablon"
         )
         plan.renderSpec.validate()
         return plan
