@@ -3311,3 +3311,20 @@ def install_shared_app_launch_input_adapters(s):
 
 edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", install_shared_app_launch_input_adapters)
 print("Installed Issue #16 allowlisted app launch dispatcher and shared typed/speech input adapters")
+
+
+# Compose UI assertions for the task review vs external-action approval states.
+def task_compose_test_dependencies(s):
+    if "androidx.compose.ui:ui-test-junit4" in s:
+        return s
+    anchor = "    androidTestImplementation 'androidx.test:runner:1.5.2'"
+    if anchor not in s:
+        raise SystemExit("app/build.gradle: AndroidX test runner dependency anchor not found")
+    return s.replace(
+        anchor,
+        anchor + "\n    androidTestImplementation platform('androidx.compose:compose-bom:2023.10.01')"
+        + "\n    androidTestImplementation 'androidx.compose.ui:ui-test-junit4'",
+        1
+    )
+
+edit("app/build.gradle", task_compose_test_dependencies)
