@@ -38,6 +38,7 @@ import com.openjarvis.tasks.JarvisTaskCheckpoint
 import com.openjarvis.tasks.JarvisTaskEntity
 import com.openjarvis.tasks.JarvisTaskRepository
 import com.openjarvis.tasks.JarvisTaskStatus
+import com.openjarvis.tasks.VIDEO_TASK_EXECUTION_MODE
 import com.openjarvis.ui.theme.VoidColor
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -183,7 +184,12 @@ internal enum class TaskReviewUiState {
 
 internal fun shouldShowDeterminateProgress(task: JarvisTaskEntity): Boolean =
     task.executionMode != "local_plan_preview" &&
+        task.executionMode != VIDEO_TASK_EXECUTION_MODE &&
         taskReviewUiState(task) != TaskReviewUiState.EXECUTOR_UNAVAILABLE
+
+internal fun shouldShowIndeterminateProgress(task: JarvisTaskEntity): Boolean =
+    task.executionMode == VIDEO_TASK_EXECUTION_MODE &&
+        JarvisTaskStatus.fromStorage(task.status) == JarvisTaskStatus.RUNNING
 
 internal fun taskReviewUiState(task: JarvisTaskEntity): TaskReviewUiState {
     val status = JarvisTaskStatus.fromStorage(task.status)
@@ -229,6 +235,10 @@ internal fun TaskItem(
                 text = when {
                     reviewState == TaskReviewUiState.EXECUTOR_UNAVAILABLE -> "Yürütülmedi · yürütücü yok"
                     task.executionMode == "local_plan_preview" -> "${status.turkishLabel} · önizleme"
+                    task.executionMode == VIDEO_TASK_EXECUTION_MODE && status == JarvisTaskStatus.WAITING_FOR_NETWORK -> "Yürütülmedi · güvenli yeniden deneme bekliyor"
+                    task.executionMode == VIDEO_TASK_EXECUTION_MODE && status == JarvisTaskStatus.RUNNING -> "Türkçe video oluşturuluyor"
+                    task.executionMode == VIDEO_TASK_EXECUTION_MODE && status == JarvisTaskStatus.SUCCEEDED -> "Türkçe sesli video hazır"
+                    task.executionMode == VIDEO_TASK_EXECUTION_MODE && status == JarvisTaskStatus.FAILED -> "Türkçe video oluşturulamadı"
                     else -> "${status.turkishLabel} • ${task.progressPercent}%"
                 },
                 color = if (status == JarvisTaskStatus.FAILED) VoidColor.Red else VoidColor.Cyan,
@@ -245,6 +255,10 @@ internal fun TaskItem(
                 LinearProgressIndicator(
                     progress = task.progressPercent.coerceIn(0, 100) / 100f,
                     modifier = Modifier.fillMaxWidth().testTag("task-progress-indicator")
+                )
+            } else if (shouldShowIndeterminateProgress(task)) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().testTag("task-progress-indeterminate")
                 )
             }
             task.currentStep?.let {

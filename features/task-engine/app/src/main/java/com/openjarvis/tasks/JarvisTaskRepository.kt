@@ -140,7 +140,10 @@ class JarvisTaskRepository(
     companion object {
         fun getInstance(context: Context): JarvisTaskRepository {
             val dao = JarvisTaskDatabase.getInstance(context).taskDao()
-            val registry = JarvisTaskCapabilityRegistry.localPreviewOnly()
+            val registry = JarvisTaskCapabilityRegistry(
+                capabilities = listOf(VideoStoryTaskCapability(), LocalPlanPreviewCapability()),
+                executors = listOf(VideoStoryTaskExecutor(context.applicationContext))
+            )
             return JarvisTaskRepository(dao, JarvisTaskOrchestrator(dao, registry))
         }
     }

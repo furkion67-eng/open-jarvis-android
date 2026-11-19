@@ -3,7 +3,10 @@ package com.openjarvis.ui.dashboard
 import com.openjarvis.tasks.JarvisTaskCheckpoint
 import com.openjarvis.tasks.JarvisTaskEntity
 import com.openjarvis.tasks.JarvisTaskStatus
+import com.openjarvis.tasks.VIDEO_TASK_EXECUTION_MODE
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TaskControlCenterReviewStateTest {
@@ -49,6 +52,38 @@ class TaskControlCenterReviewStateTest {
     }
 
     @Test
+    fun activeVideoRenderUsesIndeterminateProgressWithoutSyntheticPercent() {
+        val task = task(
+            status = JarvisTaskStatus.RUNNING,
+            executionMode = VIDEO_TASK_EXECUTION_MODE
+        )
+        assertFalse(shouldShowDeterminateProgress(task))
+        assertTrue(shouldShowIndeterminateProgress(task))
+    }
+
+    @Test
+    fun interruptedVideoTaskShowsNoSyntheticProgress() {
+        val task = task(
+            status = JarvisTaskStatus.WAITING_FOR_NETWORK,
+            errorCode = "APP_RESTARTED",
+            executionMode = VIDEO_TASK_EXECUTION_MODE
+        )
+        assertFalse(shouldShowDeterminateProgress(task))
+        assertFalse(shouldShowIndeterminateProgress(task))
+    }
+
+    @Test
+    fun videoPreviewDoesNotShowExecutionProgressBeforePlanAcceptance() {
+        val task = task(
+            status = JarvisTaskStatus.WAITING_FOR_USER,
+            checkpoint = JarvisTaskCheckpoint.PLAN_CREATED,
+            executionMode = "local_plan_preview"
+        )
+        assertFalse(shouldShowDeterminateProgress(task))
+        assertFalse(shouldShowIndeterminateProgress(task))
+    }
+
+    @Test
     fun legacyWaitingTaskWithoutReviewCheckpointCannotBeAcceptedAgain() {
         val task = task(
             status = JarvisTaskStatus.WAITING_FOR_USER,
@@ -65,7 +100,8 @@ class TaskControlCenterReviewStateTest {
         planAcceptedAt: Long? = null,
         requiresApproval: Boolean = false,
         approvalGranted: Boolean = false,
-        errorCode: String? = null
+        errorCode: String? = null,
+        executionMode: String = "local_plan_preview"
     ) = JarvisTaskEntity(
         id = "task-1",
         goal = "WhatsApp mesajı gönder",
@@ -75,7 +111,7 @@ class TaskControlCenterReviewStateTest {
         requiresApproval = requiresApproval,
         approvalGranted = approvalGranted,
         errorCode = errorCode,
-        executionMode = "local_plan_preview",
+        executionMode = executionMode,
         idempotencyKey = "test-key"
     )
 }

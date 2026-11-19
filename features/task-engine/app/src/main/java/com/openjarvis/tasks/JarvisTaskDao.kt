@@ -58,6 +58,7 @@ interface JarvisTaskDao {
         UPDATE jarvis_tasks
         SET status = :runningStatus,
             currentStep = :currentStep,
+            executionMode = :executionMode,
             progressPercent = :progressPercent,
             errorCode = NULL,
             errorMessage = NULL,
@@ -74,6 +75,7 @@ interface JarvisTaskDao {
         runningStatus: String,
         acceptedCheckpoint: String,
         currentStep: String,
+        executionMode: String,
         progressPercent: Int,
         updatedAt: Long
     ): Int

@@ -16,3 +16,13 @@ Current feature stage:
 **Remaining validation:** the speech-timed narration/AAC/mux/export path needs exact-head Android 13/14 CI and physical TECNO acoustic/playback acceptance. Actual duration follows the installed Turkish TTS voice and may vary around the 45-second target; outputs above 60 seconds fail closed. Emulator or unit tests do not prove the installed TECNO TTS voice sounds natural. YouTube/TikTok OAuth, token storage and per-post approval are not included in this PR.
 
 No secrets, paid providers, account settings or external publication are used.
+
+
+## Natural-language command path
+
+Typed and recognized Turkish requests such as “İstanbul'un Fethi hakkında video oluştur” are
+classified as a CREATE_VIDEO intent and persisted as a task preview. The assistant explicitly
+states that no video exists yet. The user must review and accept the plan in the task control
+center; only then does the local video executor invoke the existing speech-timed
+`VideoStoryPipeline`. Task success is persisted only after the MP4 and SRT MediaStore URIs are
+readable. Generic requests such as “video hakkında konuş” remain ordinary conversation.

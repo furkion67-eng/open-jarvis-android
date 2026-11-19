@@ -630,7 +630,15 @@ class VideoNarrationComposer(private val context: Context) {
 
 /** Saves a verified MP4 to the public Movies collection without requesting broad storage access. */
 object VideoMediaStoreExporter {
-    fun exportCaptions(context: Context, file: File): Uri {
+    private fun safeDisplayName(file: File, requested: String?): String {
+        val name = requested ?: file.name
+        require(name.matches(Regex("[A-Za-z0-9._-]{1,80}"))) {
+            "Medya dosyası adı geçersiz."
+        }
+        return name
+    }
+
+    fun exportCaptions(context: Context, file: File, displayName: String? = null): Uri {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             throw VideoRenderException("Altyazı dışa aktarma Android 10 ve üzeri gerektirir.")
         }
@@ -639,7 +647,7 @@ object VideoMediaStoreExporter {
         }
         val resolver = context.applicationContext.contentResolver
         val values = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
+            put(MediaStore.MediaColumns.DISPLAY_NAME, safeDisplayName(file, displayName))
             put(MediaStore.MediaColumns.MIME_TYPE, "application/x-subrip")
             put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/Open JARVIS")
             put(MediaStore.MediaColumns.IS_PENDING, 1)
@@ -662,7 +670,7 @@ object VideoMediaStoreExporter {
         }
     }
 
-    fun export(context: Context, file: File): Uri {
+    fun export(context: Context, file: File, displayName: String? = null): Uri {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             throw VideoRenderException("Galeriye güvenli dışa aktarma Android 10 ve üzeri gerektirir.")
         }
@@ -671,7 +679,7 @@ object VideoMediaStoreExporter {
         }
         val resolver = context.applicationContext.contentResolver
         val values = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
+            put(MediaStore.MediaColumns.DISPLAY_NAME, safeDisplayName(file, displayName))
             put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
             put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_MOVIES}/Open JARVIS")
             put(MediaStore.MediaColumns.IS_PENDING, 1)

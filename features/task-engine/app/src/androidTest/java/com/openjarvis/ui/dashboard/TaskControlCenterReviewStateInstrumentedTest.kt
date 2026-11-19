@@ -11,6 +11,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.openjarvis.tasks.JarvisTaskCheckpoint
 import com.openjarvis.tasks.JarvisTaskEntity
 import com.openjarvis.tasks.JarvisTaskStatus
+import com.openjarvis.tasks.VIDEO_TASK_EXECUTION_MODE
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -79,6 +80,43 @@ class TaskControlCenterReviewStateInstrumentedTest {
         assertTextAbsent("Yeniden dene")
     }
 
+    @Test
+    fun activeVideoRenderShowsIndeterminateProgressWithoutPercentage() {
+        val task = task(
+            status = JarvisTaskStatus.RUNNING,
+            executionMode = VIDEO_TASK_EXECUTION_MODE
+        )
+        composeRule.setContent {
+            MaterialTheme {
+                TaskItem(task, enabled = true, onAcceptPlan = {}, onRetry = {}, onCancel = {})
+            }
+        }
+
+        composeRule.onNodeWithText("Türkçe video oluşturuluyor").assertIsDisplayed()
+        assertTextAbsent("50%")
+        assertTrue(composeRule.onAllNodesWithTag("task-progress-indeterminate").fetchSemanticsNodes().isNotEmpty())
+        assertTrue(composeRule.onAllNodesWithTag("task-progress-indicator").fetchSemanticsNodes().isEmpty())
+    }
+
+    @Test
+    fun interruptedVideoTaskShowsNotExecutedWithoutPercentOrProgressBar() {
+        val task = task(
+            status = JarvisTaskStatus.WAITING_FOR_NETWORK,
+            errorCode = "APP_RESTARTED",
+            executionMode = VIDEO_TASK_EXECUTION_MODE
+        )
+        composeRule.setContent {
+            MaterialTheme {
+                TaskItem(task, enabled = true, onAcceptPlan = {}, onRetry = {}, onCancel = {})
+            }
+        }
+
+        composeRule.onNodeWithText("Yürütülmedi · güvenli yeniden deneme bekliyor").assertIsDisplayed()
+        assertTextAbsent("25%")
+        assertTrue(composeRule.onAllNodesWithTag("task-progress-indicator").fetchSemanticsNodes().isEmpty())
+        assertTrue(composeRule.onAllNodesWithTag("task-progress-indeterminate").fetchSemanticsNodes().isEmpty())
+    }
+
     private fun assertTextAbsent(text: String) {
         assertTrue(
             "Expected no semantics node with text: $text",
@@ -92,7 +130,8 @@ class TaskControlCenterReviewStateInstrumentedTest {
         planAcceptedAt: Long? = null,
         requiresApproval: Boolean = false,
         approvalGranted: Boolean = false,
-        errorCode: String? = null
+        errorCode: String? = null,
+        executionMode: String = "local_plan_preview"
     ) = JarvisTaskEntity(
         id = "task-1",
         goal = "WhatsApp mesajı gönder",
@@ -102,7 +141,7 @@ class TaskControlCenterReviewStateInstrumentedTest {
         requiresApproval = requiresApproval,
         approvalGranted = approvalGranted,
         errorCode = errorCode,
-        executionMode = "local_plan_preview",
+        executionMode = executionMode,
         idempotencyKey = "test-key"
     )
 }
