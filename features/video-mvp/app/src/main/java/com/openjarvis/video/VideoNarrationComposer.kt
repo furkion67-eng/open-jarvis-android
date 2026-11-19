@@ -23,6 +23,7 @@ import com.openjarvis.voice.TurkishTtsVoiceCandidate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -237,7 +238,7 @@ class VideoNarrationComposer(private val context: Context) {
             throw VideoRenderException("Türkçe sesli MP4 oluşturulamadı: ${error.message ?: "bilinmeyen hata"}", error)
         } finally {
             engine?.let { active ->
-                withContext(Dispatchers.Main.immediate) {
+                withContext(NonCancellable + Dispatchers.Main.immediate) {
                     runCatching { active.stop() }
                     runCatching { active.shutdown() }
                 }
