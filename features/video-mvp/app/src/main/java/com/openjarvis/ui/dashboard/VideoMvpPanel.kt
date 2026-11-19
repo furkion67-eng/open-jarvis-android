@@ -1,5 +1,8 @@
 package com.openjarvis.ui.dashboard
 
+import android.content.ClipData
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -39,6 +42,8 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
     var renderProgress by remember { mutableStateOf(VideoRenderProgress()) }
     val progress by renderProgress.progress.collectAsState()
     var output by remember { mutableStateOf<String?>(null) }
+    var exportedUri by remember { mutableStateOf<Uri?>(null) }
+    var captionsUri by remember { mutableStateOf<Uri?>(null) }
     var narrationText by remember { mutableStateOf<String?>(null) }
     var rendering by remember { mutableStateOf(false) }
     var renderJob by remember { mutableStateOf<Job?>(null) }
@@ -51,9 +56,9 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text("Yerel video taslağı (sessiz)", style = MaterialTheme.typography.titleMedium)
+            Text("Türkçe sesli yerel video üretimi", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Konu başlığından yerel prosedürel vektör sahneleri, 20 saniyelik storyboard, zamanlı SRT ve sessiz dikey MP4 taslağı üretir.",
+                "Konu başlığından beş yerel prosedürel sahne, Türkçe TTS anlatım, AAC ses, dikey H.264 MP4 ve konuşma sürelerine göre SRT üretir.",
                 style = MaterialTheme.typography.bodySmall
             )
             OutlinedTextField(
@@ -72,17 +77,24 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
                         rendering = true
                         output = null
                         narrationText = null
-                        status = "Storyboard ve MP4 hazırlanıyor…"
+                        exportedUri = null
+                        captionsUri = null
+                        status = "Storyboard hazırlanıyor…"
                         try {
-                            val result = VideoStoryPipeline(context).render(topic) { done, total ->
-                                // Renderer invokes this callback on Dispatchers.IO. StateFlow is thread-safe;
-                                // Compose observes it through collectAsState on the UI side.
-                                progressForThisRender.report(done, total)
-                            }
+                            val result = VideoStoryPipeline(context).render(
+                                prompt = topic,
+                                onProgress = { done, total ->
+                                    // Renderer invokes this callback on Dispatchers.IO. StateFlow is thread-safe.
+                                    progressForThisRender.report(done, total)
+                                },
+                                onStage = { stage -> status = stage }
+                            )
                             progressForThisRender.finish()
-                            output = "${result.video.file.name} · ${result.video.sizeBytes / 1024} KB · ${result.captionsFile.name}"
+                            output = "${result.video.file.name} · ${result.video.sizeBytes / 1024} KB"
+                            exportedUri = result.exportedUri
+                            captionsUri = result.captionsUri
                             narrationText = result.narrationText
-                            status = "Sessiz taslak hazır: ${result.video.width}×${result.video.height}, ${result.video.durationMs / 1000} sn, ${result.sceneCount} sahne · ${result.sourceLabel}"
+                            status = "Türkçe sesli MP4 hazır: ${result.video.width}×${result.video.height}, ${result.video.durationMs / 1000} sn, ${result.sceneCount} sahne, AAC ses · ${result.sourceLabel}"
                         } catch (cancelled: CancellationException) {
                             progressForThisRender.stop()
                             status = "Video oluşturma iptal edildi."
@@ -103,7 +115,7 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
                 enabled = !rendering && topic.isNotBlank(),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(if (rendering) "Video hazırlanıyor" else "Video taslağı oluştur")
+                Text(if (rendering) "Video hazırlanıyor" else "Türkçe sesli video oluştur")
             }
             if (rendering) {
                 LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth())
@@ -113,11 +125,27 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
             }
             Text(status, style = MaterialTheme.typography.bodySmall)
             output?.let { Text("Kaydedildi: $it", style = MaterialTheme.typography.bodySmall) }
+            output?.let { Text("Dosya: $it", style = MaterialTheme.typography.bodySmall) }
+            captionsUri?.let { Text("SRT altyazı: İndirilenler / Open JARVIS", style = MaterialTheme.typography.bodySmall) }
+            exportedUri?.let { uri ->
+                Button(
+                    onClick = {
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "video/mp4"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            clipData = ClipData.newUri(context.contentResolver, "JARVIS video", uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(send, "Videoyu paylaş"))
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Videoyu paylaş…") }
+            }
             narrationText?.let {
-                Text("Seslendirme metni (henüz ses dosyası değil): $it", style = MaterialTheme.typography.bodySmall)
+                Text("Türkçe anlatım metni: $it", style = MaterialTheme.typography.bodySmall)
             }
             Text(
-                "MP4 uygulamanın özel alanında, zamanlı altyazı ayrı SRT dosyasında saklanır. Video hâlâ sessizdir. Görseller cihazda çizilen prosedürel vektörlerdir; AI üretimi veya tarihî fotoğraf değildir. Türkçe TTS ses izi, galeri dışa aktarımı ve sosyal medya paylaşımı henüz eklenmedi.",
+                "MP4, Türkçe TTS anlatımını AAC ses iziyle ve yerel prosedürel vektör sahnelerini H.264 olarak içerir. Zamanlı SRT ayrıca İndirilenler/Open JARVIS klasörüne kaydedilir. Çizimler cihazda üretilir; AI görseli değildir. Paylaşım menüsü yalnızca kullanıcı seçtiğinde açılır; otomatik YouTube/TikTok yayını yapılmaz.",
                 style = MaterialTheme.typography.bodySmall
             )
         }
