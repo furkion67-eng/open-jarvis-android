@@ -36,7 +36,7 @@ class TaskControlCenterReviewStateTest {
     @Test
     fun configuredExecutorMissingIsNotPresentedAsRetryableExecution() {
         val task = task(
-            status = JarvisTaskStatus.WAITING_FOR_NETWORK,
+            status = JarvisTaskStatus.NOT_EXECUTED,
             errorCode = "EXECUTOR_NOT_CONFIGURED"
         )
         assertEquals(TaskReviewUiState.EXECUTOR_UNAVAILABLE, taskReviewUiState(task))
@@ -45,7 +45,7 @@ class TaskControlCenterReviewStateTest {
     @Test
     fun localPlanPreviewNeverClaimsDeterminateExecutionProgress() {
         val task = task(
-            status = JarvisTaskStatus.WAITING_FOR_NETWORK,
+            status = JarvisTaskStatus.NOT_EXECUTED,
             errorCode = "EXECUTOR_NOT_CONFIGURED"
         )
         assertEquals(false, shouldShowDeterminateProgress(task))
@@ -64,7 +64,7 @@ class TaskControlCenterReviewStateTest {
     @Test
     fun interruptedVideoTaskShowsNoSyntheticProgress() {
         val task = task(
-            status = JarvisTaskStatus.WAITING_FOR_NETWORK,
+            status = JarvisTaskStatus.INTERRUPTED,
             errorCode = "APP_RESTARTED",
             executionMode = VIDEO_TASK_EXECUTION_MODE
         )
@@ -75,7 +75,7 @@ class TaskControlCenterReviewStateTest {
     @Test
     fun interruptedExternalTaskDoesNotShowStaleDeterminateProgress() {
         val task = task(
-            status = JarvisTaskStatus.WAITING_FOR_NETWORK,
+            status = JarvisTaskStatus.INTERRUPTED,
             errorCode = "APP_RESTARTED",
             executionMode = "remote.device-action",
             progressPercent = 65

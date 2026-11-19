@@ -38,6 +38,12 @@ object TurkishTtsPolicy {
             locale.country.equals("TR", ignoreCase = true)
     }
 
+    /** Returns a canonical locale only when the actual engine reports exact tr-TR; null fails closed. */
+    fun exactActualEngineLocale(localeTag: String?): String? {
+        if (localeTag.isNullOrBlank() || !isExactTurkishLocale(localeTag)) return null
+        return Locale.forLanguageTag(localeTag).toLanguageTag()
+    }
+
     /** Android TextToSpeech language availability values 0, 1 and 2 are supported. */
     fun isLanguageAvailable(result: Int): Boolean = result in LANGUAGE_AVAILABLE..COUNTRY_VARIANT_AVAILABLE
 

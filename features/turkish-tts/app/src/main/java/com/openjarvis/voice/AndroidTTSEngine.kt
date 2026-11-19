@@ -15,7 +15,24 @@ import java.util.UUID
  * Turkish-only Android TTS adapter.
  * All TextToSpeech lifecycle and playback calls are serialized on the main thread.
  */
-class AndroidTTSEngine(context: Context) {
+internal fun interface ActualTtsVoiceLocaleProvider {
+    fun read(engine: TextToSpeech): String?
+}
+
+class AndroidTTSEngine private constructor(
+    context: Context,
+    private val actualVoiceLocaleProvider: ActualTtsVoiceLocaleProvider
+) {
+    constructor(context: Context) : this(
+        context,
+        ActualTtsVoiceLocaleProvider { engine -> engine.voice?.locale?.toLanguageTag() }
+    )
+
+    internal constructor(
+        context: Context,
+        actualVoiceLocaleProvider: ActualTtsVoiceLocaleProvider,
+        @Suppress("UNUSED_PARAMETER") testSeam: Unit = Unit
+    ) : this(context, actualVoiceLocaleProvider) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val appContext = context.applicationContext
     private val mutableStatus = MutableStateFlow<TurkishTtsStatus>(TurkishTtsStatus.Initializing)
@@ -89,8 +106,11 @@ class AndroidTTSEngine(context: Context) {
             return
         }
 
-        val actualLocale = runCatching { engine.voice?.locale ?: selectedVoice.locale }.getOrDefault(selectedVoice.locale)
-        if (!TurkishTtsPolicy.isExactTurkishLocale(actualLocale.toLanguageTag())) {
+        // Never infer the engine-selected voice from the candidate: a null/unknown engine
+        // voice must fail closed rather than publishing a speculative Ready state.
+        val actualLocaleTag = runCatching { actualVoiceLocaleProvider.read(engine) }.getOrNull()
+        val actualLocale = TurkishTtsPolicy.exactActualEngineLocale(actualLocaleTag)
+        if (actualLocale == null) {
             mutableStatus.value = TurkishTtsStatus.TurkishVoiceMissing
             return
         }
@@ -124,7 +144,7 @@ class AndroidTTSEngine(context: Context) {
             return
         }
         mutableStatus.value = TurkishTtsStatus.Ready(
-            voiceLocale = actualLocale.toLanguageTag(),
+            voiceLocale = actualLocale,
             offline = !selected.requiresNetwork
         )
     }

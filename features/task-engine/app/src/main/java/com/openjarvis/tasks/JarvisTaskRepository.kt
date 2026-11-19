@@ -63,12 +63,14 @@ class JarvisTaskRepository(
 
     suspend fun retry(id: String) {
         val task = dao.findById(id) ?: return
-        when (JarvisTaskStatus.fromStorage(task.status)) {
-            JarvisTaskStatus.WAITING_FOR_NETWORK -> {
+        when (val status = JarvisTaskStatus.fromStorage(task.status)) {
+            JarvisTaskStatus.WAITING_FOR_NETWORK,
+            JarvisTaskStatus.NOT_EXECUTED,
+            JarvisTaskStatus.INTERRUPTED -> {
                 if (task.planAcceptedAt == null) {
                     val requeued = dao.requeueUnacceptedWaitingTask(
                         id = id,
-                        expectedStatus = JarvisTaskStatus.WAITING_FOR_NETWORK.storageValue,
+                        expectedStatus = status.storageValue,
                         queuedStatus = JarvisTaskStatus.QUEUED.storageValue,
                         currentStep = "Güvenli biçimde yeniden planlanıyor",
                         progressPercent = JarvisTaskStatus.QUEUED.defaultProgress,
@@ -78,7 +80,7 @@ class JarvisTaskRepository(
                 } else {
                     val counted = dao.incrementAcceptedTaskRetryIfCurrent(
                         id = id,
-                        expectedStatus = JarvisTaskStatus.WAITING_FOR_NETWORK.storageValue,
+                        expectedStatus = status.storageValue,
                         updatedAt = System.currentTimeMillis()
                     )
                     if (counted == 1) orchestrator.execute(id)
@@ -123,16 +125,15 @@ class JarvisTaskRepository(
         )
         active.forEach { task ->
             val status = JarvisTaskStatus.fromStorage(task.status)
-            if (JarvisTaskStateMachine.canTransition(status, JarvisTaskStatus.WAITING_FOR_NETWORK)) {
-                dao.update(
-                    task.copy(
-                        status = JarvisTaskStatus.WAITING_FOR_NETWORK.storageValue,
-                        currentStep = "Güvenli kurtarma beklemesi",
-                        progressPercent = 0,
-                        errorCode = "APP_RESTARTED",
-                        errorMessage = "Uygulama yeniden başlatıldı. Yinelenen işlem riski olmaması için görev otomatik yürütülmedi.",
-                        updatedAt = System.currentTimeMillis()
-                    )
+            if (JarvisTaskStateMachine.canTransition(status, JarvisTaskStatus.INTERRUPTED)) {
+                dao.markInterruptedIfCurrent(
+                    id = task.id,
+                    expectedStatus = status.storageValue,
+                    interruptedStatus = JarvisTaskStatus.INTERRUPTED.storageValue,
+                    currentStep = "Güvenli kurtarma beklemesi",
+                    errorCode = "APP_RESTARTED",
+                    errorMessage = "Uygulama yeniden başlatıldı. Yinelenen işlem riski olmaması için görev otomatik yürütülmedi.",
+                    updatedAt = System.currentTimeMillis()
                 )
             }
         }
@@ -141,11 +142,19 @@ class JarvisTaskRepository(
     companion object {
         fun getInstance(context: Context): JarvisTaskRepository {
             val dao = JarvisTaskDatabase.getInstance(context).taskDao()
-            val registry = JarvisTaskCapabilityRegistry(
+            return createWithRegistry(dao, createDefaultRegistry(context.applicationContext))
+        }
+
+        /** The production repository and end-to-end tests share this exact capability/executor registration. */
+        internal fun createDefaultRegistry(context: Context): JarvisTaskCapabilityRegistry =
+            JarvisTaskCapabilityRegistry(
                 capabilities = listOf(VideoStoryTaskCapability(), LocalPlanPreviewCapability()),
                 executors = listOf(VideoStoryTaskExecutor(context.applicationContext))
             )
-            return JarvisTaskRepository(dao, JarvisTaskOrchestrator(dao, registry))
-        }
+
+        internal fun createWithRegistry(
+            dao: JarvisTaskDao,
+            registry: JarvisTaskCapabilityRegistry
+        ): JarvisTaskRepository = JarvisTaskRepository(dao, JarvisTaskOrchestrator(dao, registry))
     }
 }

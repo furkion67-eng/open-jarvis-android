@@ -8,7 +8,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 /** Separate database keeps the new task schema independent from legacy graphify.db migrations. */
-@Database(entities = [JarvisTaskEntity::class], version = 3, exportSchema = false)
+@Database(entities = [JarvisTaskEntity::class], version = 4, exportSchema = false)
 abstract class JarvisTaskDatabase : RoomDatabase() {
     abstract fun taskDao(): JarvisTaskDao
 
@@ -34,6 +34,20 @@ abstract class JarvisTaskDatabase : RoomDatabase() {
             }
         }
 
+        /** Convert legacy overloaded waiting states to their durable truthful states. */
+        val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "UPDATE jarvis_tasks SET status = 'not_executed', progressPercent = 0 " +
+                        "WHERE status = 'waiting_for_network' AND errorCode = 'EXECUTOR_NOT_CONFIGURED'"
+                )
+                database.execSQL(
+                    "UPDATE jarvis_tasks SET status = 'interrupted', progressPercent = 0 " +
+                        "WHERE status = 'waiting_for_network' AND errorCode = 'APP_RESTARTED'"
+                )
+            }
+        }
+
         @Volatile
         private var instance: JarvisTaskDatabase? = null
 
@@ -42,7 +56,7 @@ abstract class JarvisTaskDatabase : RoomDatabase() {
                 context.applicationContext,
                 JarvisTaskDatabase::class.java,
                 "jarvis_tasks.db"
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
         }
     }
 }

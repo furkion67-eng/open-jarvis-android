@@ -95,7 +95,7 @@ class JarvisTaskExecutionSafetyInstrumentedTest {
 
         val accepted = dao.findById(id)!!
         assertEquals(JarvisTaskCheckpoint.PLAN_REVIEWED, accepted.checkpoint)
-        assertEquals(JarvisTaskStatus.WAITING_FOR_NETWORK.storageValue, accepted.status)
+        assertEquals(JarvisTaskStatus.NOT_EXECUTED.storageValue, accepted.status)
         assertEquals(0, executor.calls)
     }
 

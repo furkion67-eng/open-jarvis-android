@@ -135,7 +135,8 @@ class VideoStoryTaskExecutor(context: Context) : JarvisTaskExecutor {
         JarvisTaskExecutionResult(
             outputSummary = summary + "\nMP4: " + videoUri + "\nSRT: " + captionsUri,
             evidenceReference = videoUri.toString(),
-            verified = true
+            verified = true,
+            artifactReferences = listOf(videoUri.toString(), captionsUri.toString())
         )
 
     private data class MediaStoreArtifactRow(val uri: Uri, val isPending: Boolean)

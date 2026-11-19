@@ -6,6 +6,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume
@@ -145,4 +146,42 @@ class TurkishTtsEngineInstrumentedTest {
         assertTrue("Stop must deliver the handoff exactly once", callbacks.get() == 1)
         InstrumentationRegistry.getInstrumentation().runOnMainSync { engine.release() }
     }
+
+    @Test
+    fun nullActualEngineVoiceNeverReportsReadyAndCompletesSttHandoffExactlyOnce() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as Context
+        val providerReads = AtomicInteger(0)
+        lateinit var engine: AndroidTTSEngine
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            engine = AndroidTTSEngine(
+                context,
+                ActualTtsVoiceLocaleProvider {
+                    providerReads.incrementAndGet()
+                    null
+                }
+            )
+        }
+
+        val status = runBlocking {
+            withTimeout(15_000) {
+                engine.status.first { it !is TurkishTtsStatus.Initializing }
+            }
+        }
+        assertEquals("The test must reach the actual-engine voice check", 1, providerReads.get())
+        assertEquals(TurkishTtsStatus.TurkishVoiceMissing, status)
+
+        val callbacks = AtomicInteger(0)
+        val handoff = CountDownLatch(1)
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            engine.speak("Türkçe ses doğrulanamadı.") {
+                callbacks.incrementAndGet()
+                handoff.countDown()
+            }
+        }
+        assertTrue("A missing voice must release the waiting STT handoff", handoff.await(2, TimeUnit.SECONDS))
+        Thread.sleep(300)
+        assertEquals("The missing-voice handoff must complete exactly once", 1, callbacks.get())
+        InstrumentationRegistry.getInstrumentation().runOnMainSync { engine.release() }
+    }
+
 }

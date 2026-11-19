@@ -18,6 +18,9 @@ interface JarvisTaskDao {
     @Query("SELECT * FROM jarvis_tasks WHERE idempotencyKey = :idempotencyKey LIMIT 1")
     suspend fun findByIdempotencyKey(idempotencyKey: String): JarvisTaskEntity?
 
+    @Query("DELETE FROM jarvis_tasks WHERE id = :id")
+    suspend fun deleteById(id: String): Int
+
     @Query("SELECT * FROM jarvis_tasks WHERE status IN (:statuses)")
     suspend fun findByStatuses(statuses: List<String>): List<JarvisTaskEntity>
 
@@ -97,6 +100,50 @@ interface JarvisTaskDao {
         waitingStatus: String,
         currentStep: String,
         progressPercent: Int,
+        errorCode: String,
+        errorMessage: String,
+        updatedAt: Long
+    ): Int
+
+    /** Persist that no executor was available; this is not a network wait or running task. */
+    @Query("""
+        UPDATE jarvis_tasks
+        SET status = :notExecutedStatus,
+            currentStep = :currentStep,
+            progressPercent = 0,
+            errorCode = :errorCode,
+            errorMessage = :errorMessage,
+            updatedAt = :updatedAt
+        WHERE id = :id AND status = :expectedStatus
+    """)
+    suspend fun markNotExecutedIfCurrent(
+        id: String,
+        expectedStatus: String,
+        notExecutedStatus: String,
+        currentStep: String,
+        errorCode: String,
+        errorMessage: String,
+        updatedAt: Long
+    ): Int
+
+    /** Persist process death as an interrupted task and revoke any stale side-effect approval. */
+    @Query("""
+        UPDATE jarvis_tasks
+        SET status = :interruptedStatus,
+            currentStep = :currentStep,
+            progressPercent = 0,
+            approvalGranted = 0,
+            approvalReference = NULL,
+            errorCode = :errorCode,
+            errorMessage = :errorMessage,
+            updatedAt = :updatedAt
+        WHERE id = :id AND status = :expectedStatus
+    """)
+    suspend fun markInterruptedIfCurrent(
+        id: String,
+        expectedStatus: String,
+        interruptedStatus: String,
+        currentStep: String,
         errorCode: String,
         errorMessage: String,
         updatedAt: Long
