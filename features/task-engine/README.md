@@ -17,3 +17,18 @@ Execution safety:
 Tests cover state transitions, plan-acceptance gating, concurrent duplicate execution, approval separation, idempotency-key reuse, v1→v2 migration, persistence, safe process-restart recovery, cancellation, retry behavior, Compose approval-state presentation and launcher visibility.
 
 This remains a local/demo planning slice until a real, separately reviewed executor is configured and produces verifiable evidence.
+
+
+## Local Turkish video task capability
+
+The app registry resolves a narrowly classified Turkish CREATE_VIDEO request to
+`local.video-render` before the generic `local.plan-preview` fallback. Typed and recognized-speech
+commands create the same durable task shape. Creating the task only persists a plan preview;
+no render begins until the user accepts that plan in TaskControlCenter.
+
+After acceptance, the local executor calls the existing VideoStoryPipeline. It reports success
+only after both MediaStore content URIs (MP4 and SRT) can be opened and read. The MP4 URI is
+persisted as the task evidence reference and both URIs are shown in the output summary. If the
+exact tr-TR voice is unavailable or export verification fails, the task is failed with a Turkish
+error; no success or public upload is claimed. The video executor is local-only and does not
+publish to YouTube/TikTok or trigger SMS/calls/other external actions.

@@ -41,6 +41,8 @@ data class JarvisTaskExecutionResult(
 
 interface JarvisTaskExecutor {
     val capabilityId: String
+    val executionMode: String get() = capabilityId
+    val executionLabel: String get() = capabilityId
 
     /**
      * The same persisted idempotencyKey must be forwarded to the real tool/API boundary.
@@ -188,8 +190,9 @@ class JarvisTaskOrchestrator(
             expectedStatus = status.storageValue,
             runningStatus = JarvisTaskStatus.RUNNING.storageValue,
             acceptedCheckpoint = JarvisTaskCheckpoint.PLAN_REVIEWED,
-            currentStep = executor.capabilityId + " çalıştırılıyor",
-            progressPercent = JarvisTaskStatus.RUNNING.defaultProgress,
+            currentStep = executor.executionLabel + " çalıştırılıyor",
+            executionMode = executor.executionMode,
+            progressPercent = 0,
             updatedAt = System.currentTimeMillis()
         )
         if (claimed != 1) return

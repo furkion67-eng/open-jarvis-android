@@ -3342,3 +3342,86 @@ def task_compose_test_dependencies(s):
     )
 
 edit("app/build.gradle", task_compose_test_dependencies)
+
+
+
+# Issue #8: route typed and recognized Turkish CREATE_VIDEO intents through the durable task gate.
+def install_video_command_routing(s):
+    imports = [
+        "import com.openjarvis.tasks.JarvisTaskRepository",
+        "import com.openjarvis.video.VideoCommandOrigin",
+        "import com.openjarvis.video.VideoCommandRouter",
+        "import java.util.UUID",
+    ]
+    anchor = "import com.openjarvis.agent.AgentState"
+    if anchor not in s:
+        raise SystemExit("VoiceCommandActivity.kt: video command import anchor not found")
+    missing = [item for item in imports if item not in s]
+    if missing:
+        s = s.replace(anchor, anchor + "\n" + "\n".join(missing), 1)
+
+    typed_anchor = """    private fun submitTypedCommand(text: String, updateStatus: (String) -> Unit) {
+        val result = appLaunchInputAdapter.fromTypedInput(text)"""
+    typed_replacement = """    private fun submitTypedCommand(text: String, updateStatus: (String) -> Unit) {
+        if (submitVideoCommandIfMatched(text, VideoCommandOrigin.TYPED, updateStatus)) return
+        val result = appLaunchInputAdapter.fromTypedInput(text)"""
+    if typed_anchor in s:
+        s = s.replace(typed_anchor, typed_replacement, 1)
+    elif "submitVideoCommandIfMatched(text, VideoCommandOrigin.TYPED" not in s:
+        raise SystemExit("VoiceCommandActivity.kt: typed video routing anchor not found")
+
+    speech_anchor = """    private fun submitRecognizedSpeechCommand(text: String, updateStatus: (String) -> Unit) {
+        val result = appLaunchInputAdapter.fromRecognizedSpeech(text)"""
+    speech_replacement = """    private fun submitRecognizedSpeechCommand(text: String, updateStatus: (String) -> Unit) {
+        if (submitVideoCommandIfMatched(text, VideoCommandOrigin.RECOGNIZED_SPEECH, updateStatus)) return
+        val result = appLaunchInputAdapter.fromRecognizedSpeech(text)"""
+    if speech_anchor in s:
+        s = s.replace(speech_anchor, speech_replacement, 1)
+    elif "submitVideoCommandIfMatched(text, VideoCommandOrigin.RECOGNIZED_SPEECH" not in s:
+        raise SystemExit("VoiceCommandActivity.kt: recognized-speech video routing anchor not found")
+
+    if "private fun submitVideoCommandIfMatched(" not in s:
+        closing = s.rfind("}")
+        if closing < 0:
+            raise SystemExit("VoiceCommandActivity.kt: class closing brace not found")
+        helper = """
+    private fun submitVideoCommandIfMatched(
+        text: String,
+        origin: VideoCommandOrigin,
+        updateStatus: (String) -> Unit
+    ): Boolean {
+        val intent = VideoCommandRouter.parse(text, origin) ?: return false
+        val topic = intent.topic
+        if (topic.isNullOrBlank()) {
+            val prompt = "Hangi konuda Türkçe sesli video oluşturayım? Örneğin: İstanbul'un Fethi hakkında video oluştur."
+            updateStatus(prompt)
+            speakAndResume(prompt)
+            return true
+        }
+
+        lifecycleScope.launch {
+            updateStatus("Video planı görev merkezine kaydediliyor…")
+            try {
+                val taskId = JarvisTaskRepository.getInstance(applicationContext).createTask(
+                    goal = "$topic hakkında video oluştur",
+                    idempotencyKey = UUID.randomUUID().toString()
+                )
+                val message = "“$topic” için video planı kaydedildi. Henüz video oluşturulmadı. Görev kontrol merkezinde planı kabul ettiğinde Türkçe sesli MP4 üretimi başlayacak. Görev kimliği: $taskId"
+                updateStatus(message)
+                speakAndResume(message)
+            } catch (error: Exception) {
+                val message = error.localizedMessage ?: "Video planı kaydedilemedi."
+                updateStatus(message)
+                speakAndResume(message)
+            }
+        }
+        return true
+    }
+
+"""
+        s = s[:closing] + helper + s[closing:]
+    return s
+
+edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", install_video_command_routing)
+print("Installed typed/recognized CREATE_VIDEO routing through plan acceptance and verified local video executor")
+
