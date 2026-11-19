@@ -124,7 +124,6 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
                 }
             }
             Text(status, style = MaterialTheme.typography.bodySmall)
-            output?.let { Text("Kaydedildi: $it", style = MaterialTheme.typography.bodySmall) }
             output?.let { Text("Dosya: $it", style = MaterialTheme.typography.bodySmall) }
             captionsUri?.let { Text("SRT altyazı: İndirilenler / Open JARVIS", style = MaterialTheme.typography.bodySmall) }
             exportedUri?.let { uri ->
