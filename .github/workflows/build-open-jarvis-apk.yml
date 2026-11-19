@@ -3,12 +3,16 @@ name: Build Open Jarvis APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, "feature/approval-toggle" ]
+    branches: [ main, "feature/approval-toggle", "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "infra/issue15-node24-mainline", "infra/issue8-video-ci-validation", "infra/issue8-video-ci-validation-current", "infra/issue8-video-ci-validation-latest", "infra/verify-pr31-tts-exact", "infra/verify-pr31-tts-exact-3dc58e6", "infra/verify-pr32-app-launch-exact-952a", "infra/verify-pr32-app-launch-exact-d465", "infra/verify-pr52-video-storyboard-exact-ef9e507", "infra/verify-pr52-video-storyboard-exact-084f209", "infra/verify-pr59-video-procedural-exact-605226c" ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "feature/issue8-local-mp4-prototype", "feature/video-storyboard-captions-2026-11-19", "feature/video-procedural-scenes-2026-11-19" ]
 
 permissions:
   contents: read
+
+concurrency:
+  group: open-jarvis-apk-${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -17,7 +21,53 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Assert exact commit on push
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          actual="$(git rev-parse HEAD)"
+          echo "Expected exact push SHA: $GITHUB_SHA"
+          echo "Checked out SHA: $actual"
+          test "$actual" = "$GITHUB_SHA"
+
+      - name: "Assert PR #63 Turkish narrated video source is unchanged by CI overlay"
+        shell: bash
+        env:
+          EXPECTED_VIDEO_SOURCE_SHA: 989cff1a2d4677e2354c755bae6843cd83897e37
+        run: |
+          set -euo pipefail
+          python3 - "$EXPECTED_VIDEO_SOURCE_SHA" <<'PY'
+          import subprocess, sys
+          source = sys.argv[1]
+          head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          parents = subprocess.check_output(["git", "show", "-s", "--format=%P", "HEAD"], text=True).strip()
+          print(f"EXPECTED_VIDEO_SOURCE_SHA: {source}")
+          print(f"CHECKED_OUT_OVERLAY_SHA: {head}")
+          print(f"OVERLAY_PARENT_SHAS: {parents}")
+          subprocess.run(["git", "cat-file", "-e", f"{source}^{{commit}}"], check=True)
+          subprocess.run(["git", "merge-base", "--is-ancestor", source, head], check=True)
+          expected = sorted([
+              ".github/workflows/build-open-jarvis-apk.yml",
+              "features/task-engine/app/src/androidTest/java/com/openjarvis/tasks/MainActivityLaunchInstrumentedTest.kt",
+              "features/video-mvp/app/src/androidTest/java/com/openjarvis/video/VideoStoryPipelineInstrumentedTest.kt",
+              "scripts/launcher_visibility_check.sh",
+              "scripts/smoke_test.sh",
+              "scripts/test_launcher_visibility_check.sh",
+              "scripts/test_video_artifact_contract.py",
+              "scripts/validate_video_artifact.py",
+          ])
+          actual = sorted(subprocess.check_output(["git", "diff", "--name-only", f"{source}...HEAD"], text=True).splitlines())
+          print("ACTUAL_CI_OVERLAY_PATHS:")
+          print("\\n".join(actual))
+          if actual != expected:
+              print("EXPECTED_CI_OVERLAY_PATHS:")
+              print("\\n".join(expected))
+              raise SystemExit("CI overlay changed paths outside the complete eight-file allowlist")
+          print(f"NARRATED_VIDEO_SOURCE_EXACT_OK: {source} is an ancestor; exact eight-file allowlist")
+          PY
 
       - name: Extract source and locate project
         id: source
@@ -98,6 +148,16 @@ jobs:
           python3 scripts/add_startup_diagnostics.py "$PROJECT_DIR"
           ls -la "$PROJECT_DIR"
 
+      - name: Assert storyboard pipeline and CI-only instrumentation are installed
+        working-directory: ${{ steps.source.outputs.project_dir }}
+        shell: bash
+        run: |
+          test -f app/src/main/java/com/openjarvis/video/VideoStoryPipeline.kt
+          test -f app/src/main/java/com/openjarvis/video/VideoStoryPlan.kt
+          test -f app/src/main/java/com/openjarvis/video/VideoNarrationComposer.kt
+          test -f app/src/androidTest/java/com/openjarvis/video/VideoStoryPipelineInstrumentedTest.kt
+          echo "VIDEO-NARRATED-SOURCE-OK"
+
       - name: Audit declared Android permissions (no permission changes)
         working-directory: ${{ steps.source.outputs.project_dir }}
         run: |
@@ -106,22 +166,74 @@ jobs:
           p = 'app/src/main/AndroidManifest.xml'
           root = ET.parse(p).getroot()
           ns = '{http://schemas.android.com/apk/res/android}'
+          declared_permissions = {node.get(ns + 'name') for node in root.findall('uses-permission')}
           print('===== Declared permissions (preserved as approved) =====')
-          for node in root.findall('uses-permission'):
-              print(node.get(ns + 'name'))
-          print('===== Services and protection =====')
-          for node in root.findall('./application/service'):
-              print(node.get(ns + 'name'), 'permission=', node.get(ns + 'permission'))
+          for permission in sorted(declared_permissions):
+              print(permission)
+          print('===== Services and foreground-service requirements =====')
+          type_permissions = {
+              'dataSync': 'android.permission.FOREGROUND_SERVICE_DATA_SYNC',
+              'specialUse': 'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
+          }
+          services = root.findall('./application/service')
+          errors = []
+          for node in services:
+              service_name = node.get(ns + 'name')
+              service_type = node.get(ns + 'foregroundServiceType', '')
+              print(service_name, 'permission=', node.get(ns + 'permission'), 'foregroundServiceType=', service_type)
+              if service_type and 'android.permission.FOREGROUND_SERVICE' not in declared_permissions:
+                  errors.append(f'{service_name} declares a foreground service but FOREGROUND_SERVICE is missing')
+              for service_kind in service_type.split('|'):
+                  required = type_permissions.get(service_kind)
+                  if required and required not in declared_permissions:
+                      errors.append(f'{service_name} declares foregroundServiceType={service_kind}; missing {required} for targetSdk 34 compatibility (Android 14+)')
+
+          download_service = next(
+              (node for node in services if (node.get(ns + 'name') or '').endswith('DownloadService')),
+              None
+          )
+          if download_service is None:
+              errors.append('DownloadService is missing from the merged manifest')
+          elif 'dataSync' not in download_service.get(ns + 'foregroundServiceType', '').split('|'):
+              errors.append('DownloadService must declare foregroundServiceType=dataSync')
+
+          queries = root.find('queries')
+          launcher_visibility_query = False
+          if queries is not None:
+              for intent in queries.findall('intent'):
+                  actions = {node.get(ns + 'name') for node in intent.findall('action')}
+                  categories = {node.get(ns + 'name') for node in intent.findall('category')}
+                  if 'android.intent.action.MAIN' in actions and 'android.intent.category.LAUNCHER' in categories:
+                      launcher_visibility_query = True
+                      break
+          if not launcher_visibility_query:
+              errors.append('Android 11+ launcher package visibility query is missing (MAIN + LAUNCHER)')
+
+          if errors:
+              for error in errors:
+                  print(f'::error::{error}')
+              raise SystemExit(1)
+          print('FOREGROUND-SERVICE-MANIFEST-OK')
+          print('PACKAGE-VISIBILITY-QUERIES-OK')
           PY
 
+      - name: Validate shell syntax and launcher matcher before Gradle
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/smoke_test.sh
+          bash -n scripts/launcher_visibility_check.sh
+          bash -n scripts/test_launcher_visibility_check.sh
+          bash scripts/test_launcher_visibility_check.sh
+
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           packages: platform-tools
 
@@ -129,7 +241,7 @@ jobs:
         run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '8.2'
 
@@ -159,17 +271,80 @@ jobs:
         working-directory: ${{ steps.source.outputs.project_dir }}
         env:
           GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=1g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1
-        run: gradle --no-daemon --max-workers=1 --stacktrace assembleDebug
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            log="$RUNNER_TEMP/gradle-assembleDebug-$attempt.log"
+            if gradle --no-daemon --max-workers=1 --stacktrace assembleDebug 2>&1 | tee "$log"; then
+              exit 0
+            fi
+            if ! grep -Eq "Plugin \\[id: 'com\\.google\\.devtools\\.ksp'.*was not found|Could not resolve plugin artifact 'com\\.google\\.devtools\\.ksp" "$log"; then
+              exit 1
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::Transient KSP plugin resolution failure (attempt $attempt/3); retrying"
+              sleep $((attempt * 10))
+            fi
+          done
+          exit 1
 
-      - name: Run JVM unit tests and build instrumented test APK
+      - name: Run debug and release JVM tests, build test APK and release APK
         working-directory: ${{ steps.source.outputs.project_dir }}
         env:
           GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=1g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1
-        run: gradle --no-daemon --max-workers=1 --stacktrace testDebugUnitTest assembleDebugAndroidTest
+        run: gradle --no-daemon --max-workers=1 --stacktrace testDebugUnitTest testReleaseUnitTest assembleDebugAndroidTest assembleRelease
+      - name: Assert synthetic security and storyboard unit tests ran in Debug and Release
+        working-directory: ${{ steps.source.outputs.project_dir }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for variant in Debug Release; do
+            python3 - "$variant" <<'PY'
+          import pathlib, sys, xml.etree.ElementTree as ET
+          variant = sys.argv[1]
+          root = pathlib.Path("app/build/test-results") / ("test" + variant + "UnitTest")
+          requirements = {
+              "ProviderLogRedactionTest": {
+                  "capturedHttpLogsExcludeSecretsUrlsHeadersPromptsAndResponses",
+                  "mcpHttpClientUsesTheSameRedactedLoggingPolicy",
+                  "geminiGenerateContentUsesHeaderAndNeverPlacesKeyInUrlOrBody",
+                  "geminiListModelsUsesHeaderAndNeverPlacesKeyInUrl",
+              },
+              "VideoStoryPlanTest": {
+                  "istanbulConquestCreatesFiveScenesAndTwentySecondsOfCaptions",
+                  "istanbulScenesUseDistinctLocalProceduralVisuals",
+                  "captionsAreMonotonicAndSrtUsesTurkishText",
+                  "genericTopicUsesStructureWithoutInventingSpecificFacts",
+                  "blankPromptIsRejected",
+              },
+              "VideoNarrationComposerTest": {
+                  "pcmWavReaderCalculatesOneSecondMonoDuration",
+                  "pcmWavReaderRejectsNonPcmEncoding",
+                  "captionsFollowActualPerSceneSpeechDurations",
+                  "narrationLongerThanRenderedVideoIsRejected",
+              },
+          }
+          for class_name, required in requirements.items():
+              reports = list(root.rglob("*" + class_name + "*.xml"))
+              if not reports:
+                  raise SystemExit(f"{variant}: missing XML report for {class_name}")
+              report = ET.parse(reports[0]).getroot()
+              tests = int(report.attrib.get("tests", "0"))
+              failures = int(report.attrib.get("failures", "0"))
+              errors = int(report.attrib.get("errors", "0"))
+              skipped = int(report.attrib.get("skipped", "0"))
+              names = {node.attrib.get("name", "") for node in report.iter("testcase")}
+              missing = sorted(required - names)
+              if tests < len(required) or failures or errors or skipped or missing:
+                  raise SystemExit(f"{variant} {class_name}: tests={tests}, failures={failures}, errors={errors}, skipped={skipped}, missing={missing}")
+              print(f"{class_name}-OK: {variant} {tests}/{len(required)}, 0 failed, 0 skipped")
+          PY
+          done
+
 
       - name: Upload unit test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Open-Jarvis-Unit-Test-Results
           path: ${{ steps.source.outputs.project_dir }}/app/build/reports/tests/
@@ -177,7 +352,7 @@ jobs:
           retention-days: 7
 
       - name: Upload instrumented test APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Open-Jarvis-Test-APK
           path: ${{ steps.source.outputs.project_dir }}/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
@@ -192,7 +367,7 @@ jobs:
 
       - name: Upload patched source diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Open-Jarvis-Source-Debug
           path: open-jarvis-patched-source.zip
@@ -200,7 +375,7 @@ jobs:
           retention-days: 2
 
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Open-Jarvis-APK
           path: ${{ steps.source.outputs.project_dir }}/app/build/outputs/apk/debug/app-debug.apk
@@ -214,22 +389,45 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+      - name: Assert exact commit on push
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          actual="$(git rev-parse HEAD)"
+          echo "Expected pushed SHA: $GITHUB_SHA"
+          echo "Checked out SHA: $actual"
+          test "$actual" = "$GITHUB_SHA"
+
+      - name: Validate smoke harness syntax and launcher matcher regression
+        run: |
+          set -euo pipefail
+          for script in scripts/smoke_test.sh scripts/launcher_visibility_check.sh scripts/test_launcher_visibility_check.sh; do
+            bash -n "$script"
+          done
+          bash scripts/test_launcher_visibility_check.sh
+
+      - name: Install ffmpeg and run deterministic video contract fixtures
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python3 -m py_compile scripts/validate_video_artifact.py scripts/test_video_artifact_contract.py
+          python3 scripts/test_video_artifact_contract.py
 
       - name: Download app APK
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: Open-Jarvis-APK
           path: apk
 
       - name: Download instrumented test APK
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: Open-Jarvis-Test-APK
           path: apk-tests
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
@@ -261,7 +459,7 @@ jobs:
 
       - name: Upload smoke-test evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Open-Jarvis-Smoke-Test
           path: |
@@ -270,6 +468,132 @@ jobs:
             logcat-full.txt
             instrumented.log
             databases.txt
+            activity-*.txt
+            windows-*.txt
+            crashlog-*.txt
+            logcat-*.txt
+            screen-after-instrumented.png
+            crashlog-after-instrumented.txt
+            logcat-after-instrumented.txt
+            activity-after-instrumented.txt
+            activity-top-after-instrumented.txt
+            windows-after-instrumented.txt
+            launcher-start-after-instrumented.txt
+            activity-main-activity-visible.txt
+            windows-main-activity-visible.txt
+            screen-main-activity-visible.png
+            crashlog-after-visible-launch.txt
+            video-narrated.mp4
+            video-narrated.srt
+            video-audio-status.txt
+            video-contract-test-report.txt
+          if-no-files-found: warn
+          retention-days: 7
+
+
+  smoke-test-android14:
+    name: Emulator launch smoke test (Android 14)
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Assert exact commit on push
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          actual="$(git rev-parse HEAD)"
+          echo "Expected pushed SHA: $GITHUB_SHA"
+          echo "Checked out SHA: $actual"
+          test "$actual" = "$GITHUB_SHA"
+
+      - name: Validate smoke harness syntax and launcher matcher regression
+        run: |
+          set -euo pipefail
+          for script in scripts/smoke_test.sh scripts/launcher_visibility_check.sh scripts/test_launcher_visibility_check.sh; do
+            bash -n "$script"
+          done
+          bash scripts/test_launcher_visibility_check.sh
+
+      - name: Install ffmpeg for Android 14 video artifact validation
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Download app APK
+        uses: actions/download-artifact@v8
+        with:
+          name: Open-Jarvis-APK
+          path: apk
+
+      - name: Download instrumented test APK
+        uses: actions/download-artifact@v8
+        with:
+          name: Open-Jarvis-Test-APK
+          path: apk-tests
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Enable KVM access
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -la /dev/kvm
+
+      - name: Ensure sqlite3 is available
+        run: |
+          if ! command -v sqlite3 >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y sqlite3
+          fi
+          sqlite3 --version
+
+      - name: Boot Android 13 emulator and run launch smoke scenarios
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          APP_APK: apk/app-debug.apk
+          TEST_APK: apk-tests/app-debug-androidTest.apk
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          script: bash scripts/smoke_test.sh
+
+      - name: Upload smoke-test evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Open-Jarvis-Smoke-Test-Android14
+          path: |
+            screen-*.png
+            crashlog.txt
+            logcat-full.txt
+            instrumented.log
+            databases.txt
+            activity-*.txt
+            windows-*.txt
+            crashlog-*.txt
+            logcat-*.txt
+            screen-after-instrumented.png
+            crashlog-after-instrumented.txt
+            logcat-after-instrumented.txt
+            activity-after-instrumented.txt
+            activity-top-after-instrumented.txt
+            windows-after-instrumented.txt
+            launcher-start-after-instrumented.txt
+            activity-main-activity-visible.txt
+            windows-main-activity-visible.txt
+            screen-main-activity-visible.png
+            crashlog-after-visible-launch.txt
+            video-narrated.mp4
+            video-narrated.srt
+            video-audio-status.txt
+            video-contract-test-report.txt
           if-no-files-found: warn
           retention-days: 7
 
