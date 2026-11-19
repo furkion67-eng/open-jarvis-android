@@ -21,8 +21,8 @@ object VideoCommandRouter {
     )
     private val leadingFiller = Regex("""(?iu)^\s*(?:(?:lütfen|bana)\s+)+""")
     private val trailingFiller = Regex("""(?iu)\s+(?:hakkında|konulu|konusunda|için|lütfen|musun|mısın|misin|mısınız|misiniz)\s*$""")
-    private val leadingPunctuation = Regex("""^[\s:;,!?…]+""")
-    private val trailingPunctuation = Regex("""[\s:;,!?…]+$""")
+    private val leadingPunctuation = Regex("""^[\s:;,.!?…]+""")
+    private val trailingPunctuation = Regex("""[\s:;,.!?…]+$""")
     private val whitespace = Regex("""\s+""")
 
     fun parse(text: String, origin: VideoCommandOrigin): VideoCommandIntent? {
