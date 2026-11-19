@@ -56,14 +56,22 @@ class TurkishTtsPolicyTest {
     }
 
     @Test
-    fun exactTrTrRejectsLocaleVariantsAndExtensions() {
+    fun exactTrTrRejectsLocaleVariantsExtensionsAndMalformedTags() {
         val nonExactTags = listOf(
             "tr-TR-u-nu-latn",
             "tr-TR-x-private",
-            "tr-TR-variant"
+            "tr-TR-variant",
+            "tr-TR-",
+            "tr-TR-u",
+            "tr-TR-u-",
+            "tr-TR-foo!",
+            "tr-TR--x",
+            "tr_TR",
+            " tr-TR",
+            "tr-TR "
         )
         nonExactTags.forEach { tag ->
-            assertFalse("Must reject non-canonical Turkish locale: $tag", TurkishTtsPolicy.isExactTurkishLocale(tag))
+            assertFalse("Must reject non-exact Turkish locale: $tag", TurkishTtsPolicy.isExactTurkishLocale(tag))
             assertNull("Must not publish Ready for actual engine locale: $tag", TurkishTtsPolicy.exactActualEngineLocale(tag))
         }
 
@@ -72,7 +80,7 @@ class TurkishTtsPolicyTest {
                 TurkishTtsVoiceCandidate("non-exact-$index", tag, 500, 1, false)
             }
         )
-        assertNull("No variant/extension voice may be selected", selected)
+        assertNull("No variant, extension or malformed voice may be selected", selected)
     }
 
     @Test
@@ -82,6 +90,14 @@ class TurkishTtsPolicyTest {
         assertNull(TurkishTtsPolicy.exactActualEngineLocale("tr"))
         assertNull(TurkishTtsPolicy.exactActualEngineLocale("tr-CY"))
         assertNull(TurkishTtsPolicy.exactActualEngineLocale("tr-TR-u-nu-latn"))
+        assertNull(TurkishTtsPolicy.exactActualEngineLocale("tr-TR-"))
+        assertNull(TurkishTtsPolicy.exactActualEngineLocale("tr-TR-u"))
+        assertNull(TurkishTtsPolicy.exactActualEngineLocale("tr-TR-u-"))
+        assertNull(TurkishTtsPolicy.exactActualEngineLocale("tr-TR-foo!"))
+        assertNull(TurkishTtsPolicy.exactActualEngineLocale("tr-TR--x"))
+        assertNull(TurkishTtsPolicy.exactActualEngineLocale("tr_TR"))
+        assertNull(TurkishTtsPolicy.exactActualEngineLocale(" tr-TR"))
+        assertNull(TurkishTtsPolicy.exactActualEngineLocale("tr-TR "))
         assertEquals("tr-TR", TurkishTtsPolicy.exactActualEngineLocale("tr-TR"))
         assertEquals("tr-TR", TurkishTtsPolicy.exactActualEngineLocale("TR-tr"))
     }
@@ -162,6 +178,7 @@ class TurkishTtsPolicyTest {
         assertNull(TurkishTtsPolicy.exactActualEngineLocale(""))
         assertNull(TurkishTtsPolicy.exactActualEngineLocale("tr"))
         assertNull(TurkishTtsPolicy.exactActualEngineLocale("tr-CY"))
+        assertNull(TurkishTtsPolicy.exactActualEngineLocale("tr-TR-u-nu-latn"))
         assertEquals("tr-TR", TurkishTtsPolicy.exactActualEngineLocale("tr-TR"))
     }
 }

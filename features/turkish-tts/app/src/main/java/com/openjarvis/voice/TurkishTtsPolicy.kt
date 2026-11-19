@@ -35,15 +35,17 @@ object TurkishTtsPolicy {
     }
 
     /**
-     * Accept only the canonical BCP-47 tag tr-TR. Language/region matching alone would also
-     * accept variants and extensions such as tr-TR-u-nu-latn, which are not the exact voice
-     * contract required by this app.
+     * Accept only the exact tr-TR tag, allowing case differences only.
+     *
+     * Do not parse and re-canonicalize arbitrary input here: Locale.forLanguageTag is
+     * deliberately tolerant and may silently truncate malformed trailing subtags
+     * (for example, "tr-TR-" or "tr-TR-foo!"), turning invalid input into "tr-TR".
+     * Exact equality after case normalization rejects variants, extensions, malformed
+     * tags, underscores and surrounding whitespace before they can be selected or
+     * reported as the actual engine voice.
      */
     fun isExactTurkishLocale(localeTag: String): Boolean {
-        if (localeTag.isBlank()) return false
-        return runCatching {
-            Locale.forLanguageTag(localeTag).toLanguageTag() == EXACT_TURKISH_LOCALE_TAG
-        }.getOrDefault(false)
+        return localeTag.equals(EXACT_TURKISH_LOCALE_TAG, ignoreCase = true)
     }
 
     /** Returns a canonical locale only when the actual engine reports exact tr-TR; null fails closed. */
