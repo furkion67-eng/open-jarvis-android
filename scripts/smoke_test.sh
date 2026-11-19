@@ -201,7 +201,6 @@ capture_post_instrumentation
 # explicit status file: either a verified AAC+H.264 export, or a verified fail-closed
 # result when this emulator has no installed tr-TR voice data.
 video_contract_exit=1
-video_audio_status=""
 if ! grep -q "VideoStoryPipelineInstrumentedTest" instrumented.log; then
   echo "VIDEO-NARRATED-ACCEPTANCE-FAIL: narrated pipeline instrumentation was not discovered"
 else
