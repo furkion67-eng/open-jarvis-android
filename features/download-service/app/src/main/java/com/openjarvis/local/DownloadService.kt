@@ -22,12 +22,15 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 class DownloadService : Service() {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val runGuard = DownloadServiceRunGuard()
+    private val downloadMutex = Mutex()
     private var downloadJob: Job? = null
     private val modelManager by lazy(LazyThreadSafetyMode.NONE) { ModelManager(this) }
 
@@ -64,10 +67,16 @@ class DownloadService : Service() {
 
         val job = scope.launch(start = CoroutineStart.LAZY) {
             try {
-                val result = modelManager.downloadModel(tier) { nextProgress ->
-                    if (runGuard.owns(token, startId)) {
-                        _progress.value = nextProgress
-                        updateNotification(nextProgress)
+                // ModelManager performs blocking HTTP reads on IO. Serialize access so a
+                // cancelled but non-cooperative old read cannot write the same model file
+                // concurrently with a replacement download.
+                val result = downloadMutex.withLock {
+                    currentCoroutineContext().ensureActive()
+                    modelManager.downloadModel(tier) { nextProgress ->
+                        if (runGuard.owns(token, startId)) {
+                            _progress.value = nextProgress
+                            updateNotification(nextProgress)
+                        }
                     }
                 }
                 // ModelManager currently wraps work in runCatching; this explicit check
