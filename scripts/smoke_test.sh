@@ -190,32 +190,43 @@ echo "legacy-db: recovery backup created, app stayed alive"
 
 echo "=== Scenario C: instrumented tests (Room recovery end-to-end + analysis engine) ==="
 adb install -r "$TEST_APK" >/dev/null || fail "test APK install failed"
-adb shell run-as "$APP_PKG" rm -f files/ci-video-artifact.mp4 files/ci-video-artifact.srt >/dev/null 2>&1 || true
+adb shell run-as "$APP_PKG" rm -f files/ci-video-artifact.mp4 files/ci-video-artifact.srt files/ci-video-audio-status.txt >/dev/null 2>&1 || true
 set +e
 adb shell am instrument -w -r "$APP_PKG.test/androidx.test.runner.AndroidJUnitRunner" | tee instrumented.log
 instrumented_exit=${PIPESTATUS[0]}
 set -e
 capture_post_instrumentation
 
-# Confirm the CI-only storyboard integration test ran, then extract its exact app-private MP4/SRT.
+# Confirm the CI-only narrated-video integration test ran. The test writes an
+# explicit status file: either a verified AAC+H.264 export, or a verified fail-closed
+# result when this emulator has no installed tr-TR voice data.
 video_contract_exit=1
+video_audio_status=""
 if ! grep -q "VideoStoryPipelineInstrumentedTest" instrumented.log; then
-  echo "VIDEO-PREVIEW-ACCEPTANCE-FAIL: storyboard instrumentation was not discovered"
+  echo "VIDEO-NARRATED-ACCEPTANCE-FAIL: narrated pipeline instrumentation was not discovered"
 else
-  set +e
-  adb exec-out run-as "$APP_PKG" cat files/ci-video-artifact.mp4 > video-storyboard-preview.mp4
-  video_copy_mp4_exit=$?
-  adb exec-out run-as "$APP_PKG" cat files/ci-video-artifact.srt > video-storyboard-preview.srt
-  video_copy_srt_exit=$?
-  if [ "$video_copy_mp4_exit" -eq 0 ] && [ "$video_copy_srt_exit" -eq 0 ] && [ -s video-storyboard-preview.mp4 ] && [ -s video-storyboard-preview.srt ]; then
-    python3 scripts/validate_video_artifact.py --mode preview video-storyboard-preview.mp4 video-storyboard-preview.srt
-    video_contract_exit=$?
+  adb exec-out run-as "$APP_PKG" cat files/ci-video-audio-status.txt > video-audio-status.txt 2>/dev/null || true
+  if grep -q "TURKISH_TTS_UNAVAILABLE_ON_EMULATOR" video-audio-status.txt; then
+    echo "VIDEO-AUDIO-CI-NOT-EXERCISED: emulator has no tr-TR voice; explicit fail-closed behavior was verified"
+    video_contract_exit=0
+  elif grep -q "VIDEO-NARRATED-PIPELINE-OK" video-audio-status.txt; then
+    set +e
+    adb exec-out run-as "$APP_PKG" cat files/ci-video-artifact.mp4 > video-narrated.mp4
+    video_copy_mp4_exit=$?
+    adb exec-out run-as "$APP_PKG" cat files/ci-video-artifact.srt > video-narrated.srt
+    video_copy_srt_exit=$?
+    if [ "$video_copy_mp4_exit" -eq 0 ] && [ "$video_copy_srt_exit" -eq 0 ] && [ -s video-narrated.mp4 ] && [ -s video-narrated.srt ]; then
+      python3 scripts/validate_video_artifact.py --mode narrated video-narrated.mp4 video-narrated.srt
+      video_contract_exit=$?
+    else
+      echo "VIDEO-NARRATED-ACCEPTANCE-FAIL: app-private MP4/SRT evidence could not be extracted"
+    fi
+    set -e
   else
-    echo "VIDEO-PREVIEW-ACCEPTANCE-FAIL: app-private MP4/SRT evidence could not be extracted"
+    echo "VIDEO-NARRATED-ACCEPTANCE-FAIL: no success or explicit no-Turkish-voice status was recorded"
+    cat video-audio-status.txt 2>/dev/null || true
   fi
-  set -e
 fi
-
 
 # Report conditional TTS playback skips separately. Only these two active-utterance
 # tests may be skipped when the emulator has no installed Turkish voice.
@@ -263,4 +274,4 @@ if [ "$launcher_visible_exit" -ne 0 ]; then
   fail "MainActivity was not visibly resumed after instrumented tests"
 fi
 
-echo "SMOKE-OK: fresh launch, legacy DB recovery, instrumented tests, storyboard/SRT preview contract and post-test MainActivity visibility all passed"
+echo "SMOKE-OK: fresh launch, legacy DB recovery, instrumented tests, narrated AAC/H.264 contract (or explicit no-tr-TR fail-closed result) and post-test MainActivity visibility all passed"
