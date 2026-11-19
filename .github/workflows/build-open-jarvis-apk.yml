@@ -208,7 +208,7 @@ jobs:
           from pathlib import Path
           source = Path("app/src/main/java/com/openjarvis/voice/TurkishTtsPolicy.kt").read_text()
           start = source.index("fun isExactTurkishLocale(localeTag: String): Boolean {")
-          end = source.index("\\n    }", start)
+          end = source.index("\n    }", start)
           exact_method = source[start:end]
           if "localeTag.equals(EXACT_TURKISH_LOCALE_TAG, ignoreCase = true)" not in exact_method:
               raise SystemExit("Exact tr-TR method does not use direct case-insensitive equality")
