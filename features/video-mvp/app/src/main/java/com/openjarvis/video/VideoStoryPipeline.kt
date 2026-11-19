@@ -21,7 +21,7 @@ data class VideoStoryRenderResult(
 
 /**
  * End-to-end local workflow: topic -> Turkish storyboard/procedural scenes -> tr-TR TTS WAV
- * per scene -> AAC + H.264 MP4 -> actual-speech SRT -> MediaStore export.
+ * per scene -> speech-timed H.264 scenes -> AAC mux -> actual-speech SRT -> MediaStore export.
  *
  * If a Turkish voice is unavailable, rendering fails with a Turkish explanation; English
  * fallback is deliberately forbidden. Procedural visuals are local illustrations, not AI art.
@@ -35,15 +35,16 @@ class VideoStoryPipeline(context: Context) {
         onStage: (String) -> Unit = {}
     ): VideoStoryRenderResult {
         val plan = VideoStoryPlanBuilder.build(prompt)
-        onStage("Yerel sahneler çiziliyor…")
-        val silentVideo = Mp4VideoRenderer(appContext).render(plan.renderSpec, onProgress)
+        onStage("Türkçe anlatım hazırlanıyor…")
         var narratedVideo: NarratedVideoResult? = null
         var captionsFile: File? = null
         var exportedUri: Uri? = null
         var captionsUri: Uri? = null
         try {
-            onStage("Türkçe seslendirme hazırlanıyor…")
-            val composed = VideoNarrationComposer(appContext).compose(plan, silentVideo)
+            val composed = VideoNarrationComposer(appContext).compose(plan) { speechTimedSpec ->
+                onStage("Konuşma sürelerine göre dikey sahneler çiziliyor…")
+                Mp4VideoRenderer(appContext).render(speechTimedSpec, onProgress)
+            }
             narratedVideo = composed
             val srtFile = File(
                 composed.video.file.parentFile,
@@ -66,8 +67,7 @@ class VideoStoryPipeline(context: Context) {
                 exportedUri = videoUri
                 VideoMediaStoreExporter.exportCaptions(appContext, srtFile).also { captionsUri = it }
             }
-            onStage("Sesli MP4 galeriye kaydedildi.")
-            silentVideo.file.delete()
+            onStage("Türkçe sesli MP4 galeriye kaydedildi.")
             return VideoStoryRenderResult(
                 video = composed.video,
                 captionsFile = srtFile,
@@ -79,14 +79,12 @@ class VideoStoryPipeline(context: Context) {
                 sourceLabel = plan.sourceLabel
             )
         } catch (cancelled: CancellationException) {
-            silentVideo.file.delete()
             narratedVideo?.video?.file?.delete()
             captionsFile?.delete()
             exportedUri?.let { appContext.contentResolver.delete(it, null, null) }
             captionsUri?.let { appContext.contentResolver.delete(it, null, null) }
             throw cancelled
         } catch (error: Exception) {
-            silentVideo.file.delete()
             narratedVideo?.video?.file?.delete()
             captionsFile?.delete()
             exportedUri?.let { appContext.contentResolver.delete(it, null, null) }
