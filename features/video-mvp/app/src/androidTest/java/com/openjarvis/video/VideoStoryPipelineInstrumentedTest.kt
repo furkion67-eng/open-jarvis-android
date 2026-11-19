@@ -91,8 +91,8 @@ class VideoStoryPipelineInstrumentedTest {
             context.contentResolver.delete(result.captionsUri, null, null)
             result.video.file.delete()
             result.captionsFile.delete()
-            evidenceVideo.delete()
-            evidenceCaptions.delete()
+            // Keep CI evidence copies until scripts/smoke_test.sh extracts them.
+            // Temporary renderer files and MediaStore rows above are still cleaned.
         }
         Unit
     }
