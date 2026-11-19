@@ -1,16 +1,18 @@
-# Local video MVP — Issue #8, staged offline pipeline
+# Local video MVP — Turkish narrated vertical MP4
 
 Current feature stage:
 
 - Accepts a natural-language topic and builds a five-scene Turkish storyboard.
 - The Istanbul conquest topic uses a small curated set of dated historical milestones; other topics use a clearly generic outline rather than invented topic-specific facts.
-- Renders a 20-second, 9:16 H.264/MP4 draft locally with Android MediaCodec, EGL14 and OpenGL ES. Istanbul scenes include five locally drawn procedural vector illustrations (walls, cannon, ships, sunrise and map).
-- Writes a time-aligned SRT sidecar beside the MP4 and exposes a narration script for the next TTS stage.
-- Runs on Dispatchers.IO, checks cancellation between frames, reports progress via StateFlow, limits resolution/FPS/duration/bitrate, checks free storage and caps output at 24 MB.
-- Stores files under app-private filesDir/jarvis-videos and deletes the MP4 if caption-sidecar writing fails.
+- Renders a 20-second, 9:16 H.264 scene track locally with Android MediaCodec, EGL14 and OpenGL ES. Istanbul scenes include five locally drawn procedural vector illustrations (walls, cannon, ships, sunrise and map).
+- Synthesizes each scene with an installed Turkish Android TTS voice using `tr-TR`; there is no silent English fallback. If the device has no usable Turkish voice data, the pipeline stops with a Turkish explanation.
+- Encodes narration to AAC, muxes it with H.264, and validates that the final MP4 contains both audio and video tracks with compatible durations.
+- Builds SRT cues from each actual synthesized WAV segment duration, then exports the MP4 to Movies/Open JARVIS and the SRT to Downloads/Open JARVIS through MediaStore on Android 10+.
+- The share action only opens Android's chooser after the user presses the button. It does not upload or publish to YouTube/TikTok.
+- Runs render/encoding work off the main thread, checks cancellation, removes temporary WAV/AAC/silent files on failure, limits resolution/FPS/duration/bitrate and checks free storage.
 
-**Important limitations:** the MP4 is still silent and uses locally drawn procedural vector art plus text cards, not AI-generated or licensed historical images. The narration field is text only, not an audio track. The SRT is a separate sidecar, not embedded in the MP4. No gallery export, YouTube OAuth/upload or TikTok OAuth/upload is implemented. No post is published.
+**Visual provenance:** the five scene images are procedural local Canvas vector drawings, not AI-generated images or licensed historical photographs.
 
-Tests validate storyboard selection, generic-topic safety, 20-second timing, monotonic caption cues, SRT formatting and render-spec limits. Existing Android instrumentation still validates the local H.264 MP4 renderer; this new storyboard-to-file integration requires exact-head Android CI.
+**Remaining validation:** the new narration/AAC/mux/export path needs exact-head Android 13/14 CI and physical TECNO acoustic/playback acceptance. Emulator or unit tests do not prove the installed TECNO TTS voice sounds natural. YouTube/TikTok OAuth, token storage and per-post approval are not included in this PR.
 
-TECNO Spark 20 Pro / HiOS video acceptance remains NOT RUN for the storyboard/SRT stage. The earlier user recording confirmed only the old 6-second silent sample button.
+No secrets, paid providers, account settings or external publication are used.
