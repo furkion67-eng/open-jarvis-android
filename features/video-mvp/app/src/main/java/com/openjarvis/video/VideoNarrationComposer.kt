@@ -22,7 +22,6 @@ import com.openjarvis.voice.TurkishTtsPolicy
 import com.openjarvis.voice.TurkishTtsVoiceCandidate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -31,9 +30,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.IOException
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.util.Locale
 import java.util.UUID
 import kotlin.coroutines.resume
@@ -176,7 +173,7 @@ class VideoNarrationComposer(private val context: Context) {
         try {
             val activeEngine = createTurkishEngine()
             engine = activeEngine
-            configureTurkishVoice(activeEngine)
+            withContext(Dispatchers.Main.immediate) { configureTurkishVoice(activeEngine) }
             val segments = mutableListOf<PcmWav>()
             plan.scenes.forEachIndexed { index, scene ->
                 val wavFile = File(tempDir, "scene-${index + 1}.wav")
