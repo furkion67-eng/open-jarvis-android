@@ -43,7 +43,29 @@ class VideoNarrationComposerTest {
         assertEquals(0L, captions[0].startMs)
         assertEquals(1_250L, captions[0].endMs)
         assertEquals(1_250L, captions[1].startMs)
-        assertEquals(5_000L, captions[1].endMs)
+        assertEquals(3_750L, captions[1].endMs)
+        assertEquals("Bir. İlk sahne", captions[0].text)
+        assertEquals("İki. İkinci sahne", captions[1].text)
+    }
+
+    @Test
+    fun finalCaptionDoesNotCoverPaddedSilentVideoTail() {
+        val scenes = listOf(
+            VideoScene("Giriş", "İlk anlatım"),
+            VideoScene("Sonuç", "Son anlatım")
+        )
+        val captions = VideoNarrationTimeline.captions(scenes, listOf(1_000L, 1_500L), 20_000L)
+
+        assertEquals(2_500L, captions.last().endMs)
+        assertTrue(captions.last().endMs < 20_000L)
+    }
+
+    @Test
+    fun captionTextIncludesTheHeadingThatTtsActuallySpeaks() {
+        val scenes = listOf(VideoScene("Kuşatma başladı", "6 Nisan 1453'te surlar kuşatıldı."))
+        val caption = VideoNarrationTimeline.captions(scenes, listOf(3_200L), 20_000L).single()
+
+        assertEquals("Kuşatma başladı. 6 Nisan 1453'te surlar kuşatıldı.", caption.text)
     }
 
     @Test
