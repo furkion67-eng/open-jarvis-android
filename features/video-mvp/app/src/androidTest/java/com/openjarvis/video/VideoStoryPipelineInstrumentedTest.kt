@@ -62,5 +62,6 @@ class VideoStoryPipelineInstrumentedTest {
             result.video.file.delete()
             result.captionsFile.delete()
         }
+        Unit
     }
 }
