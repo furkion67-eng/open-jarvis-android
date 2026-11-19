@@ -1,0 +1,41 @@
+# Allowlisted Android app launch (Issue #16)
+
+This feature routes typed and recognized Turkish speech through the existing TurkishCommandRouter and DeviceActionCoordinator, then dispatches only a registered app alias to an explicit package allowlist.
+
+## Supported aliases
+
+- WhatsApp: whatsapp, whats app, vatsap
+- YouTube: youtube, you tube, yutub
+- Chrome: chrome, google chrome, krom
+- Gmail: gmail, google mail, e posta
+- Haritalar: haritalar, google maps, maps
+- Ayarlar: ayarlar, settings
+- Telegram, Instagram, Spotify, TikTok, Play Store and Google Fotoğraflar.
+
+The typed and recognized-speech UI callbacks call separate input adapters backed by one `AppLaunchCommandEntryPoint` and one `AppLaunchDispatcher` instance. The entry point accepts only `RoutedCommand.OpenApp` from `TurkishCommandRouter`; it never treats an arbitrary package string or another external action as an app launch. The dispatcher does not accept a raw package name from a user or model. SMS, calls, WhatsApp message composition, account changes and public publishing are not part of this capability.
+
+## Result handling and background safety
+
+The Android adapter checks package installation, getLaunchIntentForPackage, resolveActivity, and process visibility before startActivity. It reports separate Turkish outcomes for not installed, no launcher activity, unresolvable intent, background-activity restriction and generic launch failure. A successful call is worded as an Android launch request; it does not claim that a foreground window was independently verified.
+
+Only a process with a foreground or visible Activity importance may request an app launch. A foreground service alone is not sufficient. **SYSTEM_ALERT_WINDOW permission alone is also not proof that an overlay window is currently visible**, so this implementation fails closed rather than relying on the permission bit. A future overlay-originated launch must supply a trustworthy visible-window signal before it can be allowed. When JARVIS is backgrounded, bring its Activity to the foreground and repeat the command.
+
+Generic SecurityException failures are not mislabeled as background restrictions; only recognized Android background-activity-start denial messages/classes receive that Turkish result.
+
+App launch does not require Accessibility permission when the JARVIS Activity is foregrounded.
+
+## Tests
+
+- JVM: alias allowlist, Turkish inflected command routing, raw-package rejection, typed and SpeechRecognizer input adapters invoking one shared production entry point and the same allowlisted dispatcher, result categories, foreground/visible process policy, foreground-service denial, unknown/background denial and exception classification.
+- Instrumentation: PackageManager resolves the app's launcher intent and starts the known MainActivity using an injected test-only registry entry.
+
+## Physical TECNO Spark 20 Pro / HiOS checklist (not yet run)
+
+1. Install the exact PR APK and verify WhatsApp, YouTube and Ayarlar are present.
+2. In VoiceCommandActivity, type "WhatsApp'ı aç"; confirm the WhatsApp launch request is shown and WhatsApp appears.
+3. Return to JARVIS, speak "WhatsApp'ı aç"; confirm the same dispatcher and Turkish result are used.
+4. Repeat with "YouTube'u başlat" and "Ayarlar'ı aç".
+5. Try an unsupported app name and a raw package string; both must be rejected without launching anything.
+6. With JARVIS backgrounded, issue an app-launch request from a background service/overlay path; confirm the Turkish background-restriction message appears and no false success is reported, even if overlay permission is granted but no visible overlay exists.
+7. Bring JARVIS to the foreground and repeat; confirm the launch request is accepted.
+8. If a listed app is absent, confirm the result says it is not installed; do not infer device compatibility from emulator tests.
