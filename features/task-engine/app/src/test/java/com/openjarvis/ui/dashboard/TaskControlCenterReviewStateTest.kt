@@ -72,6 +72,27 @@ class TaskControlCenterReviewStateTest {
             errorCode = "EXECUTOR_NOT_CONFIGURED"
         )
         assertEquals(TaskReviewUiState.EXECUTOR_UNAVAILABLE, taskReviewUiState(task))
+        assertFalse(shouldOfferRetry(task))
+    }
+
+    @Test
+    fun interruptedTaskOffersOnlyAnExplicitManualRetry() {
+        val task = task(
+            status = JarvisTaskStatus.INTERRUPTED,
+            errorCode = "APP_RESTARTED",
+            executionMode = "remote.device-action"
+        )
+        assertTrue(shouldOfferRetry(task))
+    }
+
+    @Test
+    fun ordinaryNetworkWaitOffersAnExplicitManualRetry() {
+        val task = task(
+            status = JarvisTaskStatus.WAITING_FOR_NETWORK,
+            errorCode = "NETWORK_UNAVAILABLE",
+            executionMode = "remote.device-action"
+        )
+        assertTrue(shouldOfferRetry(task))
     }
 
     @Test
