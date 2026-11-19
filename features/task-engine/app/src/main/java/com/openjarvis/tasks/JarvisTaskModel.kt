@@ -7,7 +7,7 @@ import androidx.room.PrimaryKey
 /** A durable, local record. It deliberately contains references/summaries, not raw credentials. */
 @Entity(
     tableName = "jarvis_tasks",
-    indices = [Index(value = ["status", "updatedAt"]), Index(value = ["createdAt"])]
+    indices = [Index(value = ["status", "updatedAt"]), Index(value = ["createdAt"]), Index(value = ["idempotencyKey"], unique = true)]
 )
 data class JarvisTaskEntity(
     @PrimaryKey val id: String,
