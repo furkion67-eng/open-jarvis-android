@@ -156,6 +156,7 @@ jobs:
           test -f app/src/main/java/com/openjarvis/video/VideoStoryPlan.kt
           test -f app/src/main/java/com/openjarvis/video/VideoNarrationComposer.kt
           test -f app/src/androidTest/java/com/openjarvis/video/VideoStoryPipelineInstrumentedTest.kt
+          test -f app/src/androidTest/java/com/openjarvis/video/VideoNarratedExportInstrumentedTest.kt
           echo "VIDEO-NARRATED-SOURCE-OK"
 
       - name: Audit declared Android permissions (no permission changes)
