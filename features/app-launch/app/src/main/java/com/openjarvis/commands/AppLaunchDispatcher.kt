@@ -33,7 +33,12 @@ object AppLaunchRegistry {
     fun find(requestedName: String, candidates: List<AppLaunchTarget> = targets): AppLaunchTarget? {
         val key = normalize(requestedName)
         if (key.isEmpty()) return null
-        return candidates.firstOrNull { target -> target.aliases.any { normalize(it) == key } }
+        // A future alias collision must never pick whichever target happens to be listed first.
+        // Fail closed so an ambiguous spoken/typed name cannot launch the wrong application.
+        val matches = candidates.filter { target ->
+            target.aliases.any { normalize(it) == key }
+        }
+        return matches.singleOrNull()
     }
 
     internal fun normalize(value: String): String =
