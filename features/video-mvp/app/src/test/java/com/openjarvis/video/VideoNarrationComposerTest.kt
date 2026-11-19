@@ -42,6 +42,7 @@ class VideoNarrationComposerTest {
         val captions = VideoNarrationTimeline.captions(scenes, listOf(1_250L, 2_500L), 5_000L)
         assertEquals(0L, captions[0].startMs)
         assertEquals(1_250L, captions[0].endMs)
+        assertEquals("Bir. İlk sahne", captions[0].text)
         assertEquals(1_250L, captions[1].startMs)
         assertEquals(3_750L, captions[1].endMs)
         assertEquals("Bir. İlk sahne", captions[0].text)
