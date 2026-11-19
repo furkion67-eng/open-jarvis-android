@@ -1,5 +1,9 @@
 package com.openjarvis.video
 
+import java.security.MessageDigest
+import java.text.Normalizer
+import java.util.Locale
+
 enum class VideoCommandOrigin {
     TYPED,
     RECOGNIZED_SPEECH,
@@ -24,6 +28,28 @@ object VideoCommandRouter {
     private val leadingPunctuation = Regex("""^[\s:;,.!?…]+""")
     private val trailingPunctuation = Regex("""[\s:;,.!?…]+$""")
     private val whitespace = Regex("""\s+""")
+
+    /**
+     * Repeated typed/STT delivery of the same topic within 30 seconds maps to one durable task.
+     * The time bucket permits an intentional later request while remaining stable across an
+     * Activity recreation or process restart inside the deduplication window.
+     */
+    fun requestIdempotencyKey(topic: String, nowMillis: Long): String {
+        val canonicalTopic = Normalizer.normalize(topic, Normalizer.Form.NFKC)
+            .trim()
+            .replace(whitespace, " ")
+            .lowercase(Locale.forLanguageTag("tr-TR"))
+        require(canonicalTopic.isNotEmpty()) { "Video konusu boş olamaz." }
+        val timeBucket = Math.floorDiv(nowMillis, REQUEST_DEDUP_WINDOW_MS)
+        val material = "jarvis:create-video:v1:$timeBucket:$canonicalTopic"
+        return MessageDigest.getInstance("SHA-256")
+            .digest(material.toByteArray(Charsets.UTF_8))
+            .joinToString("") { byte ->
+                String.format(Locale.ROOT, "%02x", byte.toInt() and 0xff)
+            }
+    }
+
+    private const val REQUEST_DEDUP_WINDOW_MS = 30_000L
 
     fun parse(text: String, origin: VideoCommandOrigin): VideoCommandIntent? {
         val input = text.trim()

@@ -3416,7 +3416,7 @@ def install_video_command_routing(s):
             try {
                 val taskId = JarvisTaskRepository.getInstance(applicationContext).createTask(
                     goal = "$topic hakkında video oluştur",
-                    idempotencyKey = UUID.randomUUID().toString()
+                    idempotencyKey = VideoCommandRouter.requestIdempotencyKey(topic, System.currentTimeMillis())
                 )
                 val message = "“$topic” için video planı kaydedildi. Henüz video oluşturulmadı. Görev kontrol merkezinde planı kabul ettiğinde Türkçe sesli MP4 üretimi başlayacak. Görev kimliği: $taskId"
                 updateStatus(message)
