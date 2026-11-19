@@ -145,9 +145,10 @@ internal object VideoNarrationTimeline {
         return scenes.mapIndexed { index, scene ->
             val start = cursor
             cursor += segmentDurationsMs[index]
-            val end = if (index == scenes.lastIndex) videoDurationMs else cursor
-            require(end > start)
-            TimedVideoCaption(start, end, scene.caption)
+            // Match the exact words synthesized by synthesizeScene (heading + caption).
+            // Do not keep the last cue on screen through the encoder's padded silent tail.
+            require(cursor > start)
+            TimedVideoCaption(start, cursor, "${scene.heading}. ${scene.caption}")
         }
     }
 }
