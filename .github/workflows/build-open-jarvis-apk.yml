@@ -327,7 +327,7 @@ jobs:
               skipped = int(report.attrib.get("skipped", "0"))
               names = {node.attrib.get("name", "") for node in report.iter("testcase")}
               missing = sorted(required - names)
-              if tests != len(required) or failures or errors or skipped or missing:
+              if tests < len(required) or failures or errors or skipped or missing:
                   raise SystemExit(f"{variant} {class_name}: tests={tests}, failures={failures}, errors={errors}, skipped={skipped}, missing={missing}")
               print(f"{class_name}-OK: {variant} {tests}/{len(required)}, 0 failed, 0 skipped")
           PY
