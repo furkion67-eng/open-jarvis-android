@@ -3325,3 +3325,20 @@ for source in sorted(download_service_feature_root.rglob("*.kt")):
     destination.write_bytes(source.read_bytes())
 
 print("Installed DownloadService startId/generation lifecycle guard")
+
+
+# Compose UI assertions for the task review vs external-action approval states.
+def task_compose_test_dependencies(s):
+    if "androidx.compose.ui:ui-test-junit4" in s:
+        return s
+    anchor = "    androidTestImplementation 'androidx.test:runner:1.5.2'"
+    if anchor not in s:
+        raise SystemExit("app/build.gradle: AndroidX test runner dependency anchor not found")
+    return s.replace(
+        anchor,
+        anchor + "\n    androidTestImplementation platform('androidx.compose:compose-bom:2023.10.01')"
+        + "\n    androidTestImplementation 'androidx.compose.ui:ui-test-junit4'",
+        1
+    )
+
+edit("app/build.gradle", task_compose_test_dependencies)

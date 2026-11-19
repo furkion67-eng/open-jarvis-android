@@ -29,10 +29,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.openjarvis.tasks.JarvisTaskCheckpoint
 import com.openjarvis.tasks.JarvisTaskEntity
 import com.openjarvis.tasks.JarvisTaskRepository
 import com.openjarvis.tasks.JarvisTaskStatus
@@ -162,8 +164,40 @@ fun TaskControlCenter(modifier: Modifier = Modifier) {
     }
 }
 
+
+internal enum class TaskReviewUiState {
+    PLAN_REVIEW,
+    ACTION_APPROVAL_REQUIRED,
+    EXECUTOR_UNAVAILABLE,
+    NONE
+}
+
+internal fun shouldShowDeterminateProgress(task: JarvisTaskEntity): Boolean =
+    task.executionMode != "local_plan_preview" &&
+        taskReviewUiState(task) != TaskReviewUiState.EXECUTOR_UNAVAILABLE
+
+internal fun taskReviewUiState(task: JarvisTaskEntity): TaskReviewUiState {
+    val status = JarvisTaskStatus.fromStorage(task.status)
+    return when {
+        status == JarvisTaskStatus.WAITING_FOR_USER &&
+            task.checkpoint == JarvisTaskCheckpoint.PLAN_CREATED &&
+            task.planAcceptedAt == null -> TaskReviewUiState.PLAN_REVIEW
+
+        status == JarvisTaskStatus.WAITING_FOR_USER &&
+            task.planAcceptedAt != null &&
+            task.checkpoint == JarvisTaskCheckpoint.PLAN_REVIEWED &&
+            (task.errorCode == "APPROVAL_REQUIRED" || (task.requiresApproval && !task.approvalGranted)) ->
+            TaskReviewUiState.ACTION_APPROVAL_REQUIRED
+
+        status == JarvisTaskStatus.WAITING_FOR_NETWORK &&
+            task.errorCode == "EXECUTOR_NOT_CONFIGURED" -> TaskReviewUiState.EXECUTOR_UNAVAILABLE
+
+        else -> TaskReviewUiState.NONE
+    }
+}
+
 @Composable
-private fun TaskItem(
+internal fun TaskItem(
     task: JarvisTaskEntity,
     enabled: Boolean,
     onAcceptPlan: () -> Unit,
@@ -171,6 +205,7 @@ private fun TaskItem(
     onCancel: () -> Unit
 ) {
     val status = JarvisTaskStatus.fromStorage(task.status)
+    val reviewState = taskReviewUiState(task)
     Card(
         colors = CardDefaults.cardColors(containerColor = VoidColor.Void950),
         shape = RoundedCornerShape(16.dp),
@@ -182,14 +217,27 @@ private fun TaskItem(
         ) {
             Text(task.goal, color = VoidColor.TextPrimary, fontWeight = FontWeight.Medium)
             Text(
-                text = "${status.turkishLabel} • ${task.progressPercent}%",
+                text = when {
+                    reviewState == TaskReviewUiState.EXECUTOR_UNAVAILABLE -> "Yürütülmedi · yürütücü yok"
+                    task.executionMode == "local_plan_preview" -> "${status.turkishLabel} · önizleme"
+                    else -> "${status.turkishLabel} • ${task.progressPercent}%"
+                },
                 color = if (status == JarvisTaskStatus.FAILED) VoidColor.Red else VoidColor.Cyan,
                 style = MaterialTheme.typography.labelMedium
             )
-            LinearProgressIndicator(
-                progress = task.progressPercent.coerceIn(0, 100) / 100f,
-                modifier = Modifier.fillMaxWidth()
-            )
+            if (task.executionMode == "local_plan_preview") {
+                Text(
+                    "Önizleme · gerçek cihaz veya harici işlem yapılmadı",
+                    color = VoidColor.Amber,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (shouldShowDeterminateProgress(task)) {
+                LinearProgressIndicator(
+                    progress = task.progressPercent.coerceIn(0, 100) / 100f,
+                    modifier = Modifier.fillMaxWidth().testTag("task-progress-indicator")
+                )
+            }
             task.currentStep?.let {
                 Text(it, color = VoidColor.TextSecondary, style = MaterialTheme.typography.bodySmall)
             }
@@ -199,13 +247,27 @@ private fun TaskItem(
             task.errorMessage?.let {
                 Text(it, color = VoidColor.Amber, style = MaterialTheme.typography.bodySmall)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (status == JarvisTaskStatus.WAITING_FOR_USER) {
-                    TextButton(onClick = onAcceptPlan, enabled = enabled) {
-                        Text("Planı kabul et")
-                    }
+            when (reviewState) {
+                TaskReviewUiState.PLAN_REVIEW -> TextButton(onClick = onAcceptPlan, enabled = enabled) {
+                    Text("Planı kabul et")
                 }
-                if (status == JarvisTaskStatus.WAITING_FOR_NETWORK || status == JarvisTaskStatus.FAILED) {
+                TaskReviewUiState.ACTION_APPROVAL_REQUIRED -> Text(
+                    "Plan onaylandı; dış işlem için ayrıca onay gerekiyor. Bu işlem yürütülmedi.",
+                    color = VoidColor.Amber,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                TaskReviewUiState.EXECUTOR_UNAVAILABLE -> Text(
+                    "Bu görev yalnızca yerel plan taslağıdır; yürütücü yapılandırılmadığı için çalıştırılmadı.",
+                    color = VoidColor.Amber,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                TaskReviewUiState.NONE -> Unit
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if ((status == JarvisTaskStatus.WAITING_FOR_NETWORK &&
+                        reviewState != TaskReviewUiState.EXECUTOR_UNAVAILABLE) ||
+                    status == JarvisTaskStatus.FAILED
+                ) {
                     TextButton(onClick = onRetry, enabled = enabled) {
                         Text("Yeniden dene")
                     }
