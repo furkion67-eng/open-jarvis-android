@@ -8,18 +8,34 @@ data class TimedVideoCaption(
     val text: String
 )
 
+data class VideoClaimSource(
+    val claimId: String,
+    val sceneId: String,
+    val sourceUrl: String,
+    val publisher: String,
+    val checkedOn: String,
+    val supportedClaim: String,
+    val uncertaintyNote: String? = null
+)
+
 data class VideoStoryPlan(
     val title: String,
     val scenes: List<VideoScene>,
     val narrationText: String,
     val captions: List<TimedVideoCaption>,
-    val sourceLabel: String
+    val sourceLabel: String,
+    val hookText: String = "",
+    val claimSources: List<VideoClaimSource> = emptyList()
 ) {
     val renderSpec: VideoRenderSpec
         get() = VideoRenderSpec(
             title = title,
             scenes = scenes,
-            secondsPerScene = SECONDS_PER_SCENE
+            width = 720,
+            height = 1_280,
+            bitRate = 1_500_000,
+            secondsPerScene = SECONDS_PER_SCENE,
+            requireLicensedVisualAssets = true
         )
 
     fun toSrt(): String = captions.mapIndexed { index, cue ->
@@ -38,14 +54,7 @@ data class VideoStoryPlan(
         val minutes = (valueMs % 3_600_000L) / 60_000L
         val seconds = (valueMs % 60_000L) / 1_000L
         val millis = valueMs % 1_000L
-        return String.format(
-            Locale.ROOT,
-            "%02d:%02d:%02d,%03d",
-            hours,
-            minutes,
-            seconds,
-            millis
-        )
+        return String.format(Locale.ROOT, "%02d:%02d:%02d,%03d", hours, minutes, seconds, millis)
     }
 
     companion object {
@@ -53,11 +62,82 @@ data class VideoStoryPlan(
     }
 }
 
-/**
- * Offline storyboard templates. The Istanbul conquest template uses a small curated set of
- * historical milestones; other topics get an explicitly generic structure rather than invented
- * topic-specific facts. Narration text is prepared for the later TTS stage but is not audio.
- */
+object VideoStoryQualityPolicy {
+    private val genericFiller = listOf(
+        "konuya giriş",
+        "arka plan",
+        "öne çıkan gelişmeler",
+        "dönüm noktası",
+        "sonuç ve etki",
+        "kısa ve anlaşılır biçimde ele alıyoruz",
+        "önce temel soruyu"
+    )
+
+    fun validate(plan: VideoStoryPlan) {
+        require(plan.hookText.isNotBlank() && plan.hookText.length <= 40) {
+            "İlk iki saniye için kısa ve özgün bir kanca gerekli."
+        }
+        require(plan.hookText.trim().split(Regex("\\s+")).size <= 4) {
+            "İlk kanca en fazla dört kısa kelime olmalı."
+        }
+        require(plan.narrationText.startsWith(plan.hookText)) {
+            "Anlatım ilk iki saniyelik kancayla başlamalı."
+        }
+        require(plan.scenes.size in 3..6) { "Kaynaklı hikâye 3–6 sahne içermeli." }
+        require(plan.scenes.all { it.sceneId.isNotBlank() && !it.visualAssetId.isNullOrBlank() }) {
+            "Her sahneye ayrı bir kaynak görsel bağlanmalı."
+        }
+        require(plan.scenes.map { it.sceneId }.distinct().size == plan.scenes.size) {
+            "Sahne kimlikleri benzersiz olmalı."
+        }
+        require(plan.scenes.map { it.visualAssetId }.distinct().size == plan.scenes.size) {
+            "Her sahnede farklı bir görsel kullanılmalı."
+        }
+        require(plan.scenes.map { it.caption }.distinct().size == plan.scenes.size) {
+            "Hikâyede yinelenen sahne metni kullanılamaz."
+        }
+        require(plan.scenes.all { it.claimIds.isNotEmpty() }) {
+            "Her sahnenin en az bir doğrulanabilir bilgi kaynağı olmalı."
+        }
+        require(plan.claimSources.isNotEmpty() &&
+            plan.claimSources.map { it.claimId }.distinct().size == plan.claimSources.size) {
+            "Araştırma kaynakları eksik veya yinelenmiş."
+        }
+        val claimsById = plan.claimSources.associateBy { it.claimId }
+        plan.scenes.forEach { scene ->
+            scene.claimIds.forEach { claimId ->
+                val source = claimsById[claimId]
+                    ?: throw IllegalArgumentException("Sahne için doğrulanmış kaynak bulunamadı.")
+                require(source.sceneId == scene.sceneId &&
+                    source.sourceUrl.startsWith("https://") &&
+                    source.publisher.isNotBlank() &&
+                    source.checkedOn.isNotBlank() &&
+                    source.supportedClaim.isNotBlank()) {
+                    "Sahne kaynağının kimliği veya desteklediği iddia eksik."
+                }
+            }
+        }
+        require(plan.scenes.none { scene ->
+            val copy = (scene.heading + " " + scene.caption).lowercase(Locale.forLanguageTag("tr-TR"))
+            genericFiller.any(copy::contains)
+        }) {
+            "Genel dolgu metni kaynaklı hikâyede kullanılamaz."
+        }
+        require(plan.captions.firstOrNull()?.let {
+            it.startMs == 0L && it.text == plan.hookText && it.endMs in 1L..2_000L
+        } == true) {
+            "Kanca altyazısı videonun ilk iki saniyesinde başlamalı."
+        }
+    }
+
+    fun validateHookDuration(actualDurationMs: Long) {
+        require(actualDurationMs in 1L..2_000L) {
+            "İlk kanca 2 saniyeyi aşıyor; video üretilmedi."
+        }
+    }
+}
+
+/** Only researched story packs with verified facts and licensed scene visuals can be rendered. */
 object VideoStoryPlanBuilder {
     private val istanbulConquestAliases = listOf(
         "istanbul'un fethi",
@@ -69,67 +149,115 @@ object VideoStoryPlanBuilder {
     fun build(prompt: String): VideoStoryPlan {
         val clean = prompt.trim().take(VideoRenderSpec.MAX_TITLE_LENGTH)
         require(clean.isNotBlank()) { "Video konusu boş olamaz." }
-
         val normalized = clean.lowercase(Locale.forLanguageTag("tr-TR"))
-        val isIstanbulConquest = istanbulConquestAliases.any(normalized::contains)
-        val scenes = if (isIstanbulConquest) istanbulConquestScenes() else genericScenes(clean)
-
-        val captions = scenes.mapIndexed { index, scene ->
-            TimedVideoCaption(
-                startMs = index * VideoStoryPlan.SECONDS_PER_SCENE * 1_000L,
-                endMs = (index + 1) * VideoStoryPlan.SECONDS_PER_SCENE * 1_000L,
-                text = scene.caption
-            )
+        require(istanbulConquestAliases.any(normalized::contains)) {
+            "Bu konu için doğrulanmış araştırma ve lisanslı sahne görselleri bulunamadı. Video üretilmedi."
         }
 
-        val plan = VideoStoryPlan(
-            title = clean,
-            scenes = scenes,
-            narrationText = scenes.joinToString(" ") { scene ->
-                "${scene.heading}. ${scene.caption}"
-            },
-            captions = captions,
-            sourceLabel = if (isIstanbulConquest) "Yerel tarih şablonu · prosedürel çizimler" else "Genel yerel şablon · prosedürel çizimler"
+        val hook = "Gemiler karadan Haliç'e!"
+        val scenes = listOf(
+            VideoScene(
+                heading = hook,
+                caption = "Bizans'ın gerdiği zincir, Osmanlı donanmasının Haliç'e doğrudan girmesini engelliyordu.",
+                sceneId = "1453-hook-siege",
+                visualAssetId = "commons-constantinople-1453-miniature",
+                claimIds = listOf("ships-overland-hook")
+            ),
+            VideoScene(
+                heading = "II. Mehmed'in hedefi",
+                caption = "Kuşatmayı Sultan II. Mehmed yönetti. Kara ve deniz harekâtı birlikte planlandı.",
+                sceneId = "1453-mehmed",
+                visualAssetId = "commons-mehmed-ii-portrait",
+                claimIds = listOf("mehmed-commander")
+            ),
+            VideoScene(
+                heading = "Boğazı tutan hisar",
+                caption = "Rumeli Hisarı, Boğaz'ın Rumeli yakasında 1452'de inşa edildi; geçişi denetlemeye yönelik stratejik bir kaleydi.",
+                sceneId = "1453-rumeli",
+                visualAssetId = "commons-rumeli-hisari-2025",
+                claimIds = listOf("rumeli-hisari")
+            ),
+            VideoScene(
+                heading = "Gemiler karadan Haliç'e",
+                caption = "Osmanlı gemilerinin bir bölümü karadan Haliç'e indirildi. Kaynaklar gemi sayısı, güzergâh ve sürede farklılaşıyor.",
+                sceneId = "1453-halic-map",
+                visualAssetId = "commons-1453-siege-map-en",
+                claimIds = listOf("ships-overland-map")
+            ),
+            VideoScene(
+                heading = "54 günün sonu",
+                caption = "Kuşatma 6 Nisan'da başladı ve 29 Mayıs 1453'te sona erdi. Türk Tarih Kurumu bu süreci 54 gün olarak verir.",
+                sceneId = "1453-walls",
+                visualAssetId = "commons-golden-horn-wall",
+                claimIds = listOf("siege-dates")
+            )
         )
-        plan.renderSpec.validate()
+        val sources = listOf(
+            VideoClaimSource(
+                "ships-overland-hook",
+                "1453-hook-siege",
+                "https://islamansiklopedisi.org.tr/halic",
+                "TDV İslâm Ansiklopedisi",
+                "2026-11-20",
+                "1453 kuşatmasında Haliç girişindeki zincir ve gemilerin karadan Haliç'e indirilmesi."
+            ),
+            VideoClaimSource(
+                "mehmed-commander",
+                "1453-mehmed",
+                "https://ttk.gov.tr/istanbulun-fethi/",
+                "Türk Tarih Kurumu",
+                "2026-11-20",
+                "İstanbul kuşatmasının Sultan Mehmed tarafından yürütülmesi."
+            ),
+            VideoClaimSource(
+                "rumeli-hisari",
+                "1453-rumeli",
+                "https://islamansiklopedisi.org.tr/rumelihisari",
+                "TDV İslâm Ansiklopedisi",
+                "2026-11-20",
+                "Rumeli Hisarı'nın Boğaz'ın Rumeli yakasında, 15. yüzyılda ve 1452'de inşa edilmesi.",
+                "İnşa başlangıcına ilişkin kaynaklar farklı tarihler verir; anlatı yalnızca 1452 yılını kullanır."
+            ),
+            VideoClaimSource(
+                "ships-overland-map",
+                "1453-halic-map",
+                "https://islamansiklopedisi.org.tr/istanbul",
+                "TDV İslâm Ansiklopedisi",
+                "2026-11-20",
+                "Gemilerin karadan Haliç'e indirilmesi ve bunun kuşatma içindeki yeri.",
+                "Gemi sayısı, güzergâh ve tek gecede tamamlanıp tamamlanmadığı tartışmalıdır; kesin sayı verilmez."
+            ),
+            VideoClaimSource(
+                "siege-dates",
+                "1453-walls",
+                "https://ttk.gov.tr/istanbulun-fethi/",
+                "Türk Tarih Kurumu",
+                "2026-11-20",
+                "Kuşatmanın 6 Nisan 1453'te başlaması ve İstanbul'un 29 Mayıs 1453'te alınması."
+            )
+        )
+        val captions = buildList {
+            add(TimedVideoCaption(0L, 2_000L, hook))
+            val sceneSpan = (45_000L - 2_000L) / scenes.size
+            scenes.forEachIndexed { index, scene ->
+                val start = 2_000L + index * sceneSpan
+                val spokenText = if (index == 0) scene.caption else scene.heading + ". " + scene.caption
+                add(TimedVideoCaption(start, start + sceneSpan, spokenText))
+            }
+        }
+        val plan = VideoStoryPlan(
+            title = "İstanbul'un Fethi: 1453",
+            scenes = scenes,
+            narrationText = (listOf(hook) + scenes.mapIndexed { index, scene ->
+                if (index == 0) scene.caption else scene.heading + ". " + scene.caption
+            }).joinToString(" "),
+            captions = captions,
+            sourceLabel = "Türk Tarih Kurumu + TDV İslâm Ansiklopedisi · Wikimedia Commons PD/CC BY-SA",
+            hookText = hook,
+            claimSources = sources
+        )
+        VideoStoryQualityPolicy.validate(plan)
+        plan.renderSpec.copy(requireLicensedVisualAssets = false).validate()
         return plan
     }
-
-    private val ISTANBUL_CONQUEST_SCENES = listOf(
-        VideoScene(
-            "1453: Hedef Konstantiniyye",
-            "Fatih Sultan Mehmet, Konstantiniyye için hazırlıklarını tamamladı. Rumeli Hisarı, Boğaz geçişini denetlemek için önceden inşa edilmişti.",
-            VideoVisualStyle.CITY_WALLS
-        ),
-        VideoScene(
-            "Kuşatma başladı",
-            "6 Nisan 1453'te Osmanlı ordusu surları kuşattı; toplar gedikler açtı. Büyük toplar, surlarda gedikler açmak için kullanıldı.",
-            VideoVisualStyle.CANNON_SIEGE
-        ),
-        VideoScene(
-            "Haliç'te beklenmedik hamle",
-            "Gemiler karadan Haliç'e indirildi ve savunma hattı zorlandı. Bu hamle, savunmayı Haliç yönünde de meşgul etti.",
-            VideoVisualStyle.SHIPS
-        ),
-        VideoScene(
-            "29 Mayıs sabahı",
-            "29 Mayıs 1453 sabahı genel hücum başladı. Kuşatma haftalar sürdü ve savunma sürekli baskı altındaydı.",
-            VideoVisualStyle.SUNRISE
-        ),
-        VideoScene(
-            "Tarihi sonuç",
-            "Şehir fethedildi ve Osmanlı'nın önemli merkezlerinden biri oldu. Fetih, bölgenin siyasi ve ticari dengelerini değiştirdi.",
-            VideoVisualStyle.CITY_MAP
-        )
-    )
-
-    private fun istanbulConquestScenes(): List<VideoScene> = ISTANBUL_CONQUEST_SCENES
-
-    private fun genericScenes(topic: String): List<VideoScene> = listOf(
-        VideoScene("Konuya giriş", "$topic konusunu kısa ve anlaşılır biçimde ele alıyoruz. Önce temel soruyu, neden önemli olduğunu ve hangi çerçevede değerlendireceğimizi açıklıyoruz."),
-        VideoScene("Arka plan", "Konunun ortaya çıktığı koşulları ve temel kavramları tanıyoruz. Böylece gelişmeleri doğru sırayla izleyip aralarındaki bağlantıları daha kolay kurabiliriz."),
-        VideoScene("Öne çıkan gelişmeler", "Öne çıkan gelişmeleri ve kararları sırasıyla inceliyoruz. Her adımın sonraki aşamayı nasıl etkilediğine ve hangi seçeneklerin öne çıktığına bakıyoruz."),
-        VideoScene("Dönüm noktası", "Sürecin yönünü değiştiren temel noktaya odaklanıyoruz. Bu aşamada belirleyici nedenleri, karşılaşılan güçlükleri ve sonuçlara giden yolu karşılaştırıyoruz."),
-        VideoScene("Sonuç ve etki", "Başlıca sonuçları ve bugüne uzanan etkileri özetliyoruz. Sonunda konunun ana fikrini, akılda kalacak kısa bir değerlendirmeyle tamamlıyoruz.")
-    )
 }
