@@ -1,5 +1,6 @@
 package com.openjarvis.video
 
+import com.openjarvis.video.assets.ResolvedSceneVisual
 import kotlin.math.abs
 
 enum class VideoVisualStyle { GENERIC, CITY_WALLS, CANNON_SIEGE, SHIPS, SUNRISE, CITY_MAP }
@@ -7,7 +8,11 @@ enum class VideoVisualStyle { GENERIC, CITY_WALLS, CANNON_SIEGE, SHIPS, SUNRISE,
 data class VideoScene(
     val heading: String,
     val caption: String,
-    val visualStyle: VideoVisualStyle = VideoVisualStyle.GENERIC
+    val visualStyle: VideoVisualStyle = VideoVisualStyle.GENERIC,
+    val sceneId: String = "",
+    val visualAssetId: String? = null,
+    val visualAsset: ResolvedSceneVisual? = null,
+    val claimIds: List<String> = emptyList()
 )
 
 data class VideoRenderSpec(
@@ -19,7 +24,9 @@ data class VideoRenderSpec(
     val secondsPerScene: Int = 2,
     val bitRate: Int = 900_000,
     /** Optional exact frame count per scene, derived from the real TTS segment durations. */
-    val sceneFrameDurations: List<Int>? = null
+    val sceneFrameDurations: List<Int>? = null,
+    /** Production story renders must provide a unique, license-verified image for every scene. */
+    val requireLicensedVisualAssets: Boolean = false
 ) {
     val frameCount: Int
         get() = sceneFrameDurations?.sum() ?: scenes.size * secondsPerScene * framesPerSecond
@@ -29,7 +36,6 @@ data class VideoRenderSpec(
         get() = frameCount.toLong() * 1_000L / framesPerSecond
     val estimatedOutputBytes: Long get() = bitRate.toLong() * durationSeconds / 8L * 2L
 
-    /** Resolves the visual scene for a frame using speech-derived boundaries when present. */
     fun sceneIndexForFrame(frame: Int): Int {
         require(frame in 0 until frameCount)
         val durations = sceneFrameDurations
@@ -51,6 +57,25 @@ data class VideoRenderSpec(
         }
         require(scenes.all { it.caption.length <= MAX_CAPTION_LENGTH }) {
             "Sahne açıklamaları 180 karakteri aşamaz."
+        }
+        if (requireLicensedVisualAssets) {
+            require(scenes.all { scene ->
+                val asset = scene.visualAsset
+                !scene.sceneId.isBlank() &&
+                    !scene.visualAssetId.isNullOrBlank() &&
+                    asset != null &&
+                    asset.file.isFile &&
+                    asset.file.length() > 0L &&
+                    asset.attribution.isValid() &&
+                    asset.attribution.assetId == scene.visualAssetId &&
+                    asset.attribution.sceneId == scene.sceneId
+            }) {
+                "Her sahne için kaynağı ve lisansı doğrulanmış ayrı bir görsel gerekli."
+            }
+            require(scenes.map { it.visualAssetId }.distinct().size == scenes.size &&
+                scenes.mapNotNull { it.visualAsset?.attribution?.sha256 }.distinct().size == scenes.size) {
+                "Sahnelerde aynı görsel tekrar kullanılamaz."
+            }
         }
         require(width in MIN_WIDTH..MAX_WIDTH && height in MIN_HEIGHT..MAX_HEIGHT) {
             "Video çözünürlüğü desteklenen sınırların dışında."

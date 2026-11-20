@@ -2,6 +2,8 @@ package com.openjarvis.video
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Rect
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -109,32 +111,43 @@ class Mp4VideoRenderer(context: Context) {
             val activeEglRenderer = EglFrameRenderer(activeInputSurface, spec.width, spec.height)
             eglRenderer = activeEglRenderer
 
-            val bitmap = Bitmap.createBitmap(spec.width, spec.height, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bitmap)
+            val sceneBitmaps = mutableListOf<Bitmap?>()
             try {
-                for (frame in 0 until spec.frameCount) {
-                    ensureActive()
-                    drawFrame(canvas, bitmap, spec, frame)
-                    val presentationTimeNs = frame * 1_000_000_000L / spec.framesPerSecond
-                    activeEglRenderer.draw(bitmap, presentationTimeNs)
-                    drainEncoder(activeCodec, bufferInfo, false, onFormatChanged = { outputFormat ->
-                        if (muxerStarted) throw VideoRenderException("Video biçimi birden fazla kez değişti.")
-                        muxerTrack = activeMuxer.addTrack(outputFormat)
-                        activeMuxer.start()
-                        muxerStarted = true
-                    }, writeSample = { buffer, info ->
-                        if (!muxerStarted || muxerTrack < 0) throw VideoRenderException("MP4 yazıcısı hazır değil.")
-                        activeMuxer.writeSampleData(muxerTrack, buffer, info)
-                    })
-                    if (frame % 4 == 0 || frame == spec.frameCount - 1) {
-                        val done = frame + 1
-                        // Invoke synchronously on the render dispatcher: callers can cancel deterministically,
-                        // and no queued progress callback can overwrite the terminal UI state after render returns.
-                        onProgress(done, spec.frameCount)
+                spec.scenes.forEach { scene ->
+                    val visual = scene.visualAsset
+                    if (spec.requireLicensedVisualAssets && visual == null) {
+                        throw VideoRenderException("Lisanslı sahne görseli eksik; video üretilmedi.")
                     }
+                    sceneBitmaps += visual?.let { decodeVisualAsset(it.file, spec) }
+                }
+                val bitmap = Bitmap.createBitmap(spec.width, spec.height, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(bitmap)
+                try {
+                    for (frame in 0 until spec.frameCount) {
+                        ensureActive()
+                        val sceneIndex = spec.sceneIndexForFrame(frame)
+                        drawFrame(canvas, bitmap, spec, frame, sceneBitmaps[sceneIndex])
+                        val presentationTimeNs = frame * 1_000_000_000L / spec.framesPerSecond
+                        activeEglRenderer.draw(bitmap, presentationTimeNs)
+                        drainEncoder(activeCodec, bufferInfo, false, onFormatChanged = { outputFormat ->
+                            if (muxerStarted) throw VideoRenderException("Video biçimi birden fazla kez değişti.")
+                            muxerTrack = activeMuxer.addTrack(outputFormat)
+                            activeMuxer.start()
+                            muxerStarted = true
+                        }, writeSample = { buffer, info ->
+                            if (!muxerStarted || muxerTrack < 0) throw VideoRenderException("MP4 yazıcısı hazır değil.")
+                            activeMuxer.writeSampleData(muxerTrack, buffer, info)
+                        })
+                        if (frame % 4 == 0 || frame == spec.frameCount - 1) {
+                            val done = frame + 1
+                            onProgress(done, spec.frameCount)
+                        }
+                    }
+                } finally {
+                    bitmap.recycle()
                 }
             } finally {
-                bitmap.recycle()
+                sceneBitmaps.filterNotNull().forEach { it.recycle() }
             }
 
             ensureActive()
@@ -232,45 +245,123 @@ class Mp4VideoRenderer(context: Context) {
         }
     }
 
-    private fun drawFrame(canvas: Canvas, bitmap: Bitmap, spec: VideoRenderSpec, frame: Int) {
+    private fun drawFrame(
+        canvas: Canvas,
+        bitmap: Bitmap,
+        spec: VideoRenderSpec,
+        frame: Int,
+        sceneVisual: Bitmap?
+    ) {
         canvas.drawColor(Color.rgb(8, 12, 28))
         val width = bitmap.width.toFloat()
         val height = bitmap.height.toFloat()
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
-        paint.color = Color.rgb(124, 92, 255)
-        canvas.drawRoundRect(RectF(width * 0.08f, height * 0.09f, width * 0.92f, height * 0.105f), 8f, 8f, paint)
-
-        paint.color = Color.rgb(178, 168, 208)
-        paint.textSize = width * 0.035f
-        paint.textAlign = Paint.Align.CENTER
-        paint.typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
-        canvas.drawText("JARVIS  •  YEREL MP4 TASLAĞI", width / 2f, height * 0.17f, paint)
-
         val sceneIndex = spec.sceneIndexForFrame(frame)
         val scene = spec.scenes[sceneIndex]
-        paint.color = Color.WHITE
-        paint.textSize = width * 0.085f
-        paint.typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
-        drawCenteredWrapped(canvas, spec.title, paint, width / 2f, height * 0.34f, width * 0.82f, width * 0.105f)
-        drawSceneVisual(canvas, width, height, scene.visualStyle)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            isFilterBitmap = true
+            isDither = true
+        }
 
-        paint.color = Color.rgb(91, 224, 225)
-        paint.textSize = width * 0.062f
+        if (sceneVisual != null) {
+            drawBitmapCover(canvas, sceneVisual, width, height, paint)
+        } else {
+            if (spec.requireLicensedVisualAssets) {
+                throw VideoRenderException("Kaynağı doğrulanmış görsel olmadan sahne çizilemez.")
+            }
+            drawSceneVisual(canvas, width, height, scene.visualStyle)
+        }
+
+        paint.color = Color.argb(168, 5, 8, 20)
+        canvas.drawRect(RectF(0f, 0f, width, height * 0.22f), paint)
+        canvas.drawRect(RectF(0f, height * 0.50f, width, height), paint)
+
+        paint.color = Color.rgb(214, 224, 245)
+        paint.textSize = width * 0.032f
+        paint.textAlign = Paint.Align.CENTER
         paint.typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
-        drawCenteredWrapped(canvas, scene.heading, paint, width / 2f, height * 0.56f, width * 0.82f, width * 0.08f)
+        canvas.drawText("JARVIS  •  KAYNAKLI HİKÂYE", width / 2f, height * 0.105f, paint)
 
-        paint.color = Color.rgb(214, 218, 232)
-        paint.textSize = width * 0.047f
+        paint.color = Color.WHITE
+        paint.textSize = width * 0.055f
+        paint.typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
+        drawCenteredWrapped(canvas, spec.title, paint, width / 2f, height * 0.17f, width * 0.84f, width * 0.062f)
+
+        paint.color = Color.rgb(255, 224, 142)
+        paint.textSize = width * 0.066f
+        paint.typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
+        drawCenteredWrapped(canvas, scene.heading, paint, width / 2f, height * 0.62f, width * 0.84f, width * 0.078f)
+
+        paint.color = Color.WHITE
+        paint.textSize = width * 0.043f
         paint.typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL)
-        drawCenteredWrapped(canvas, scene.caption, paint, width / 2f, height * 0.66f, width * 0.82f, width * 0.065f)
+        drawCenteredWrapped(canvas, scene.caption, paint, width / 2f, height * 0.72f, width * 0.84f, width * 0.056f)
 
-        paint.color = Color.rgb(45, 48, 68)
-        canvas.drawRoundRect(RectF(width * 0.08f, height * 0.91f, width * 0.92f, height * 0.925f), 8f, 8f, paint)
+        val attribution = scene.visualAsset?.attribution
+        if (attribution != null) {
+            paint.color = Color.rgb(210, 218, 232)
+            paint.textSize = width * 0.024f
+            val creditLine = attribution.creator + " · " + attribution.licenseId + " " + attribution.licenseVersion
+            drawCenteredWrapped(canvas, creditLine, paint, width / 2f, height * 0.88f, width * 0.86f, width * 0.032f)
+        }
+
+        paint.color = Color.argb(150, 45, 48, 68)
+        canvas.drawRoundRect(RectF(width * 0.08f, height * 0.95f, width * 0.92f, height * 0.962f), 8f, 8f, paint)
         paint.color = Color.rgb(91, 224, 225)
         val progress = (frame + 1).toFloat() / spec.frameCount.toFloat()
-        canvas.drawRoundRect(RectF(width * 0.08f, height * 0.91f, width * (0.08f + 0.84f * progress), height * 0.925f), 8f, 8f, paint)
+        canvas.drawRoundRect(
+            RectF(width * 0.08f, height * 0.95f, width * (0.08f + 0.84f * progress), height * 0.962f),
+            8f,
+            8f,
+            paint
+        )
     }
 
+    private fun drawBitmapCover(
+        canvas: Canvas,
+        source: Bitmap,
+        width: Float,
+        height: Float,
+        paint: Paint
+    ) {
+        val sourceRect = Rect(0, 0, source.width, source.height)
+        val sourceRatio = source.width.toFloat() / source.height.toFloat()
+        val targetRatio = width / height
+        if (sourceRatio > targetRatio) {
+            val cropWidth = (source.height * targetRatio).toInt().coerceAtLeast(1)
+            val left = (source.width - cropWidth) / 2
+            sourceRect.set(left, 0, left + cropWidth, source.height)
+        } else {
+            val cropHeight = (source.width / targetRatio).toInt().coerceAtLeast(1)
+            val top = (source.height - cropHeight) / 2
+            sourceRect.set(0, top, source.width, top + cropHeight)
+        }
+        canvas.drawBitmap(source, sourceRect, RectF(0f, 0f, width, height), paint)
+    }
+
+    private fun decodeVisualAsset(file: File, spec: VideoRenderSpec): Bitmap {
+        if (!file.isFile || file.length() !in 1L..5_000_000L) {
+            throw VideoRenderException("Lisanslı görsel dosyası eksik veya boyut sınırının dışında.")
+        }
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        if (bounds.outWidth < 320 || bounds.outHeight < 200 ||
+            bounds.outWidth.toLong() * bounds.outHeight.toLong() > 24_000_000L
+        ) {
+            throw VideoRenderException("Sahne görselinin çözünürlüğü geçersiz.")
+        }
+        var sampleSize = 1
+        while (bounds.outWidth / sampleSize > spec.width * 2 ||
+            bounds.outHeight / sampleSize > spec.height * 2
+        ) {
+            sampleSize *= 2
+        }
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        return BitmapFactory.decodeFile(file.absolutePath, options)
+            ?: throw VideoRenderException("Lisanslı sahne görseli çözümlenemedi.")
+    }
 
     /** Local vector illustrations; these are procedural graphics, not AI-generated images. */
     private fun drawSceneVisual(canvas: Canvas, width: Float, height: Float, style: VideoVisualStyle) {

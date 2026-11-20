@@ -2,6 +2,7 @@ package com.openjarvis.video
 
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -98,6 +99,41 @@ class VideoNarrationComposerTest {
             VideoNarrationTimeline.captions(scenes, listOf(12_000L, 10_000L), 20_000L)
         }.exceptionOrNull()
         assertTrue(error is IllegalArgumentException)
+    }
+
+    @Test
+    fun firstHookCaptionStartsAtZeroAndUsesMeasuredTtsDuration() {
+        val captions = VideoNarrationTimeline.captionsForSpeechSegments(
+            listOf("Gemiler karadan Haliç'e!", "Haliç zinciri. Savunma hattı."),
+            listOf(1_650L, 3_400L),
+            6_000L
+        )
+        assertEquals(0L, captions.first().startMs)
+        assertEquals(1_650L, captions.first().endMs)
+        assertEquals("Gemiler karadan Haliç'e!", captions.first().text)
+        assertEquals(1_650L, captions[1].startMs)
+        assertEquals(5_050L, captions[1].endMs)
+    }
+
+    @Test
+    fun hookCaptionRejectsSpeechThatWouldRunPastTwoSecondsOrVideoEnd() {
+        assertTrue(runCatching {
+            VideoStoryQualityPolicy.validateHookDuration(2_001L)
+        }.isFailure)
+        assertTrue(runCatching {
+            VideoNarrationTimeline.captionsForSpeechSegments(
+                listOf("Gemiler karadan Haliç'e!"),
+                listOf(1_500L),
+                1_000L
+            )
+        }.isFailure)
+    }
+
+    @Test
+    fun actualTtsVoiceMustBePresentAndExactlyTurkishAfterSelection() {
+        assertTrue(!isActualVoiceExactTurkish(null))
+        assertTrue(!isActualVoiceExactTurkish(Locale.forLanguageTag("en-US")))
+        assertTrue(isActualVoiceExactTurkish(Locale.forLanguageTag("tr-TR")))
     }
 
     private fun wavFile(

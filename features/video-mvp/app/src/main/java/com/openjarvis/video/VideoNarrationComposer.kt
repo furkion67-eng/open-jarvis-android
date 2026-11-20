@@ -36,6 +36,9 @@ import java.util.UUID
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
+internal fun isActualVoiceExactTurkish(actualLocale: Locale?): Boolean =
+    actualLocale != null && TurkishTtsPolicy.isExactTurkishLocale(actualLocale.toLanguageTag())
+
 internal data class PcmWav(
     val sampleRate: Int,
     val channels: Int,
@@ -162,11 +165,30 @@ internal object VideoNarrationTimeline {
             TimedVideoCaption(start, cursor, "${scene.heading}. ${scene.caption}")
         }
     }
+    
+    fun captionsForSpeechSegments(
+        spokenTexts: List<String>,
+        segmentDurationsMs: List<Long>,
+        videoDurationMs: Long
+    ): List<TimedVideoCaption> {
+        require(spokenTexts.isNotEmpty() && spokenTexts.size == segmentDurationsMs.size)
+        require(spokenTexts.all { it.isNotBlank() } && segmentDurationsMs.all { it > 0L })
+        require(videoDurationMs > 0L && segmentDurationsMs.sum() <= videoDurationMs) {
+            "Türkçe anlatım video süresini aşıyor; daha kısa bir konu metni kullan."
+        }
+        var cursor = 0L
+        return spokenTexts.mapIndexed { index, text ->
+            val start = cursor
+            cursor += segmentDurationsMs[index]
+            TimedVideoCaption(start, cursor, text)
+        }
+    }
 }
 internal data class NarratedVideoResult(
     val video: VideoRenderResult,
     val captions: List<TimedVideoCaption>,
-    val audioDurationMs: Long
+    val audioDurationMs: Long,
+    val hookDurationMs: Long = 0L
 )
 
 /**
@@ -190,12 +212,23 @@ class VideoNarrationComposer(private val context: Context) {
             val activeEngine = createTurkishEngine()
             engine = activeEngine
             withContext(Dispatchers.Main.immediate) { configureTurkishVoice(activeEngine) }
+            VideoStoryQualityPolicy.validate(plan)
+            plan.renderSpec.validate()
             val segments = mutableListOf<PcmWav>()
+            val spokenTexts = mutableListOf<String>()
+            val hookFile = File(tempDir, "hook.wav")
+            synthesizeScene(activeEngine, plan.hookText, hookFile)
+            val hookSegment = withContext(Dispatchers.IO) { PcmWavReader.read(hookFile) }
+            VideoStoryQualityPolicy.validateHookDuration(hookSegment.durationMs)
+            segments += hookSegment
+            spokenTexts += plan.hookText
+
             plan.scenes.forEachIndexed { index, scene ->
-                val wavFile = File(tempDir, "scene-${index + 1}.wav")
-                val spokenText = "${scene.heading}. ${scene.caption}"
+                val wavFile = File(tempDir, "scene-" + (index + 1) + ".wav")
+                val spokenText = if (index == 0) scene.caption else scene.heading + ". " + scene.caption
                 synthesizeScene(activeEngine, spokenText, wavFile)
                 segments += withContext(Dispatchers.IO) { PcmWavReader.read(wavFile) }
+                spokenTexts += spokenText
             }
 
             val first = segments.firstOrNull() ?: throw VideoRenderException("Video için anlatım sahnesi bulunamadı.")
@@ -205,8 +238,12 @@ class VideoNarrationComposer(private val context: Context) {
                 }) {
                 throw VideoRenderException("Türkçe ses motoru sahneler arasında farklı ses biçimleri üretti.")
             }
+            val sceneDurations = buildList {
+                add(segments[0].durationMs + segments[1].durationMs)
+                for (index in 2 until segments.size) add(segments[index].durationMs)
+            }
             val sceneFrames = VideoNarrationTimeline.sceneFrameDurations(
-                segments.map { it.durationMs },
+                sceneDurations,
                 plan.renderSpec.framesPerSecond
             )
             val speechTimedSpec = plan.renderSpec.copy(sceneFrameDurations = sceneFrames).also { it.validate() }
@@ -236,8 +273,8 @@ class VideoNarrationComposer(private val context: Context) {
             // Pad only frame-rounding silence so AAC and H.264 tracks have matching durations.
             val pcm = ByteArray(targetBytes.toInt())
             System.arraycopy(speechPcm, 0, pcm, 0, speechPcm.size)
-            val captions = VideoNarrationTimeline.captions(
-                plan.scenes,
+            val captions = VideoNarrationTimeline.captionsForSpeechSegments(
+                spokenTexts,
                 segments.map { it.durationMs },
                 renderedVideo.durationMs
             )
@@ -262,7 +299,8 @@ class VideoNarrationComposer(private val context: Context) {
             return NarratedVideoResult(
                 video = renderedVideo.copy(file = final, sizeBytes = final.length()),
                 captions = captions,
-                audioDurationMs = audioDurationMs
+                audioDurationMs = audioDurationMs,
+                hookDurationMs = hookSegment.durationMs
             )
         } catch (cancelled: CancellationException) {
             finalFile?.delete()
@@ -351,8 +389,8 @@ class VideoNarrationComposer(private val context: Context) {
         if (runCatching { engine.setVoice(voice) }.getOrDefault(TextToSpeech.ERROR) != TextToSpeech.SUCCESS) {
             throw VideoRenderException("Türkçe ses seçilemedi.")
         }
-        val actualLocale = runCatching { engine.voice?.locale ?: voice.locale }.getOrDefault(voice.locale)
-        if (!TurkishTtsPolicy.isExactTurkishLocale(actualLocale.toLanguageTag())) {
+        val actualLocale = runCatching { engine.voice?.locale }.getOrNull()
+        if (!isActualVoiceExactTurkish(actualLocale)) {
             throw VideoRenderException("Kurulu Android ses motorunda kullanılabilir Türkçe ses bulunamadı (tr-TR gerekli).")
         }
         runCatching { engine.setSpeechRate(1.08f) }

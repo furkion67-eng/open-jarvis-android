@@ -1,28 +1,42 @@
-# Local video MVP — Turkish narrated vertical MP4
+# Local video MVP — source-backed Turkish vertical MP4
 
-Current feature stage:
+Current renderer/content-pipeline contract:
 
-- Accepts a natural-language topic and builds a five-scene Turkish storyboard.
-- The Istanbul conquest topic uses a small curated set of dated historical milestones; other topics use a clearly generic outline rather than invented topic-specific facts.
-- Targets an approximately 45-second, 9:16 short. It synthesizes each scene first, then derives frame-accurate visual scene boundaries from the measured tr-TR WAV durations (with visual transitions rounded up by less than one encoder frame per scene) before rendering H.264 locally with Android MediaCodec, EGL14 and OpenGL ES. Total output is bounded to 3–60 seconds, 1,800 frames and 24 MB. Istanbul scenes include five locally drawn procedural vector illustrations (walls, cannon, ships, sunrise and map).
-- Synthesizes each scene with an installed Turkish Android TTS voice using `tr-TR`; there is no silent English fallback. If the device has no usable Turkish voice data, the pipeline stops with a Turkish explanation.
-- Encodes narration to AAC, muxes it with H.264, and validates that the final MP4 contains both audio and video tracks with compatible durations.
-- Builds SRT cues from each actual synthesized WAV segment duration; visual transitions use the same segment boundaries, and only sub-frame rounding silence is padded into the AAC track. Exports the MP4 to Movies/Open JARVIS and the SRT to Downloads/Open JARVIS through MediaStore on Android 10+.
-- The share action only opens Android's chooser after the user presses the button. It does not upload or publish to YouTube/TikTok.
-- Runs render/encoding work off the main thread, checks cancellation, removes temporary WAV/AAC/silent files on failure, limits resolution/FPS/duration/bitrate and checks free storage.
+- A render request is accepted only when a researched story pack exists. The first supported pack is **İstanbul'un Fethi: 1453**; unsupported topics fail closed instead of receiving generic filler or invented facts.
+- The five scenes use five distinct Wikimedia Commons assets with pinned file-page revisions. Every descriptor records the creator, exact license/version, license URL, source revision URL and attribution text. The resolver rejects missing/unknown licenses, NC/ND terms, unverified source revisions, non-HTTPS or non-Wikimedia downloads, unexpected MIME types, oversized/invalid images and duplicate image hashes.
+- The current pack uses Public Domain Mark 1.0 and CC BY-SA 4.0 assets. CC BY-SA adaptations must be distributed under CC BY-SA 4.0; this obligation is carried in the typed attribution manifest and the generated credits. Attribution includes the creator, license, source revision and 9:16 crop note.
+- Visual assets are fetched over HTTPS from Wikimedia Commons, cached under the app cache directory for at most 30 days, and bounded to 10 entries / 24 MB. Expired, corrupt and excess entries are removed. A valid cache entry can be reused offline; without a valid cache, network failure stops rendering. There is no procedural visual fallback for production story renders.
+- The first spoken segment is a separate Turkish hook. The pipeline measures the actual tr-TR TTS WAV duration and refuses to render if the hook exceeds 2,000 ms. The following scene segments are synthesized independently; SRT cues use the measured duration of the exact spoken text.
+- Each scene uses its own source image as a full-bleed 9:16 visual, with readable Turkish title/caption overlays and a visible creator/license credit line. The full attribution manifest and researched claim sources are returned as typed metadata for the host task/publishing-draft layer.
+- Production output is 720×1280 vertical at 24 FPS with a 1.5 Mbps video target (the size validator keeps the estimated MP4 under 24 MB). The output is H.264 video plus AAC tr-TR TTS narration only; no background music is included yet. A royalty-cleared music catalogue and mixing stage remain separate work. The renderer validates the muxed tracks; the pipeline additionally verifies a readable content:// MP4 URI, an SRT content:// URI, the MP4 ftyp signature and a timed first-hook caption before reporting success.
+- A 720×1280 JPEG cover is extracted from the rendered MP4, exported to Pictures/Open JARVIS, validated by its JPEG signature and returned with concise Turkish alt text and creator/license context. Output is exported to Movies/Open JARVIS and captions to Downloads/Open JARVIS through MediaStore. The share action remains a user-initiated Android chooser; this renderer does not upload or publish to any platform.
 
-**Visual provenance:** the five scene images are procedural local Canvas vector drawings, not AI-generated images or licensed historical photographs.
+## Research pack
 
-**Remaining validation:** the speech-timed narration/AAC/mux/export path needs exact-head Android 13/14 CI and physical TECNO acoustic/playback acceptance. Actual duration follows the installed Turkish TTS voice and may vary around the 45-second target; outputs above 60 seconds fail closed. Emulator or unit tests do not prove the installed TECNO TTS voice sounds natural. YouTube/TikTok OAuth, token storage and per-post approval are not included in this PR.
+The İstanbul 1453 story uses the following fact sources:
 
-No secrets, paid providers, account settings or external publication are used.
+- Türk Tarih Kurumu, İstanbul'un Fethi: https://ttk.gov.tr/istanbulun-fethi/
+- TDV İslâm Ansiklopedisi, Haliç: https://islamansiklopedisi.org.tr/halic
+- TDV İslâm Ansiklopedisi, Rumelihisarı: https://islamansiklopedisi.org.tr/rumelihisari
+- TDV İslâm Ansiklopedisi, İstanbul: https://islamansiklopedisi.org.tr/istanbul
 
+The script avoids a definitive ship count or route. The TDV sources note that the number, route and duration details are disputed.
 
-## Natural-language command path
+## Asset provenance
 
-Typed and recognized Turkish requests such as “İstanbul'un Fethi hakkında video oluştur” are
-classified as a CREATE_VIDEO intent and persisted as a task preview. The assistant explicitly
-states that no video exists yet. The user must review and accept the plan in the task control
-center; only then does the local video executor invoke the existing speech-timed
-`VideoStoryPipeline`. Task success is persisted only after the MP4 and SRT MediaStore URIs are
-readable. Generic requests such as “video hakkında konuş” remain ordinary conversation.
+| Scene | Creator | License | Pinned source |
+|---|---|---|---|
+| Siege miniature / hook | Jean Le Tavernier | Public Domain Mark 1.0 | https://commons.wikimedia.org/w/index.php?title=File:Constantinople_1453.jpg&oldid=1222147207 |
+| Mehmed II portrait | Gentile Bellini | Public Domain Mark 1.0 | https://commons.wikimedia.org/w/index.php?title=File:Bellini,_Gentile_-_Sultan_Mehmet_II.jpg&oldid=1284749530 |
+| Rumeli Hisarı | mike | CC BY-SA 4.0 | https://commons.wikimedia.org/w/index.php?title=File:Rumeli_Hisar%C4%B1_Fortress_in_2025.jpg&oldid=1118525609 |
+| Siege map | Sémhur | CC BY-SA 4.0 | https://commons.wikimedia.org/w/index.php?title=File:Siege_of_Constantinople_1453_map-en.svg&oldid=1287462680 |
+| Golden Horn wall | Isabeau | CC BY-SA 4.0 | https://commons.wikimedia.org/w/index.php?title=File:Golden_Horn_Wall.jpg&oldid=1237207514 |
+
+## Remaining validation and limitations
+
+- Exact-head Android 13/14 CI and physical TECNO Spark 20 Pro acceptance are still required. Unit tests do not prove the device's installed Turkish voice sounds natural.
+- The current curated research pack is only for İstanbul 1453. Other topics need a separate verified research bundle and a distinct licensed asset per scene before they can render.
+- This is the creative-renderer layer only. It returns attribution and research metadata; the host task/publishing layer must persist those fields and expose the credits in a draft description.
+- No YouTube/TikTok/Instagram OAuth, account access, credential storage, scheduling or real publishing is included. Public posting remains a separate product flow requiring official OAuth and explicit per-post approval.
+
+No passwords, real API keys, account settings, paid providers or external publications are used.
