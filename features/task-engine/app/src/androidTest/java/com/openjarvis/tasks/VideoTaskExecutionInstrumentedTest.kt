@@ -69,6 +69,9 @@ class VideoTaskExecutionInstrumentedTest {
         val completed = dao.findById(id)!!
         assertEquals(JarvisTaskStatus.SUCCEEDED.storageValue, completed.status)
         assertEquals(VIDEO_TASK_EXECUTION_MODE, completed.executionMode)
+        assertEquals("content://media/external/video/media/123", completed.videoUri)
+        assertEquals("content://media/external/downloads/456", completed.captionsUri)
+        assertTrue(VideoArtifactMetadataCodec.decode(completed.videoArtifactMetadataJson)!!.isValid())
         val artifacts = JSONArray(completed.artifactRefs)
         assertEquals(2, artifacts.length())
         assertEquals("content://media/external/video/media/123", artifacts.getString(0))
@@ -134,7 +137,27 @@ class VideoTaskExecutionInstrumentedTest {
         ): JarvisTaskExecutionResult {
             calls += 1
             assertEquals(task.idempotencyKey, idempotencyKey)
-            return result
+            if (!result.verified || result.artifactReferences.size < 2) return result
+            val metadata = VideoArtifactMetadata(
+                durationMs = 54_000L,
+                width = 360,
+                height = 640,
+                frameRate = 24,
+                hasAudio = true,
+                narrationLocale = "tr-TR",
+                sceneCount = 5,
+                sourceLabel = "fake verified fixture",
+                attributionManifest = emptyList(),
+                attributionManifestComplete = false
+            )
+            return result.copy(
+                videoArtifact = PersistedVideoArtifact(
+                    artifactId = task.id,
+                    exportedUri = result.artifactReferences[0],
+                    captionsUri = result.artifactReferences[1],
+                    metadata = metadata
+                )
+            )
         }
     }
 
@@ -163,6 +186,9 @@ class VideoTaskExecutionInstrumentedTest {
 
             val artifacts = JSONArray(completed.artifactRefs)
             assertEquals("Both verified MediaStore artifacts must be persisted", 2, artifacts.length())
+            assertEquals(artifacts.getString(0), completed.videoUri)
+            assertEquals(artifacts.getString(1), completed.captionsUri)
+            assertTrue(VideoArtifactMetadataCodec.decode(completed.videoArtifactMetadataJson)!!.isValid())
             mp4Uri = Uri.parse(artifacts.getString(0))
             srtUri = Uri.parse(artifacts.getString(1))
             assertTrue(completed.outputSummary!!.contains(mp4Uri.toString()))
