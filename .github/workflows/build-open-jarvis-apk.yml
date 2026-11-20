@@ -235,7 +235,6 @@ jobs:
             app/src/androidTest/java/com/openjarvis/tasks/VideoArtifactPersistenceInstrumentedTest.kt \
             app/src/androidTest/java/com/openjarvis/tasks/VideoTaskExecutionInstrumentedTest.kt \
             app/src/androidTest/java/com/openjarvis/ui/player/VideoArtifactPlayerInstrumentedTest.kt \
-            app/src/androidTest/AndroidManifest.xml \
             app/src/main/java/com/openjarvis/tasks/DeviceActionEventEntity.kt \
             app/src/main/java/com/openjarvis/tasks/DeviceActionOutcomeJournal.kt \
             app/src/test/java/com/openjarvis/deviceaccess/storage/StorageMutationPolicyTest.kt \
@@ -248,6 +247,7 @@ jobs:
           grep -Fq 'DashboardPlayerTestActivity' app/src/debug/AndroidManifest.xml
           grep -Fq 'android:exported="false"' app/src/debug/AndroidManifest.xml
           if grep -Fq 'DashboardPlayerTestActivity' app/src/main/AndroidManifest.xml; then echo '::error::Debug-only player host leaked into the production manifest'; exit 1; fi
+          if [ -f app/src/androidTest/AndroidManifest.xml ] && grep -Fq 'DashboardPlayerTestActivity' app/src/androidTest/AndroidManifest.xml; then echo '::error::Debug-only player host leaked into the instrumentation manifest'; exit 1; fi
           grep -Fq 'DeviceActionOutcomeJournal.record' app/src/main/java/com/openjarvis/deviceactions/ui/SmsComposePanel.kt
           grep -Fq 'DeviceCapabilityStatusPanel(modifier = Modifier.fillMaxWidth())' app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt
           grep -Fq 'StorageAccessPanel(modifier = Modifier.fillMaxWidth())' app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt
