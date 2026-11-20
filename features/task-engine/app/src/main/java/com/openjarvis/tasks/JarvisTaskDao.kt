@@ -63,6 +63,10 @@ interface JarvisTaskDao {
             currentStep = :currentStep,
             executionMode = :executionMode,
             progressPercent = :progressPercent,
+            artifactRefs = '[]',
+            videoUri = NULL,
+            captionsUri = NULL,
+            videoArtifactMetadataJson = NULL,
             errorCode = NULL,
             errorMessage = NULL,
             updatedAt = :updatedAt
@@ -178,6 +182,9 @@ interface JarvisTaskDao {
             progressPercent = :progressPercent,
             outputSummary = :outputSummary,
             artifactRefs = :artifactRefs,
+            videoUri = :videoUri,
+            captionsUri = :captionsUri,
+            videoArtifactMetadataJson = :videoArtifactMetadataJson,
             errorCode = :errorCode,
             errorMessage = :errorMessage,
             updatedAt = :updatedAt
@@ -191,6 +198,9 @@ interface JarvisTaskDao {
         progressPercent: Int,
         outputSummary: String?,
         artifactRefs: String,
+        videoUri: String?,
+        captionsUri: String?,
+        videoArtifactMetadataJson: String?,
         errorCode: String?,
         errorMessage: String?,
         updatedAt: Long
