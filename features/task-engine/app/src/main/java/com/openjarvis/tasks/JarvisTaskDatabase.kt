@@ -8,7 +8,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 /** Separate database keeps the new task schema independent from legacy graphify.db migrations. */
-@Database(entities = [JarvisTaskEntity::class], version = 5, exportSchema = false)
+@Database(entities = [JarvisTaskEntity::class], version = 6, exportSchema = false)
 abstract class JarvisTaskDatabase : RoomDatabase() {
     abstract fun taskDao(): JarvisTaskDao
 
@@ -61,6 +61,15 @@ abstract class JarvisTaskDatabase : RoomDatabase() {
             }
         }
 
+        /** Persist verified video and captions content URIs without disturbing existing tasks. */
+        val MIGRATION_5_6: Migration = object : Migration(5, 6) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE jarvis_tasks ADD COLUMN videoUri TEXT")
+                database.execSQL("ALTER TABLE jarvis_tasks ADD COLUMN captionsUri TEXT")
+                database.execSQL("ALTER TABLE jarvis_tasks ADD COLUMN videoArtifactMetadataJson TEXT")
+            }
+        }
+
         @Volatile
         private var instance: JarvisTaskDatabase? = null
 
@@ -69,7 +78,7 @@ abstract class JarvisTaskDatabase : RoomDatabase() {
                 context.applicationContext,
                 JarvisTaskDatabase::class.java,
                 "jarvis_tasks.db"
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build().also { instance = it }
         }
     }
 }
