@@ -135,7 +135,7 @@ def verify_command_task_source() -> None:
         "production repository registers the real video executor":
             "VideoStoryTaskExecutor(context.applicationContext)" in repository,
         "production executor E2E uses the singleton repository":
-            "productionRepositoryRunsRegisteredVideoExecutorAndPersistsReadableMediaStorePair" in video_execution_test and
+            "productionRepositoryRunsRegisteredVideoExecutorAndPersistsVerifiedMediaStoreBundle" in video_execution_test and
             "JarvisTaskRepository.getInstance(context)" in video_execution_test,
         "production executor E2E verifies H.264/AAC and both exported URIs":
             "MediaFormat.MIMETYPE_VIDEO_AVC" in video_execution_test and
