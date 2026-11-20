@@ -95,8 +95,31 @@ jobs:
           import hashlib, pathlib, sys
           root = pathlib.Path(sys.argv[1])
           out = pathlib.Path(sys.argv[2])
+          scope = [
+              "app/src/main/java/com/openjarvis/deviceaccess",
+              "app/src/test/java/com/openjarvis/deviceaccess",
+              "app/src/main/java/com/openjarvis/deviceactions",
+              "app/src/test/java/com/openjarvis/deviceactions",
+              "app/src/androidTest/java/com/openjarvis/deviceactions",
+              "app/src/main/java/com/openjarvis/ui/player",
+              "app/src/androidTest/java/com/openjarvis/ui/player",
+              "app/src/main/java/com/openjarvis/tasks",
+              "app/src/test/java/com/openjarvis/tasks",
+              "app/src/androidTest/java/com/openjarvis/tasks",
+              "app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt",
+              "app/src/main/java/com/openjarvis/ui/dashboard/VideoMvpPanel.kt",
+              "app/src/main/java/com/openjarvis/ui/dashboard/TaskControlCenter.kt",
+              "app/build.gradle",
+          ]
+          selected = []
+          for relative in scope:
+              target = root / relative
+              if target.is_dir():
+                  selected.extend(p for p in target.rglob("*") if p.is_file())
+              elif target.is_file():
+                  selected.append(target)
           rows = []
-          for path in sorted(p for p in root.rglob("*") if p.is_file()):
+          for path in sorted(set(selected)):
               rel = path.relative_to(root).as_posix()
               rows.append(hashlib.sha256(path.read_bytes()).hexdigest() + "  " + rel)
           out.write_text("\n".join(rows) + "\n", encoding="utf-8")
@@ -106,8 +129,31 @@ jobs:
           import hashlib, pathlib, sys
           root = pathlib.Path(sys.argv[1])
           out = pathlib.Path(sys.argv[2])
+          scope = [
+              "app/src/main/java/com/openjarvis/deviceaccess",
+              "app/src/test/java/com/openjarvis/deviceaccess",
+              "app/src/main/java/com/openjarvis/deviceactions",
+              "app/src/test/java/com/openjarvis/deviceactions",
+              "app/src/androidTest/java/com/openjarvis/deviceactions",
+              "app/src/main/java/com/openjarvis/ui/player",
+              "app/src/androidTest/java/com/openjarvis/ui/player",
+              "app/src/main/java/com/openjarvis/tasks",
+              "app/src/test/java/com/openjarvis/tasks",
+              "app/src/androidTest/java/com/openjarvis/tasks",
+              "app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt",
+              "app/src/main/java/com/openjarvis/ui/dashboard/VideoMvpPanel.kt",
+              "app/src/main/java/com/openjarvis/ui/dashboard/TaskControlCenter.kt",
+              "app/build.gradle",
+          ]
+          selected = []
+          for relative in scope:
+              target = root / relative
+              if target.is_dir():
+                  selected.extend(p for p in target.rglob("*") if p.is_file())
+              elif target.is_file():
+                  selected.append(target)
           rows = []
-          for path in sorted(p for p in root.rglob("*") if p.is_file()):
+          for path in sorted(set(selected)):
               rel = path.relative_to(root).as_posix()
               rows.append(hashlib.sha256(path.read_bytes()).hexdigest() + "  " + rel)
           out.write_text("\n".join(rows) + "\n", encoding="utf-8")
@@ -207,10 +253,12 @@ jobs:
           root = ET.parse("app/src/main/AndroidManifest.xml").getroot()
           ns = "{http://schemas.android.com/apk/res/android}"
           permissions = {node.get(ns + "name") for node in root.findall("uses-permission")}
+          from collections import Counter
+          counts = Counter(node.get(ns + "name") for node in root.findall("uses-permission"))
           required = {"android.permission.READ_CONTACTS", "android.permission.SEND_SMS"}
-          missing = sorted(required - permissions)
+          missing = sorted(permission for permission in required if counts[permission] != 1)
           if missing:
-              raise SystemExit("Host manifest missing device permissions: " + ", ".join(missing))
+              raise SystemExit("Host manifest must contain each device permission exactly once: " + ", ".join(missing))
           print("PR97-HOST-DEVICE-PLAYER-INTEGRATION-OK")
           PY
 
