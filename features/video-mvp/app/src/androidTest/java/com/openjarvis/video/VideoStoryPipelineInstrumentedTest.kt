@@ -79,8 +79,8 @@ class VideoStoryPipelineInstrumentedTest {
                 val audio = audios.single()
                 assertEquals(MediaFormat.MIMETYPE_VIDEO_AVC, video.getString(MediaFormat.KEY_MIME))
                 assertEquals(MediaFormat.MIMETYPE_AUDIO_AAC, audio.getString(MediaFormat.KEY_MIME))
-                assertEquals(360, video.getInteger(MediaFormat.KEY_WIDTH))
-                assertEquals(640, video.getInteger(MediaFormat.KEY_HEIGHT))
+                assertEquals(720, video.getInteger(MediaFormat.KEY_WIDTH))
+                assertEquals(1280, video.getInteger(MediaFormat.KEY_HEIGHT))
                 val videoDuration = video.getLong(MediaFormat.KEY_DURATION) / 1_000L
                 val audioDuration = audio.getLong(MediaFormat.KEY_DURATION) / 1_000L
                 assertTrue("Expected 15–60s video, got ${videoDuration}ms", videoDuration in 15_000L..60_000L)
@@ -91,13 +91,13 @@ class VideoStoryPipelineInstrumentedTest {
 
             val srt = evidenceCaptions.readText(Charsets.UTF_8)
             val cueCount = Regex("(?m)^\\d+$").findAll(srt).count()
-            assertEquals(5, cueCount)
+            assertEquals(6, cueCount)
             assertTrue("SRT must start at zero", srt.contains("00:00:00,000 -->"))
             val expectedSpeechEnd = formatSrtTime(result.audioDurationMs)
             assertTrue("Last SRT cue must end at actual speech duration", srt.contains("--> $expectedSpeechEnd"))
             assertTrue(srt.contains("29 Mayıs 1453"))
             statusFile.writeText("VIDEO-NARRATED-PIPELINE-OK\nAAC+H264\nMediaStore MP4+SRT verified\n")
-            Log.i("OpenJarvisVideoCI", "VIDEO-NARRATED-PIPELINE-OK: 360x640, AAC+H.264, 5 speech-timed SRT cues")
+            Log.i("OpenJarvisVideoCI", "VIDEO-NARRATED-PIPELINE-OK: 720x1280, AAC+H.264, 6 hook-and-scene SRT cues")
         } finally {
             context.contentResolver.delete(result.exportedUri, null, null)
             context.contentResolver.delete(result.captionsUri, null, null)
