@@ -3737,63 +3737,189 @@ if panel_marker not in dashboard_text:
 dashboard_path.write_text(dashboard_text, encoding="utf-8")
 print("Wired embedded video player, capability status, SAF files and contact-first SMS into DashboardScreen")
 
-# Register the player-only instrumentation host in the test APK. This keeps the
-# production MainActivity Accessibility/Overlay gate intact while allowing the
-# embedded player composable to be exercised without appops or permission bypass.
-video_test_manifest_source = video_feature_root / "app/src/androidTest/AndroidManifest.xml"
-if not video_test_manifest_source.is_file():
-    raise SystemExit("video-mvp androidTest manifest for embedded player host is missing")
-video_test_manifest_text = video_test_manifest_source.read_text(encoding="utf-8")
+# Register the embedded-player test host only in the extracted host's DEBUG app manifest.
+# The Activity class is copied from the Feature-owned ui/player source by the video-mvp Kotlin
+# overlay above. Keeping its declaration in src/debug prevents it from being launchable in Release.
 player_test_activity = "com.openjarvis.ui.player.DashboardPlayerTestActivity"
-if player_test_activity not in video_test_manifest_text:
-    raise SystemExit("video-mvp androidTest manifest does not declare DashboardPlayerTestActivity")
+player_test_activity_source = (
+    video_feature_root
+    / "app/src/main/java/com/openjarvis/ui/player/DashboardPlayerTestActivity.kt"
+)
+if not player_test_activity_source.is_file():
+    raise SystemExit("Feature-owned debug player host Activity source is missing")
+player_test_activity_source_text = player_test_activity_source.read_text(encoding="utf-8")
+if "class DashboardPlayerTestActivity" not in player_test_activity_source_text:
+    raise SystemExit("Player test host source does not declare DashboardPlayerTestActivity")
+if "InstrumentationRegistry" in player_test_activity_source_text or "androidx.test" in player_test_activity_source_text:
+    raise SystemExit("Debug player host must not depend on androidTest-only APIs")
 
-host_test_manifest = root / "app/src/androidTest/AndroidManifest.xml"
-host_test_manifest.parent.mkdir(parents=True, exist_ok=True)
-if host_test_manifest.is_file():
-    host_test_manifest_text = host_test_manifest.read_text(encoding="utf-8")
+# Ensure the main-source Kotlin overlay copied the host Activity into the extracted app.
+host_player_activity_source = (
+    root / "app/src/main/java/com/openjarvis/ui/player/DashboardPlayerTestActivity.kt"
+)
+host_player_activity_source.parent.mkdir(parents=True, exist_ok=True)
+player_source_bytes = player_test_activity_source.read_bytes()
+if not host_player_activity_source.is_file() or host_player_activity_source.read_bytes() != player_source_bytes:
+    host_player_activity_source.write_bytes(player_source_bytes)
+
+def ensure_debug_player_activity(manifest_text, activity_name):
+    manifest_match = re.search(r"<manifest\b[^>]*>", manifest_text)
+    if not manifest_match:
+        raise SystemExit("Host debug manifest has no manifest root element")
+    manifest_open = manifest_match.group(0)
+    if "xmlns:android=" not in manifest_open:
+        updated_open = manifest_open[:-1] + ' xmlns:android="http://schemas.android.com/apk/res/android">'
+        manifest_text = (
+            manifest_text[:manifest_match.start()]
+            + updated_open
+            + manifest_text[manifest_match.end():]
+        )
+
+    activity_pattern = re.compile(
+        r"<activity\b(?=[^>]*\bandroid:name\s*=\s*['\"]"
+        + re.escape(activity_name)
+        + r"['\"])[^>]*/?>",
+        re.DOTALL
+    )
+    matches = list(activity_pattern.finditer(manifest_text))
+    if matches:
+        # Collapse any stale duplicate declarations to one private, in-process Activity.
+        for duplicate in reversed(matches[1:]):
+            manifest_text = manifest_text[:duplicate.start()] + manifest_text[duplicate.end():]
+        match = activity_pattern.search(manifest_text)
+        declaration = match.group(0)
+        declaration = re.sub(
+            r"\s+android:exported\s*=\s*(['\"])[^'\"]*\1",
+            "",
+            declaration,
+            count=1
+        )
+        declaration = re.sub(
+            r"\s+android:process\s*=\s*(['\"])[^'\"]*\1",
+            "",
+            declaration,
+            count=1
+        )
+        insertion = declaration.rfind("/>")
+        if insertion < 0:
+            insertion = declaration.rfind(">")
+        declaration = (
+            declaration[:insertion]
+            + ' android:exported="false"'
+            + declaration[insertion:]
+        )
+        # Canonical spacing makes the second repair pass byte-identical.
+        declaration = re.sub(r"[ \\t]{2,}", " ", declaration)
+        declaration = re.sub(r"\\s*/>", " />", declaration)
+        return (
+            manifest_text[:match.start()]
+            + declaration
+            + manifest_text[match.end():]
+        )
+
+    activity_declaration = (
+        '        <activity android:name="' + activity_name
+        + '" android:exported="false" />\n'
+    )
+    self_closing_application = re.search(r"<application\b[^>]*/>", manifest_text)
+    if self_closing_application:
+        replacement_application = (
+            "    <application>\n"
+            + activity_declaration
+            + "    </application>"
+        )
+        return (
+            manifest_text[:self_closing_application.start()]
+            + replacement_application
+            + manifest_text[self_closing_application.end():]
+        )
+
+    application_open = re.search(r"<application\b[^>]*>", manifest_text)
+    if application_open:
+        application_close = re.search(
+            r"</application\s*>",
+            manifest_text[application_open.end():]
+        )
+        if not application_close:
+            raise SystemExit("Host debug manifest application element is not closed")
+        close_index = application_open.end() + application_close.start()
+        return manifest_text[:close_index] + activity_declaration + manifest_text[close_index:]
+
+    manifest_close = re.search(r"</manifest\s*>", manifest_text)
+    if not manifest_close:
+        raise SystemExit("Host debug manifest has no closing manifest element")
+    application_block = (
+        "    <application>\n"
+        + activity_declaration
+        + "    </application>\n"
+    )
+    return (
+        manifest_text[:manifest_close.start()]
+        + application_block
+        + manifest_text[manifest_close.start():]
+    )
+
+def _debug_player_manifest_regression_test():
+    activity_name = "com.openjarvis.ui.player.DashboardPlayerTestActivity"
+    fixture = (
+        '<manifest><application></application></manifest>\n'
+    )
+    once = ensure_debug_player_activity(fixture, activity_name)
+    twice = ensure_debug_player_activity(once, activity_name)
+    if once != twice or once.count(activity_name) != 1:
+        raise SystemExit("Debug player manifest insertion is not idempotent")
+    if 'android:exported="false"' not in once or "android:process=" in once:
+        raise SystemExit("Debug player Activity must remain private and in-process")
+
+    stale = (
+        '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+        '<application><activity android:name="' + activity_name
+        + '" android:exported="true" android:process=":player" /></application></manifest>'
+    )
+    repaired = ensure_debug_player_activity(stale, activity_name)
+    if (
+        repaired.count(activity_name) != 1
+        or 'android:exported="false"' not in repaired
+        or "android:process=" in repaired
+    ):
+        raise SystemExit("Debug player manifest did not harden an existing Activity declaration")
+
+_debug_player_manifest_regression_test()
+
+debug_manifest_path = root / "app/src/debug/AndroidManifest.xml"
+debug_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+if debug_manifest_path.is_file():
+    debug_manifest_text = debug_manifest_path.read_text(encoding="utf-8")
 else:
-    host_test_manifest_text = (
+    debug_manifest_text = (
         '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
         '    <application>\n'
         '    </application>\n'
         '</manifest>\n'
     )
-
-activity_pattern = re.compile(
-    r"<activity\b(?=[^>]*\bandroid:name\s*=\s*['\"]"
-    + re.escape(player_test_activity)
-    + r"['\"])[^>]*/?>",
-    re.DOTALL
+repaired_debug_manifest = ensure_debug_player_activity(
+    debug_manifest_text,
+    player_test_activity
 )
-if not activity_pattern.search(host_test_manifest_text):
-    activity_declaration = (
-        '        <activity android:name="' + player_test_activity
-        + '" android:exported="false" />\n'
+if not debug_manifest_path.is_file() or debug_manifest_path.read_text(encoding="utf-8") != repaired_debug_manifest:
+    debug_manifest_path.write_text(repaired_debug_manifest, encoding="utf-8")
+
+# Remove only the obsolete test-APK declaration from an extracted project previously repaired
+# by an older script revision. Do not touch any other instrumentation manifest entries.
+legacy_test_manifest = root / "app/src/androidTest/AndroidManifest.xml"
+if legacy_test_manifest.is_file():
+    legacy_text = legacy_test_manifest.read_text(encoding="utf-8")
+    legacy_activity_pattern = re.compile(
+        r"\s*<activity\b(?=[^>]*\bandroid:name\s*=\s*['\"]"
+        + re.escape(player_test_activity)
+        + r"['\"])[^>]*/?>",
+        re.DOTALL
     )
-    application_close = re.search(r"</application\s*>", host_test_manifest_text)
-    if application_close:
-        host_test_manifest_text = (
-            host_test_manifest_text[:application_close.start()]
-            + activity_declaration
-            + host_test_manifest_text[application_close.start():]
-        )
-    else:
-        manifest_close = re.search(r"</manifest\s*>", host_test_manifest_text)
-        if not manifest_close:
-            raise SystemExit("Host androidTest manifest has no closing manifest element")
-        application_block = (
-            '    <application>\n' + activity_declaration
-            + '    </application>\n'
-        )
-        host_test_manifest_text = (
-            host_test_manifest_text[:manifest_close.start()]
-            + application_block
-            + host_test_manifest_text[manifest_close.start():]
-        )
-if not host_test_manifest.is_file() or host_test_manifest.read_text(encoding="utf-8") != host_test_manifest_text:
-    host_test_manifest.write_text(host_test_manifest_text, encoding="utf-8")
-print("Registered the isolated embedded-player instrumentation host without changing production permission gates")
+    cleaned_legacy_text = legacy_activity_pattern.sub("", legacy_text)
+    if cleaned_legacy_text != legacy_text:
+        legacy_test_manifest.write_text(cleaned_legacy_text, encoding="utf-8")
+
+print("Registered the embedded-player test host in the extracted host's debug-only manifest; production and test-APK manifests remain unchanged")
 
 repair_marker.write_text(repair_digest + "\n", encoding="utf-8")
 print("OPEN_JARVIS_REPAIR_IDEMPOTENT_MARKER_WRITTEN")

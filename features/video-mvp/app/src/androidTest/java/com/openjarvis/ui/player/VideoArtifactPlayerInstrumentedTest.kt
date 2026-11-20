@@ -1,22 +1,13 @@
 package com.openjarvis.ui.player
 
-import android.content.ContentResolver
-import android.content.Context
-import android.content.ContextWrapper
 import android.content.Intent
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
-import android.os.Bundle
 import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
 import android.widget.VideoView
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.platform.LocalContext
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.openjarvis.tasks.JarvisTaskDatabase
@@ -264,21 +255,19 @@ class VideoArtifactPlayerInstrumentedTest {
     }
 
     /**
-     * Launch the androidTest-only Activity from the instrumentation APK's own context.
-     *
-     * ActivityScenario launches through the target application context. That is the wrong
-     * package for this androidTest-only component and fails on Android 13/14 with
-     * "Intent in process com.openjarvis resolved to different process com.openjarvis.test".
-     * Starting from instrumentation.context keeps the test host in its owning test process;
-     * no app-op, permission grant, or production gate is bypassed.
+     * Launch the dedicated Activity declared in the extracted host's debug-only app manifest.
+     * The Activity belongs to the target app package, so instrumentation and player share the
+     * target process and production Room/MediaStore context. No app-op, permission grant, or
+     * production Accessibility/Overlay gate is bypassed.
      */
     private fun launchDashboardPlayerHost(): DashboardPlayerTestActivity {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val testContext = instrumentation.context
-        val intent = Intent(testContext, DashboardPlayerTestActivity::class.java)
+        val targetContext = instrumentation.targetContext
+        val intent = Intent(targetContext, DashboardPlayerTestActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        testContext.startActivity(intent)
-        return awaitDashboardPlayerHost()
+        val launched = instrumentation.startActivitySync(intent)
+        return launched as? DashboardPlayerTestActivity
+            ?: throw AssertionError("The target-app debug player host did not launch.")
     }
 
     private fun awaitDashboardPlayerHost(
@@ -295,7 +284,7 @@ class VideoArtifactPlayerInstrumentedTest {
             if (current != null) return current!!
             SystemClock.sleep(50)
         }
-        throw AssertionError("The instrumentation-owned embedded-player host did not start.")
+        throw AssertionError("The target-app debug embedded-player host did not start.")
     }
 
     private fun closeDashboardPlayerHost(activity: DashboardPlayerTestActivity?) {
@@ -360,46 +349,5 @@ class VideoArtifactPlayerInstrumentedTest {
             }
         }
         return null
-    }
-}
-
-/**
- * Test-only host for the real embedded player composable.
- *
- * MainActivity's Accessibility/Overlay requirement remains intact and is covered by the
- * independent launcher permission-gate test. The player acceptance test must not grant or
- * bypass those user-controlled capabilities just to render a video.
- */
-class DashboardPlayerTestActivity : ComponentActivity() {
-    companion object {
-        @Volatile
-        var current: DashboardPlayerTestActivity? = null
-            private set
-    }
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        current = this
-        val targetApplicationContext =
-            InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
-        // The Activity itself lives in the instrumentation APK, but the production player must
-        // read the target application's Room database and MediaStore grants. Keep the Activity
-        // window/theme while delegating application storage and ContentResolver to the target.
-        val playerContext = object : ContextWrapper(this) {
-            override fun getApplicationContext(): Context = targetApplicationContext
-            override fun getContentResolver(): ContentResolver = targetApplicationContext.contentResolver
-        }
-        setContent {
-            CompositionLocalProvider(LocalContext provides playerContext) {
-                MaterialTheme {
-                    VideoArtifactPlayerPanel()
-                }
-            }
-        }
-    }
-
-    override fun onDestroy() {
-        if (current === this) current = null
-        super.onDestroy()
     }
 }
