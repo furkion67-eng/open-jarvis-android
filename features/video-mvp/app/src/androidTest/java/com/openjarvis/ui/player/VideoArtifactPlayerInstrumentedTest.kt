@@ -13,6 +13,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.openjarvis.tasks.JarvisTaskDatabase
 import com.openjarvis.tasks.JarvisTaskRepository
 import com.openjarvis.tasks.JarvisTaskStatus
+import com.openjarvis.tasks.VIDEO_TASK_EXECUTION_MODE
 import com.openjarvis.tasks.VideoArtifactMetadataCodec
 import com.openjarvis.ui.MainActivity
 import kotlinx.coroutines.runBlocking
@@ -72,6 +73,8 @@ class VideoArtifactPlayerInstrumentedTest {
             val preview = database.taskDao().findById(createdTaskId)
                 ?: throw AssertionError("Production repository must persist the task preview.")
             assertEquals(JarvisTaskStatus.WAITING_FOR_USER.storageValue, preview.status)
+            assertEquals(VIDEO_TASK_EXECUTION_MODE, preview.ownerAgent)
+            assertEquals("local_plan_preview", preview.executionMode)
             assertEquals(null, preview.planAcceptedAt)
             assertTrue(preview.videoUri.isNullOrBlank())
             assertTrue(preview.captionsUri.isNullOrBlank())
@@ -82,6 +85,7 @@ class VideoArtifactPlayerInstrumentedTest {
             val completed = database.taskDao().findById(createdTaskId)
                 ?: throw AssertionError("Accepted production task must remain in Room.")
             assertEquals(JarvisTaskStatus.SUCCEEDED.storageValue, completed.status)
+            assertEquals(VIDEO_TASK_EXECUTION_MODE, completed.executionMode)
             assertTrue(completed.planAcceptedAt != null)
             assertTrue(completed.outputSummary.orEmpty().contains("MP4 hazır"))
 
@@ -217,7 +221,7 @@ class VideoArtifactPlayerInstrumentedTest {
             assertTrue("The restored URI pair must remain playable after Room reopen.", reopenedAvailability is PlaybackAvailability.Ready)
 
             scenario = ActivityScenario.launch(MainActivity::class.java)
-            val restoredPlayer = awaitDashboardPlayer(scenario!!, videoUri.toString())
+            val restoredPlayer = awaitDashboardPlayer(scenario!!, persistedVideoUri.toString())
             assertEquals(videoUri.toString(), restoredPlayer.tag)
 
             // Start the exact VideoView created by VideoArtifactPlayerPanel. Do not construct
