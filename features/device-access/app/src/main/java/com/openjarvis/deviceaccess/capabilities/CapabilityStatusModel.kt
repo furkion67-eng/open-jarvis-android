@@ -28,6 +28,25 @@ object CapabilityStatusPolicy {
         else -> CapabilityState.NOT_REQUESTED
     }
 
+    fun permissionSet(
+        grantedCount: Int,
+        wasRequested: Boolean,
+        wasGrantedBefore: Boolean
+    ): CapabilityState = runtimePermission(
+        grantedNow = grantedCount > 0,
+        wasRequested = wasRequested,
+        wasGrantedBefore = wasGrantedBefore
+    )
+
+    fun delegatedAction(available: Boolean): CapabilityState =
+        if (available) CapabilityState.ENABLED else CapabilityState.NOT_AVAILABLE
+
     fun persistedReadGrant(savedUri: String?, actualUri: String?, hasReadPermission: Boolean): Boolean =
         !savedUri.isNullOrBlank() && savedUri == actualUri && hasReadPermission
+
+    fun accessibilityService(declared: Boolean, enabled: Boolean): CapabilityState = when {
+        enabled && declared -> CapabilityState.ENABLED
+        declared -> CapabilityState.REQUIRES_SETTINGS
+        else -> CapabilityState.NOT_AVAILABLE
+    }
 }

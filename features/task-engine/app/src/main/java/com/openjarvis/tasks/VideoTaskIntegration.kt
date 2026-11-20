@@ -10,6 +10,7 @@ import android.provider.MediaStore
 import com.openjarvis.video.VideoCommandOrigin
 import com.openjarvis.video.VideoCommandRouter
 import com.openjarvis.video.VideoStoryPipeline
+import com.openjarvis.video.VideoStoryPlanBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.nio.ByteBuffer
@@ -42,16 +43,23 @@ class VideoStoryTaskCapability : JarvisTaskCapability {
             ?.takeIf { it.isNotBlank() }
             ?: throw IllegalArgumentException("Video konusu belirtilmedi.")
 
+        // Validate the same researched story pack the renderer will execute before the user
+        // accepts the plan. Unsupported topics fail here, not after an apparently valid preview.
+        val researchedPlan = VideoStoryPlanBuilder.build(topic)
+
         return JarvisTaskPlan(
-            summary = "“" + topic + "” için plan taslağı hazır. Henüz video oluşturulmadı. Planı kabul ettiğinde cihazda Türkçe sesli MP4 ve SRT üretilecek; otomatik paylaşım yapılmayacak.",
+            summary = "“" + researchedPlan.title + "” için " + researchedPlan.scenes.size +
+                " sahneli kaynaklı plan hazır. Video henüz oluşturulmadı. Görsel dosyaları ve lisans kanıtları render sırasında doğrulanacak; otomatik paylaşım yapılmayacak.",
             steps = listOf(
-                "Kurulu tam tr-TR sesini doğrula; uygun ses yoksa Türkçe hata ile dur.",
-                "Beş sahneli yerel prosedürel storyboard hazırla.",
-                "Her sahneyi Türkçe seslendir ve gerçek konuşma sürelerini ölç.",
-                "Dikey H.264 video, AAC ses ve konuşma zamanlı SRT üret.",
-                "MP4 ve SRT'yi MediaStore'a aktar; iki URI de okunabiliyorsa sonucu kaydet."
+                "Desteklenen araştırma paketini, sahne iddialarını ve kaynak eşleşmelerini doğrula.",
+                "Her sahne için Wikimedia Commons görselini, lisansını ve SHA-256 bütünlüğünü doğrula; geçerli önbellek yoksa internetten al.",
+                "Kurulu tam tr-TR sesini doğrula; gerçek Türkçe anlatımı ve konuşma sürelerini ölç.",
+                "Kaynaklı görsellerle dikey H.264 video, AAC ses ve konuşma zamanlı SRT üret.",
+                "MediaStore MP4, SRT ve kapak URI'lerini okuyarak A/V, altyazı ve atıf manifestini doğrula; tüm kanıtlar geçerse başarı kaydet."
             ),
-            requiresNetwork = false,
+            // The renderer currently has no side-effect-free cache availability query. Be
+            // conservative: an uncached first render downloads Commons assets over HTTPS.
+            requiresNetwork = true,
             requiresApproval = false
         )
     }
@@ -80,64 +88,138 @@ class VideoStoryTaskExecutor(context: Context) : JarvisTaskExecutor {
         val videoName = "jarvis-" + artifactKey + ".mp4"
         val captionsName = "jarvis-" + artifactKey + ".srt"
 
-        val existing = withContext(Dispatchers.IO) {
-            val videos = findByDisplayName(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, videoName)
-            val captions = findByDisplayName(MediaStore.Downloads.EXTERNAL_CONTENT_URI, captionsName)
-            if (videos.size == 1 && captions.size == 1 &&
-                !videos.single().isPending &&
-                !captions.single().isPending &&
-                isReadableVideoUri(videos.single().uri) &&
-                isReadableCaptionsUri(captions.single().uri)
-            ) {
-                videos.single().uri to captions.single().uri
-            } else {
-                deleteExisting((videos + captions).map { it.uri })
-                null
+        val thumbnailName = "jarvis-" + artifactKey + "-thumb.jpg"
+        withContext(Dispatchers.IO) {
+            val staleArtifacts =
+                findByDisplayName(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, videoName) +
+                    findByDisplayName(MediaStore.Downloads.EXTERNAL_CONTENT_URI, captionsName) +
+                    findByDisplayName(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, thumbnailName)
+            if (staleArtifacts.isNotEmpty()) {
+                // If Room did not commit renderer metadata before process death, do not reuse
+                // the files as a successful task. Re-render to recover the complete proof.
+                deleteExisting(staleArtifacts.map { it.uri })
             }
-        }
-        if (existing != null) {
-            return verifiedResult(
-                videoUri = existing.first,
-                captionsUri = existing.second,
-                summary = "Aynı görev kimliğiyle daha önce dışa aktarılmış Türkçe sesli video yeniden kullanıldı."
-            )
         }
 
         val rendered = VideoStoryPipeline(appContext).render(topic, artifactKey = artifactKey)
         var keepExports = false
+        var thumbnailUri: Uri? = null
         try {
-            val bothReadable = withContext(Dispatchers.IO) {
+            val videoAndCaptionsReadable = withContext(Dispatchers.IO) {
                 isReadableVideoUri(rendered.exportedUri) &&
                     isReadableCaptionsUri(rendered.captionsUri)
             }
-            if (!bothReadable) {
+            if (!videoAndCaptionsReadable) {
                 throw IllegalStateException("MP4 veya SRT dışa aktarma dosyası doğrulanamadı; görev tamamlanmadı.")
             }
 
-            keepExports = true
-            return verifiedResult(
+            thumbnailUri = VideoRendererMetadataAdapter.thumbnailUri(rendered)
+                ?: throw IllegalStateException("Renderer doğrulanmış kapak URI'si sağlamadı.")
+            val verifiedMetadata = VideoRendererMetadataAdapter.fromRenderResult(
+                renderResult = rendered,
+                durationMs = rendered.video.durationMs,
+                audioDurationMs = rendered.audioDurationMs,
+                width = rendered.video.width,
+                height = rendered.video.height,
+                frameRate = 24,
+                hasAudio = true,
+                sceneCount = rendered.sceneCount,
+                sourceLabel = rendered.sourceLabel
+            )
+            if (verifiedMetadata.thumbnailUri != thumbnailUri.toString()) {
+                throw IllegalStateException("Kapak URI'si renderer metadata kaydıyla eşleşmiyor.")
+            }
+            val thumbnailReadable = withContext(Dispatchers.IO) {
+                isReadableThumbnailUri(thumbnailUri!!)
+            }
+            if (!thumbnailReadable) {
+                throw IllegalStateException("Kapak görseli MediaStore üzerinden okunamadı.")
+            }
+
+            val artifact = PersistedVideoArtifact(
+                artifactId = task.id,
+                exportedUri = rendered.exportedUri.toString(),
+                captionsUri = rendered.captionsUri.toString(),
+                metadata = verifiedMetadata
+            )
+            if (!artifact.isValid() || !verifiedMetadata.attributionManifestComplete) {
+                throw IllegalStateException("Video atıf/metadata kanıtı tamamlanmadı; görev başarılı sayılamaz.")
+            }
+
+            val result = verifiedResult(
+                artifactId = task.id,
                 videoUri = rendered.exportedUri,
                 captionsUri = rendered.captionsUri,
-                summary = "Türkçe sesli MP4 hazır: " + (rendered.video.durationMs / 1_000L) +
-                    " sn, " + rendered.sceneCount + " sahne. Görseller: " + rendered.sourceLabel
+                summary = "Kaynakları ve lisansları doğrulanmış Türkçe MP4 hazır: " +
+                    (rendered.video.durationMs / 1_000L) + " sn, " + rendered.sceneCount +
+                    " sahne. " + verifiedMetadata.attributionManifest.size +
+                    " görsel atfı ve " + verifiedMetadata.claimSources.size + " araştırma kaynağı kaydedildi.",
+                metadata = verifiedMetadata
             )
+            keepExports = true
+            return result
         } finally {
             rendered.video.file.delete()
             rendered.captionsFile.delete()
             if (!keepExports) {
                 runCatching { appContext.contentResolver.delete(rendered.exportedUri, null, null) }
                 runCatching { appContext.contentResolver.delete(rendered.captionsUri, null, null) }
+                thumbnailUri?.let { uri ->
+                    runCatching { appContext.contentResolver.delete(uri, null, null) }
+                }
             }
         }
     }
 
-    private fun verifiedResult(videoUri: Uri, captionsUri: Uri, summary: String): JarvisTaskExecutionResult =
-        JarvisTaskExecutionResult(
-            outputSummary = summary + "\nMP4: " + videoUri + "\nSRT: " + captionsUri,
+    private fun verifiedResult(
+        artifactId: String,
+        videoUri: Uri,
+        captionsUri: Uri,
+        summary: String,
+        metadata: VideoArtifactMetadata
+    ): JarvisTaskExecutionResult {
+        require(metadata.attributionManifestComplete && metadata.isValid()) {
+            "Video atıf manifesti doğrulanmadan görev başarılı olamaz."
+        }
+        val artifact = PersistedVideoArtifact(
+            artifactId = artifactId,
+            exportedUri = videoUri.toString(),
+            captionsUri = captionsUri.toString(),
+            metadata = metadata
+        )
+        require(artifact.isValid()) { "Kalıcı video artifact kanıtı geçersiz." }
+        return JarvisTaskExecutionResult(
+            outputSummary = summary + "\nMP4: " + videoUri + "\nSRT: " + captionsUri +
+                "\nKapak: " + metadata.thumbnailUri +
+                "\nGörsel atıfları: " + metadata.attributionManifest.size +
+                "\nAraştırma kaynakları: " + metadata.claimSources.size,
             evidenceReference = videoUri.toString(),
             verified = true,
-            artifactReferences = listOf(videoUri.toString(), captionsUri.toString())
+            artifactReferences = listOfNotNull(videoUri.toString(), captionsUri.toString(), metadata.thumbnailUri),
+            videoArtifact = artifact
         )
+    }
+
+    private fun isReadableThumbnailUri(uri: Uri): Boolean {
+        if (uri.scheme != "content" || uri.authority.isNullOrBlank()) return false
+        return try {
+            appContext.contentResolver.openInputStream(uri)?.use { input ->
+                val header = ByteArray(3)
+                var offset = 0
+                while (offset < header.size) {
+                    val count = input.read(header, offset, header.size - offset)
+                    if (count < 0) break
+                    offset += count
+                }
+                offset == 3 &&
+                    (header[0].toInt() and 0xff) == 0xff &&
+                    (header[1].toInt() and 0xff) == 0xd8 &&
+                    (header[2].toInt() and 0xff) == 0xff
+            } == true
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     private data class MediaStoreArtifactRow(val uri: Uri, val isPending: Boolean)
 

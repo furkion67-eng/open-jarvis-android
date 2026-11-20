@@ -121,7 +121,7 @@ class JarvisTaskMigrationInstrumentedTest {
             context,
             JarvisTaskDatabase::class.java,
             databaseName
-        ).addMigrations(JarvisTaskDatabase.MIGRATION_1_2, JarvisTaskDatabase.MIGRATION_2_3, JarvisTaskDatabase.MIGRATION_3_4, JarvisTaskDatabase.MIGRATION_4_5).build()
+        ).addMigrations(JarvisTaskDatabase.MIGRATION_1_2, JarvisTaskDatabase.MIGRATION_2_3, JarvisTaskDatabase.MIGRATION_3_4, JarvisTaskDatabase.MIGRATION_4_5, JarvisTaskDatabase.MIGRATION_5_6).build()
 
         try {
             val task = migrated.taskDao().findById("legacy-task")!!
@@ -129,6 +129,9 @@ class JarvisTaskMigrationInstrumentedTest {
             assertEquals("stable-legacy-key", task.idempotencyKey)
             assertEquals(JarvisTaskStatus.WAITING_FOR_USER.storageValue, task.status)
             assertNull(task.planAcceptedAt)
+            assertNull(task.videoUri)
+            assertNull(task.captionsUri)
+            assertNull(task.videoArtifactMetadataJson)
             val duplicateCount = migrated.openHelper.readableDatabase.query(
                 "SELECT COUNT(*) FROM jarvis_tasks WHERE idempotencyKey = ?",
                 arrayOf("stable-legacy-key")

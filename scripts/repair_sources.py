@@ -1,26 +1,161 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import hashlib
+import re
 import sys
 
 root = Path(sys.argv[1])
+# The host ZIP is freshly extracted for each CI run. Hash the exact repair script so
+# a second invocation against the same extracted project becomes a byte-identical no-op.
+repair_digest = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+repair_marker = root / ".openjarvis-repair-sources.sha256"
+if repair_marker.is_file() and repair_marker.read_text(encoding="utf-8").strip() == repair_digest:
+    print("Open Jarvis source repair already applied for this exact script; skipping duplicate pass")
+    raise SystemExit(0)
 
 def edit(rel, fn):
     p = root / rel
     s = p.read_text()
-    p.write_text(fn(s))
+    updated = fn(s)
+    if updated != s:
+        p.write_text(updated)
+
+def _kotlin_brace_balance(source):
+    depth = 0
+    index = 0
+    state = "code"
+    block_depth = 0
+    while index < len(source):
+        if state == "code":
+            if source.startswith("//", index):
+                state = "line"
+                index += 2
+            elif source.startswith("/*", index):
+                state = "block"
+                block_depth = 1
+                index += 2
+            elif source.startswith('"""', index):
+                state = "raw"
+                index += 3
+            elif source[index] == '"':
+                state = "string"
+                index += 1
+            elif source[index] == "'":
+                state = "char"
+                index += 1
+            elif source[index] == chr(96):
+                state = "backtick"
+                index += 1
+            elif source[index] == "{":
+                depth += 1
+                index += 1
+            elif source[index] == "}":
+                depth -= 1
+                if depth < 0:
+                    raise ValueError("unbalanced Kotlin closing brace")
+                index += 1
+            else:
+                index += 1
+        elif state == "line":
+            if source[index] == "\n":
+                state = "code"
+            index += 1
+        elif state == "block":
+            if source.startswith("/*", index):
+                block_depth += 1
+                index += 2
+            elif source.startswith("*/", index):
+                block_depth -= 1
+                index += 2
+                if block_depth == 0:
+                    state = "code"
+            else:
+                index += 1
+        elif state in ("string", "char"):
+            quote = '"' if state == "string" else "'"
+            if source[index] == "\\":
+                index += 2
+            elif source[index] == quote:
+                state = "code"
+                index += 1
+            else:
+                index += 1
+        elif state == "raw":
+            if source.startswith('"""', index):
+                state = "code"
+                index += 3
+            else:
+                index += 1
+        elif state == "backtick":
+            if source[index] == chr(96):
+                state = "code"
+            index += 1
+    if state in ("block", "string", "char", "raw", "backtick"):
+        raise ValueError("unterminated Kotlin lexical construct")
+    return depth
+
 
 def agent(s):
     marker = "\n    suspend fun testConnection(): Result<Long> {"
-    if marker not in s:
-        raise SystemExit("AgentCore.kt: testConnection marker not found")
-    # executeTask() opens scope.launch { taskMutex.withLock { ... } }.
-    # The packaged file closes those two lambdas but omits executeTask() itself.
-    before = s.split(marker, 1)[0]
-    trailing = before.rstrip().splitlines()[-2:]
-    indents = [len(line) - len(line.lstrip()) for line in trailing]
-    if indents != [4, 4]:
-        s = s.replace(marker, "\n    }\n\n    suspend fun testConnection(): Result<Long> {", 1)
-    return s
+    if s.count(marker) != 1:
+        raise SystemExit("AgentCore.kt: expected exactly one testConnection marker")
+    marker_index = s.index(marker)
+    declarations = list(re.finditer(
+        r"(?m)^[ \t]*(?:[\w]+\s+)*fun[ \t]+executeTask[ \t]*\(",
+        s[:marker_index]
+    ))
+    if len(declarations) != 1:
+        raise SystemExit("AgentCore.kt: expected exactly one executeTask declaration before testConnection")
+    start = declarations[0].start()
+    balance = _kotlin_brace_balance(s[start:marker_index])
+    if balance == 0:
+        return s
+    if balance != 1:
+        raise SystemExit("AgentCore.kt: executeTask brace balance is " + str(balance) + "; refusing unsafe repair")
+    indent = re.match(r"[ \t]*", s[start:]).group(0)
+    repaired = s[:marker_index] + "\n" + indent + "}" + s[marker_index:]
+    repaired_marker = repaired.index(marker)
+    if _kotlin_brace_balance(repaired[start:repaired_marker]) != 0:
+        raise SystemExit("AgentCore.kt: executeTask remains structurally unbalanced after repair")
+    return repaired
+
+
+def _agent_patch_regression_test():
+    broken = '''class AgentCore {
+    fun executeTask(cleanCommand: String) {
+        scope.launch {
+            taskMutex.withLock {
+                println("literal } {")
+                // A brace in a comment must not affect the balance: }
+                runCommand(cleanCommand)
+            }
+        }
+    suspend fun testConnection(): Result<Long> {
+        return Result.success(1L)
+    }
+}
+'''
+    repaired = agent(broken)
+    if repaired.count("suspend fun testConnection") != 1 or agent(repaired) != repaired:
+        raise SystemExit("AgentCore.kt: missing-brace regression test failed")
+    balanced = '''class AgentCore {
+    fun executeTask(cleanCommand: String) {
+        scope.launch {
+            taskMutex.withLock {
+                runCommand(cleanCommand)
+            }
+        }
+    }
+    suspend fun testConnection(): Result<Long> {
+        return Result.success(1L)
+    }
+}
+'''
+    if agent(balanced) != balanced:
+        raise SystemExit("AgentCore.kt: already-balanced regression test failed")
+
+
+_agent_patch_regression_test()
 def mcp(s):
     s = s.replace("import okhttp3.Request\n", "import okhttp3.Request\nimport okhttp3.MediaType.Companion.toMediaType\nimport okhttp3.RequestBody.Companion.toRequestBody\n")
     old = """okhttp3.RequestBody.create(
@@ -3439,3 +3574,167 @@ def install_video_command_routing(s):
 edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", install_video_command_routing)
 print("Installed typed/recognized CREATE_VIDEO routing through plan acceptance and verified local video executor")
 
+
+
+# Architect assignment 20 Nov 2026: install permission-transparent device panels
+# into the immutable extracted host. This block is intentionally idempotent.
+import re
+
+def copy_feature_app_sources(feature_name):
+    feature_root = Path(__file__).resolve().parent.parent / "features" / feature_name
+    if not feature_root.is_dir():
+        raise SystemExit(feature_name + " feature source overlay is missing")
+    copied = 0
+    for source in sorted(feature_root.rglob("*")):
+        if not source.is_file():
+            continue
+        relative = source.relative_to(feature_root)
+        if len(relative.parts) < 3 or relative.parts[0:2] != ("app", "src"):
+            continue
+        if relative.as_posix() == "app/src/main/AndroidManifest.xml":
+            continue
+        is_kotlin = source.suffix == ".kt"
+        is_resource = "res" in relative.parts
+        if not is_kotlin and not is_resource:
+            continue
+        destination = root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        payload = source.read_bytes()
+        if not destination.exists() or destination.read_bytes() != payload:
+            destination.write_bytes(payload)
+        copied += 1
+    print("Installed " + feature_name + " feature sources/resources (" + str(copied) + " files)")
+
+copy_feature_app_sources("device-access")
+copy_feature_app_sources("device-actions")
+
+
+# Merge only the runtime permissions and optional telephony feature required by Contacts/SMS.
+manifest_path = root / "app/src/main/AndroidManifest.xml"
+if not manifest_path.is_file():
+    raise SystemExit("Host AndroidManifest.xml not found")
+manifest_text = manifest_path.read_text(encoding="utf-8")
+
+def insert_manifest_declaration(text, tag, name, extra_attributes=""):
+    pattern = r"<" + tag + r"\b(?=[^>]*android:name=[\"']" + re.escape(name) + r"[\"'])[^>]*>"
+    match = re.search(pattern, text)
+    if match:
+        declaration = match.group(0)
+        if tag == "uses-feature":
+            if re.search(r"android:required=[\"']true[\"']", declaration):
+                declaration = re.sub(
+                    r"android:required=[\"']true[\"']",
+                    'android:required="false"',
+                    declaration,
+                    count=1
+                )
+                text = text[:match.start()] + declaration + text[match.end():]
+            elif "android:required=" not in declaration:
+                declaration = declaration[:-1] + ' android:required="false">'
+                text = text[:match.start()] + declaration + text[match.end():]
+        return text
+    application = re.search(r"<application\b", text)
+    if not application:
+        raise SystemExit("Host manifest application element not found")
+    declaration = "    <" + tag + ' android:name="' + name + '"' + extra_attributes + " />\n"
+    return text[:application.start()] + declaration + text[application.start():]
+
+for permission in (
+    "android.permission.READ_CONTACTS",
+    "android.permission.SEND_SMS",
+    "android.permission.POST_NOTIFICATIONS",
+):
+    manifest_text = insert_manifest_declaration(
+        manifest_text, "uses-permission", permission
+    )
+
+manifest_text = insert_manifest_declaration(
+    manifest_text,
+    "uses-feature",
+    "android.hardware.telephony.messaging",
+    ' android:required="false"'
+)
+if manifest_path.read_text(encoding="utf-8") != manifest_text:
+    manifest_path.write_text(manifest_text, encoding="utf-8")
+print("Merged only READ_CONTACTS, SEND_SMS and optional telephony messaging declarations")
+
+
+# The host already uses Compose/Room/WorkManager. Add activity-compose only if absent.
+gradle_groovy = root / "app/build.gradle"
+gradle_kts = root / "app/build.gradle.kts"
+if gradle_groovy.is_file():
+    gradle_text = gradle_groovy.read_text(encoding="utf-8")
+    if "androidx.activity:activity-compose" not in gradle_text:
+        anchor = "dependencies {"
+        if anchor not in gradle_text:
+            raise SystemExit("app/build.gradle: dependencies block not found")
+        gradle_text = gradle_text.replace(
+            anchor,
+            anchor + "\n    implementation 'androidx.activity:activity-compose:1.8.2'",
+            1
+        )
+        gradle_groovy.write_text(gradle_text, encoding="utf-8")
+elif gradle_kts.is_file():
+    gradle_text = gradle_kts.read_text(encoding="utf-8")
+    if "androidx.activity:activity-compose" not in gradle_text:
+        anchor = "dependencies {"
+        if anchor not in gradle_text:
+            raise SystemExit("app/build.gradle.kts: dependencies block not found")
+        gradle_text = gradle_text.replace(
+            anchor,
+            anchor + '\n    implementation("androidx.activity:activity-compose:1.8.2")',
+            1
+        )
+        gradle_kts.write_text(gradle_text, encoding="utf-8")
+else:
+    raise SystemExit("Host app Gradle file not found")
+
+
+# Wire the panels into the real dashboard entry point; repeated repair runs add nothing twice.
+dashboard_path = root / "app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt"
+if not dashboard_path.is_file():
+    raise SystemExit("Host DashboardScreen.kt not found")
+dashboard_text = dashboard_path.read_text(encoding="utf-8")
+package_anchor = "package com.openjarvis.ui.dashboard\n"
+panel_imports = (
+    "import com.openjarvis.deviceaccess.capabilities.DeviceCapabilityStatusPanel",
+    "import com.openjarvis.deviceaccess.storage.StorageAccessPanel",
+    "import com.openjarvis.deviceactions.ui.SmsComposePanel",
+    "import com.openjarvis.ui.player.VideoArtifactPlayerPanel",
+)
+missing_imports = [item for item in panel_imports if item not in dashboard_text]
+if missing_imports:
+    if package_anchor not in dashboard_text:
+        raise SystemExit("DashboardScreen package anchor not found")
+    dashboard_text = dashboard_text.replace(
+        package_anchor,
+        package_anchor + "\n" + "\n".join(missing_imports) + "\n",
+        1
+    )
+
+panel_marker = "// JARVIS_DEVICE_FEATURE_PANELS"
+if panel_marker not in dashboard_text:
+    video_anchor = "            VideoMvpPanel(modifier = Modifier.fillMaxWidth())"
+    if video_anchor not in dashboard_text:
+        raise SystemExit("DashboardScreen VideoMvpPanel anchor not found")
+    panel_block = """
+            // JARVIS_DEVICE_FEATURE_PANELS
+            Spacer(modifier = Modifier.height(16.dp))
+            VideoArtifactPlayerPanel(modifier = Modifier.fillMaxWidth())
+            Spacer(modifier = Modifier.height(16.dp))
+            DeviceCapabilityStatusPanel(modifier = Modifier.fillMaxWidth())
+            Spacer(modifier = Modifier.height(16.dp))
+            StorageAccessPanel(modifier = Modifier.fillMaxWidth())
+            Spacer(modifier = Modifier.height(16.dp))
+            SmsComposePanel(modifier = Modifier.fillMaxWidth())
+"""
+    dashboard_text = dashboard_text.replace(
+        video_anchor,
+        video_anchor + panel_block,
+        1
+    )
+
+dashboard_path.write_text(dashboard_text, encoding="utf-8")
+print("Wired embedded video player, capability status, SAF files and contact-first SMS into DashboardScreen")
+repair_marker.write_text(repair_digest + "\n", encoding="utf-8")
+print("OPEN_JARVIS_REPAIR_IDEMPOTENT_MARKER_WRITTEN")

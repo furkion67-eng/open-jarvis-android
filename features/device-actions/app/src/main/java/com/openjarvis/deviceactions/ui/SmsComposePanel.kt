@@ -18,6 +18,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,6 +36,7 @@ import com.openjarvis.deviceactions.sms.ConfirmedSmsDispatcher
 import com.openjarvis.deviceactions.sms.SmsConfirmationGate
 import com.openjarvis.deviceactions.sms.SmsPermission
 import com.openjarvis.deviceactions.sms.SmsSendOutcome
+import com.openjarvis.deviceactions.sms.SmsSelectionInvalidationPolicy
 
 /** Contact-first SMS flow. No phone-number field is shown for a unique contact match. */
 @Composable
@@ -66,10 +68,17 @@ fun SmsComposePanel(
     var status by remember { mutableStateOf("SMS için önce rehberden bir kişi bul.") }
     var showConfirmation by remember { mutableStateOf(false) }
 
+    LaunchedEffect(sender) {
+        if (sender.recoveredUnknownCount > 0) {
+            status = "Önceki SMS gönderiminin sonucu uygulama yeniden açıldığında doğrulanamadı (UNKNOWN). JARVIS mesajı otomatik tekrar göndermedi."
+        }
+    }
+
     fun applyLookup(result: ContactLookupResult) {
         lookupResult = result
         selectedContact = null
         selectedPhone = null
+        showConfirmation = false
         when (result) {
             is ContactLookupResult.Unique -> {
                 selectedContact = result.contact
@@ -115,7 +124,15 @@ fun SmsComposePanel(
             )
             OutlinedTextField(
                 value = nameQuery,
-                onValueChange = { nameQuery = it },
+                onValueChange = { value ->
+                    if (SmsSelectionInvalidationPolicy.queryChanged(nameQuery, value)) {
+                        selectedContact = null
+                        selectedPhone = null
+                        lookupResult = null
+                        showConfirmation = false
+                    }
+                    nameQuery = value
+                },
                 label = { Text("Rehberde kişi adı") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
@@ -151,6 +168,15 @@ fun SmsComposePanel(
                     result.candidates.forEach { candidate ->
                         Button(
                             onClick = {
+                                if (SmsSelectionInvalidationPolicy.recipientChanged(
+                                        selectedContact?.displayName,
+                                        selectedPhone?.number,
+                                        candidate.displayName,
+                                        candidate.phoneNumbers.singleOrNull()?.number
+                                    )
+                                ) {
+                                    showConfirmation = false
+                                }
                                 selectedContact = candidate
                                 if (candidate.phoneNumbers.size == 1) {
                                     val onlyPhone = candidate.phoneNumbers.single()
@@ -168,7 +194,19 @@ fun SmsComposePanel(
                 is ContactLookupResult.ChooseNumber -> {
                     Text(result.contact.displayName + " için numara seç:")
                     result.contact.phoneNumbers.forEach { phone ->
-                        TextButton(onClick = { selectedPhone = phone }) {
+                        TextButton(onClick = {
+                            if (SmsSelectionInvalidationPolicy.recipientChanged(
+                                    selectedContact?.displayName,
+                                    selectedPhone?.number,
+                                    result.contact.displayName,
+                                    phone.number
+                                )
+                            ) {
+                                showConfirmation = false
+                            }
+                            selectedPhone = phone
+                            lookupResult = ContactLookupResult.Unique(result.contact, phone)
+                        }) {
                             Text((phone.label ?: "Telefon") + " · " + phone.number)
                         }
                     }
@@ -186,7 +224,10 @@ fun SmsComposePanel(
                 Text("Numara: " + phone.number, style = MaterialTheme.typography.bodyMedium)
                 OutlinedTextField(
                     value = message,
-                    onValueChange = { message = it },
+                    onValueChange = {
+                        showConfirmation = false
+                        message = it
+                    },
                     label = { Text("Mesajın") },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 3
