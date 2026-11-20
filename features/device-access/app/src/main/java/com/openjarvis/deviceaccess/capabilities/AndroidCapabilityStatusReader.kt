@@ -30,7 +30,7 @@ class AndroidCapabilityStatusReader(context: Context) {
 
     fun recordStoragePickerResult(readGranted: Boolean, writeGranted: Boolean) {
         recordPermissionRequestResult("shared-storage-read", readGranted)
-        recordPermissionRequestResult("shared-storage-write", writeGranted)
+        recordPermissionRequestResult("shared-storage-write", readGranted && writeGranted)
     }
 
     fun snapshot(): List<CapabilityStatusItem> = buildList {
@@ -193,7 +193,7 @@ class AndroidCapabilityStatusReader(context: Context) {
     private fun storageStatuses(): List<CapabilityStatusItem> {
         val grants = appContext.contentResolver.persistedUriPermissions
         val readCount = grants.count { it.isReadPermission }
-        val writeCount = grants.count { it.isWritePermission }
+        val writeCount = grants.count { it.isReadPermission && it.isWritePermission }
         val requestedRead = preferences.getBoolean("requested.shared-storage-read", false)
         val requestedWrite = preferences.getBoolean("requested.shared-storage-write", false)
         val grantedReadBefore = preferences.getBoolean("grantedBefore.shared-storage-read", false)
