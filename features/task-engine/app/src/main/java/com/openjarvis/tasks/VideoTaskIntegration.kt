@@ -181,7 +181,6 @@ class VideoStoryTaskExecutor(context: Context) : JarvisTaskExecutor {
             if (!hasAudio) throw IllegalStateException("Önceki MP4 AAC ses izi doğrulanamadı.")
             return VideoArtifactMetadata(
                 durationMs = duration,
-                audioDurationMs = duration,
                 width = width,
                 height = height,
                 frameRate = 24,
