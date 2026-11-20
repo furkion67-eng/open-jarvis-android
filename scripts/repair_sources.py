@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import hashlib
 import sys
 
 root = Path(sys.argv[1])
+# The host ZIP is freshly extracted for each CI run. Hash the exact repair script so
+# a second invocation against the same extracted project becomes a byte-identical no-op.
+repair_digest = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+repair_marker = root / ".openjarvis-repair-sources.sha256"
+if repair_marker.is_file() and repair_marker.read_text(encoding="utf-8").strip() == repair_digest:
+    print("Open Jarvis source repair already applied for this exact script; skipping duplicate pass")
+    raise SystemExit(0)
 
 def edit(rel, fn):
     p = root / rel
@@ -3608,3 +3616,5 @@ if panel_marker not in dashboard_text:
 
 dashboard_path.write_text(dashboard_text, encoding="utf-8")
 print("Wired embedded video player, capability status, SAF files and contact-first SMS into DashboardScreen")
+repair_marker.write_text(repair_digest + "\n", encoding="utf-8")
+print("OPEN_JARVIS_REPAIR_IDEMPOTENT_MARKER_WRITTEN")
