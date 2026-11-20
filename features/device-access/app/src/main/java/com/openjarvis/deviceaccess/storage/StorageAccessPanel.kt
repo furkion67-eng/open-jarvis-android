@@ -402,7 +402,7 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
                                                     requestedName
                                                 )
                                             ) { "Dosya adı önizlemeden sonra değişti; işlemi yeniden başlat." }
-                                            gateway.rename(entry.uri, requestedName)
+                                            gateway.rename(entry.uri, requestedName, entry.name)
                                         }
                                         selectedForRename = null
                                         renameValue = ""
@@ -458,11 +458,13 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
                                                 )
                                             ) { "Kaynak veya hedef klasör değişti; işlemi yeniden onayla." }
                                             when (preview.operation) {
-                                                StorageTransferOperation.COPY -> gateway.copy(sourceUri, targetParent)
+                                                StorageTransferOperation.COPY -> gateway.copy(sourceUri, targetParent, preview.sourceName, preview.targetName)
                                                 StorageTransferOperation.MOVE -> gateway.move(
                                                     sourceUri,
                                                     transfer.sourceParentUri,
-                                                    targetParent
+                                                    targetParent,
+                                                    preview.sourceName,
+                                                    preview.targetName
                                                 )
                                             }
                                         }

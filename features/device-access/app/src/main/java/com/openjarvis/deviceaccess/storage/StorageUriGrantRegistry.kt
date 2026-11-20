@@ -54,11 +54,44 @@ object StorageUriGrantPolicy {
     }
 }
 
+internal interface StorageUriGrantAccess {
+    fun takePersistableUriPermission(uri: Uri, flags: Int)
+    fun releasePersistableUriPermission(uri: Uri, flags: Int)
+    fun snapshots(): List<StorageGrantSnapshot>
+}
+
+private class AndroidStorageUriGrantAccess(context: Context) : StorageUriGrantAccess {
+    private val resolver = context.applicationContext.contentResolver
+
+    override fun takePersistableUriPermission(uri: Uri, flags: Int) =
+        resolver.takePersistableUriPermission(uri, flags)
+
+    override fun releasePersistableUriPermission(uri: Uri, flags: Int) =
+        resolver.releasePersistableUriPermission(uri, flags)
+
+    override fun snapshots(): List<StorageGrantSnapshot> = resolver.persistedUriPermissions.mapNotNull { grant ->
+        val treeId = runCatching { DocumentsContract.getTreeDocumentId(grant.uri) }.getOrNull()
+        StorageGrantSnapshot(
+            uri = grant.uri.toString(),
+            authority = grant.uri.authority,
+            treeDocumentId = treeId,
+            hasReadPermission = grant.isReadPermission,
+            hasWritePermission = grant.isWritePermission
+        )
+    }
+}
+
 /** Persists only picker-returned URI grants and revalidates them after process restart. */
-class StorageUriGrantRegistry(context: Context) {
-    private val appContext = context.applicationContext
-    private val resolver = appContext.contentResolver
-    private val preferences = appContext.getSharedPreferences("jarvis_storage_uri_grants", Context.MODE_PRIVATE)
+class StorageUriGrantRegistry internal constructor(
+    context: Context,
+    private val grantAccess: StorageUriGrantAccess
+) {
+    constructor(context: Context) : this(context.applicationContext, AndroidStorageUriGrantAccess(context))
+
+    private val preferences = context.applicationContext.getSharedPreferences(
+        "jarvis_storage_uri_grants",
+        Context.MODE_PRIVATE
+    )
 
     fun persistPickerResult(uri: Uri, returnedFlags: Int, makeLast: Boolean = true) {
         val flags = StorageUriGrantPolicy.persistableFlags(
@@ -69,21 +102,21 @@ class StorageUriGrantRegistry(context: Context) {
         require(flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0) {
             "Android dosya seçicisi kalıcı okuma izni vermedi."
         }
-        resolver.takePersistableUriPermission(uri, flags)
-        require(StorageUriGrantPolicy.hasUriGrant(uri.toString(), persistedGrantSnapshots(), requireWrite = false)) {
-            "Android seçilen klasör için kalıcı okuma izni kaydetmedi."
+        grantAccess.takePersistableUriPermission(uri, flags)
+        require(StorageUriGrantPolicy.hasUriGrant(uri.toString(), grantAccess.snapshots(), requireWrite = false)) {
+            "Android seçilen dosya veya klasör için kalıcı okuma izni kaydetmedi."
         }
 
         val saved = LinkedHashSet(preferences.getStringSet(KEY_URIS, emptySet()).orEmpty())
         saved += uri.toString()
         val editor = preferences.edit().putStringSet(KEY_URIS, saved)
         if (makeLast) editor.putString(KEY_LAST_URI, uri.toString())
-        editor.apply()
+        check(editor.commit()) { "Seçilen dosya/klasör URI kaydı kalıcılaştırılamadı." }
     }
 
     fun lastGrantedTreeUri(): Uri? {
         val saved = preferences.getString(KEY_LAST_URI, null) ?: return null
-        if (!StorageUriGrantPolicy.hasUriGrant(saved, persistedGrantSnapshots(), requireWrite = false)) {
+        if (!StorageUriGrantPolicy.hasUriGrant(saved, grantAccess.snapshots(), requireWrite = false)) {
             removeSaved(saved)
             return null
         }
@@ -92,40 +125,30 @@ class StorageUriGrantRegistry(context: Context) {
 
     fun grantedTreeUris(): List<Uri> {
         val saved = preferences.getStringSet(KEY_URIS, emptySet()).orEmpty()
-        val valid = StorageUriGrantPolicy.activeSavedUris(saved, persistedGrantSnapshots())
-        preferences.edit().putStringSet(KEY_URIS, valid).apply()
+        val valid = StorageUriGrantPolicy.activeSavedUris(saved, grantAccess.snapshots())
+        check(preferences.edit().putStringSet(KEY_URIS, valid).commit()) {
+            "Geçersiz URI izinleri temizlenemedi."
+        }
         return valid.map(Uri::parse)
     }
 
     fun forget(uri: Uri) {
-        val grant = resolver.persistedUriPermissions.firstOrNull { it.uri == uri }
+        val grant = grantAccess.snapshots().firstOrNull { it.uri == uri.toString() }
         if (grant != null) {
             var flags = 0
-            if (grant.isReadPermission) flags = flags or Intent.FLAG_GRANT_READ_URI_PERMISSION
-            if (grant.isWritePermission) flags = flags or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            runCatching { resolver.releasePersistableUriPermission(uri, flags) }
+            if (grant.hasReadPermission) flags = flags or Intent.FLAG_GRANT_READ_URI_PERMISSION
+            if (grant.hasWritePermission) flags = flags or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            runCatching { grantAccess.releasePersistableUriPermission(uri, flags) }
         }
         removeSaved(uri.toString())
     }
-
-    private fun persistedGrantSnapshots(): List<StorageGrantSnapshot> =
-        resolver.persistedUriPermissions.mapNotNull { grant ->
-            val treeId = runCatching { DocumentsContract.getTreeDocumentId(grant.uri) }.getOrNull()
-            StorageGrantSnapshot(
-                uri = grant.uri.toString(),
-                authority = grant.uri.authority,
-                treeDocumentId = treeId,
-                hasReadPermission = grant.isReadPermission,
-                hasWritePermission = grant.isWritePermission
-            )
-        }
 
     private fun removeSaved(uri: String) {
         val saved = LinkedHashSet(preferences.getStringSet(KEY_URIS, emptySet()).orEmpty())
         saved.remove(uri)
         val editor = preferences.edit().putStringSet(KEY_URIS, saved)
         if (preferences.getString(KEY_LAST_URI, null) == uri) editor.remove(KEY_LAST_URI)
-        editor.apply()
+        check(editor.commit()) { "URI izin kaydı temizlenemedi." }
     }
 
     private companion object {

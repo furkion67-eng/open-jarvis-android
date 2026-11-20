@@ -193,6 +193,44 @@ internal class SmsAttemptJournal(private val store: SmsAttemptStore) {
     private companion object { const val MAX_TERMINAL_HISTORY = 32 }
 }
 
+/**
+ * Shared callback seam used by the Android BroadcastReceiver and tests. Durable journal state
+ * is authoritative: a late callback after timeout/process recovery can never promote UNKNOWN to SENT.
+ */
+internal class SmsPlatformCallbackRecorder(
+    private val requestId: String,
+    private val journal: SmsAttemptJournal,
+    private val tracker: SmsSendTracker,
+    private val resultOk: Int
+) {
+    @Synchronized
+    fun record(partIndex: Int, resultCode: Int): SmsSendState {
+        val durableState = journal.recordPlatformResult(requestId, partIndex, resultCode, resultOk)
+        return when (durableState) {
+            SmsSendState.SENT -> {
+                val inMemoryState = tracker.recordPlatformResult(partIndex, resultCode, resultOk)
+                if (inMemoryState == SmsSendState.SENT) SmsSendState.SENT else SmsSendState.UNKNOWN
+            }
+            SmsSendState.FAILED -> {
+                tracker.recordPlatformResult(partIndex, resultCode, resultOk)
+                SmsSendState.FAILED
+            }
+            SmsSendState.UNKNOWN -> {
+                tracker.markUnknown()
+                SmsSendState.UNKNOWN
+            }
+            SmsSendState.PENDING -> tracker.recordPlatformResult(partIndex, resultCode, resultOk)
+        }
+    }
+
+    @Synchronized
+    fun markUnknown(): SmsSendState {
+        val durableState = journal.markUnknown(requestId)
+        tracker.markUnknown()
+        return durableState
+    }
+}
+
 sealed interface SmsSendOutcome {
     object Sent : SmsSendOutcome
     object PermissionDenied : SmsSendOutcome

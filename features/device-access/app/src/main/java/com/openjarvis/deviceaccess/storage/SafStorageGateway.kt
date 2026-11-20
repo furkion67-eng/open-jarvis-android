@@ -15,6 +15,7 @@ internal interface SafDocumentOperations {
     fun copyDocument(source: Uri, targetParent: Uri): Uri?
     fun moveDocument(source: Uri, sourceParent: Uri, targetParent: Uri): Uri?
     fun deleteDocument(uri: Uri): Boolean
+    fun queryDisplayName(uri: Uri): String? = null
 }
 
 private class AndroidSafDocumentOperations(private val resolver: ContentResolver) : SafDocumentOperations {
@@ -27,6 +28,12 @@ private class AndroidSafDocumentOperations(private val resolver: ContentResolver
     override fun moveDocument(source: Uri, sourceParent: Uri, targetParent: Uri): Uri? =
         DocumentsContract.moveDocument(resolver, source, sourceParent, targetParent)
     override fun deleteDocument(uri: Uri): Boolean = DocumentsContract.deleteDocument(resolver, uri)
+    override fun queryDisplayName(uri: Uri): String? =
+        resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
+            } else null
+        }
 }
 
 /**
@@ -158,24 +165,57 @@ class SafStorageGateway(context: Context) {
         } ?: throw IOException("Dosya yazılamadı veya erişim izni kaldırılmış.")
     }
 
-    fun rename(uri: Uri, newDisplayName: String): Uri {
+    fun rename(uri: Uri, newDisplayName: String, expectedOriginalName: String): Uri {
         require(newDisplayName.isNotBlank()) { "Yeni ad boş olamaz." }
+        require(expectedOriginalName.isNotBlank()) { "Önizlenen eski ad boş olamaz." }
         requireAccess(uri, requireWrite = true)
+        require(queryDisplayName(uri) == expectedOriginalName) {
+            "Dosya adı önizlemeden sonra değişti; işlemi yeniden onayla."
+        }
         return documentOperations.renameDocument(uri, newDisplayName)
             ?: throw IOException("Dosya yeniden adlandırılamadı.")
     }
 
-    fun copy(source: Uri, targetParent: Uri): Uri {
+    fun copy(
+        source: Uri,
+        targetParent: Uri,
+        expectedSourceName: String,
+        expectedTargetName: String
+    ): Uri {
+        require(expectedSourceName.isNotBlank() && expectedTargetName.isNotBlank()) {
+            "Kopyalama önizlemesi eksik."
+        }
         requireAccess(source, requireWrite = false)
         requireAccess(targetParent, requireWrite = true)
+        require(queryDisplayName(source) == expectedSourceName) {
+            "Kaynak adı önizlemeden sonra değişti; kopyalamayı yeniden onayla."
+        }
+        require(queryDisplayName(targetParent) == expectedTargetName) {
+            "Hedef klasör önizlemeden sonra değişti; kopyalamayı yeniden onayla."
+        }
         return documentOperations.copyDocument(source, targetParent)
             ?: throw IOException("Dosya kopyalanamadı; sağlayıcı bu işlemi desteklemiyor.")
     }
 
-    fun move(source: Uri, sourceParent: Uri, targetParent: Uri): Uri {
+    fun move(
+        source: Uri,
+        sourceParent: Uri,
+        targetParent: Uri,
+        expectedSourceName: String,
+        expectedTargetName: String
+    ): Uri {
+        require(expectedSourceName.isNotBlank() && expectedTargetName.isNotBlank()) {
+            "Taşıma önizlemesi eksik."
+        }
         requireAccess(source, requireWrite = true)
         requireAccess(sourceParent, requireWrite = true)
         requireAccess(targetParent, requireWrite = true)
+        require(queryDisplayName(source) == expectedSourceName) {
+            "Kaynak adı önizlemeden sonra değişti; taşımayı yeniden onayla."
+        }
+        require(queryDisplayName(targetParent) == expectedTargetName) {
+            "Hedef klasör önizlemeden sonra değişti; taşımayı yeniden onayla."
+        }
         return documentOperations.moveDocument(source, sourceParent, targetParent)
             ?: throw IOException("Dosya taşınamadı; sağlayıcı bu işlemi desteklemiyor.")
     }
@@ -222,14 +262,8 @@ class SafStorageGateway(context: Context) {
 
     private fun queryDisplayName(uri: Uri): String {
         requireAccess(uri, requireWrite = false)
-        resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                return cursor.getString(
-                    cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME)
-                ) ?: throw IOException("Dosya adı okunamadı.")
-            }
-        }
-        throw IOException("Dosyaya erişilemiyor; izin kaldırılmış olabilir.")
+        return documentOperations.queryDisplayName(uri)
+            ?: throw IOException("Dosyaya erişilemiyor; dosya adı okunamadı veya izin kaldırılmış olabilir.")
     }
 }
 

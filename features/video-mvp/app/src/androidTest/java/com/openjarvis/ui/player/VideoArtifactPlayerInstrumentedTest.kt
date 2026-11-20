@@ -90,6 +90,16 @@ class VideoArtifactPlayerInstrumentedTest {
             scenario = ActivityScenario.launch(MainActivity::class.java)
             awaitDashboardPlayer(scenario, rendered.exportedUri.toString())
             scenario.recreate()
+            val activityRestoredPlayer = awaitDashboardPlayer(scenario, rendered.exportedUri.toString())
+            assertEquals(rendered.exportedUri.toString(), activityRestoredPlayer.tag)
+
+            // Simulate process loss: close the production Room singleton, then launch a fresh
+            // Activity against a newly opened database instance backed by the same on-disk file.
+            scenario.close()
+            scenario = null
+            JarvisTaskDatabase.closeInstanceForTesting()
+            JarvisTaskDatabase.getInstance(context)
+            scenario = ActivityScenario.launch(MainActivity::class.java)
 
             val restoredPlayer = awaitDashboardPlayer(scenario, rendered.exportedUri.toString())
             assertEquals(rendered.exportedUri.toString(), restoredPlayer.tag)
@@ -124,7 +134,9 @@ class VideoArtifactPlayerInstrumentedTest {
             }
         } finally {
             scenario?.close()
-            runCatching { database.taskDao().deleteById(task.id) }
+            JarvisTaskDatabase.closeInstanceForTesting()
+            runCatching { JarvisTaskDatabase.getInstance(context).taskDao().deleteById(task.id) }
+            JarvisTaskDatabase.closeInstanceForTesting()
             runCatching { context.contentResolver.delete(rendered.exportedUri, null, null) }
             runCatching { context.contentResolver.delete(rendered.captionsUri, null, null) }
             runCatching { rendered.video.file.delete() }

@@ -67,6 +67,12 @@ class AndroidSmsSender(context: Context) : SmsTransport {
             callback(SmsSendOutcome.Failed(error.message ?: "SMS gönderim durumu güvenli biçimde kaydedilemedi."))
             return
         }
+        val callbackRecorder = SmsPlatformCallbackRecorder(
+            requestId = journalId,
+            journal = attemptJournal,
+            tracker = tracker,
+            resultOk = Activity.RESULT_OK
+        )
         lateinit var timeout: Runnable
         lateinit var finish: (SmsSendOutcome) -> Unit
 
@@ -75,20 +81,18 @@ class AndroidSmsSender(context: Context) : SmsTransport {
                 if (intent?.getStringExtra(EXTRA_REQUEST_ID) != journalId) return
                 val partIndex = intent.getIntExtra(EXTRA_PART_INDEX, -1)
                 if (partIndex < 0) return
-                val trackedState = tracker.recordPlatformResult(partIndex, resultCode, Activity.RESULT_OK)
-                val durableState = try {
-                    attemptJournal.recordPlatformResult(journalId, partIndex, resultCode, Activity.RESULT_OK)
+                val state = try {
+                    callbackRecorder.record(partIndex, resultCode)
                 } catch (error: Exception) {
-                    tracker.markUnknown()
-                    runCatching { attemptJournal.markUnknown(journalId) }
+                    runCatching { callbackRecorder.markUnknown() }
                     finish(SmsSendOutcome.Unknown("SMS callback sonucu güvenli biçimde kaydedilemedi: " + (error.message ?: "kayıt hatası")))
                     return
                 }
-                when {
-                    durableState == SmsSendState.SENT && trackedState == SmsSendState.SENT -> finish(SmsSendOutcome.Sent)
-                    durableState == SmsSendState.FAILED -> finish(SmsSendOutcome.Failed("Android SMS gönderim callback'i başarısız (kod " + resultCode + ")."))
-                    durableState == SmsSendState.UNKNOWN -> finish(SmsSendOutcome.Unknown("SMS gönderim sonucu bilinmiyor; otomatik tekrar yapılmadı."))
-                    else -> Unit
+                when (state) {
+                    SmsSendState.SENT -> finish(SmsSendOutcome.Sent)
+                    SmsSendState.FAILED -> finish(SmsSendOutcome.Failed("Android SMS gönderim callback'i başarısız (kod " + resultCode + ")."))
+                    SmsSendState.UNKNOWN -> finish(SmsSendOutcome.Unknown("SMS gönderim sonucu bilinmiyor; otomatik tekrar yapılmadı."))
+                    SmsSendState.PENDING -> Unit
                 }
             }
         }
@@ -103,8 +107,8 @@ class AndroidSmsSender(context: Context) : SmsTransport {
             }
         }
         timeout = Runnable {
-            if (tracker.markUnknown() == SmsSendState.UNKNOWN) {
-                runCatching { attemptJournal.markUnknown(journalId) }
+            val state = runCatching { callbackRecorder.markUnknown() }.getOrDefault(SmsSendState.UNKNOWN)
+            if (state == SmsSendState.UNKNOWN) {
                 finish(SmsSendOutcome.Unknown("Android gönderim callback'i zamanında gelmedi; SENT olarak işaretlenmedi."))
             }
         }

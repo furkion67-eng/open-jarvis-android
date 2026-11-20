@@ -141,4 +141,56 @@ class SmsActionContractTest {
         assertTrue(runCatching { gate.prepare("İpek", "abc", "Merhaba") }.isFailure)
         assertTrue(runCatching { gate.prepare("İpek", "+905321112233", "  ") }.isFailure)
     }
+    @Test
+    fun platformCallbackRecorderPersistsEveryMultipartResultOkBeforeSent() {
+        val store = InMemorySmsAttemptStore()
+        val journal = SmsAttemptJournal(store)
+        journal.begin("receiver-ok", 3)
+        val recorder = SmsPlatformCallbackRecorder("receiver-ok", journal, SmsSendTracker(3), -1)
+
+        assertEquals(SmsSendState.PENDING, recorder.record(0, -1))
+        assertEquals(SmsSendState.PENDING, recorder.record(1, -1))
+        assertEquals(SmsSendState.SENT, recorder.record(2, -1))
+        assertEquals(SmsSendState.SENT, store.get("receiver-ok")?.state)
+    }
+
+    @Test
+    fun platformCallbackRecorderKeepsFailureTerminalWhenLaterMultipartCallbackSucceeds() {
+        val store = InMemorySmsAttemptStore()
+        val journal = SmsAttemptJournal(store)
+        journal.begin("receiver-failed", 3)
+        val recorder = SmsPlatformCallbackRecorder("receiver-failed", journal, SmsSendTracker(3), -1)
+
+        assertEquals(SmsSendState.PENDING, recorder.record(0, -1))
+        assertEquals(SmsSendState.FAILED, recorder.record(1, 0))
+        assertEquals(SmsSendState.FAILED, recorder.record(2, -1))
+        assertEquals(SmsSendState.FAILED, store.get("receiver-failed")?.state)
+    }
+
+    @Test
+    fun callbackAfterProcessRecoveryRemainsUnknownAndCannotBecomeSent() {
+        val store = InMemorySmsAttemptStore()
+        val beforeRestart = SmsAttemptJournal(store)
+        beforeRestart.begin("receiver-restart", 2)
+        assertEquals(SmsSendState.PENDING, beforeRestart.recordPlatformResult("receiver-restart", 0, -1, -1))
+
+        val afterRestart = SmsAttemptJournal(store)
+        assertEquals(1, afterRestart.recoverPendingAsUnknown().size)
+        val recorder = SmsPlatformCallbackRecorder("receiver-restart", afterRestart, SmsSendTracker(2), -1)
+        assertEquals(SmsSendState.UNKNOWN, recorder.record(1, -1))
+        assertEquals(SmsSendState.UNKNOWN, store.get("receiver-restart")?.state)
+    }
+
+    @Test
+    fun duplicateMultipartCallbackCannotCountAsASecondPart() {
+        val store = InMemorySmsAttemptStore()
+        val journal = SmsAttemptJournal(store)
+        journal.begin("receiver-duplicate", 2)
+        val recorder = SmsPlatformCallbackRecorder("receiver-duplicate", journal, SmsSendTracker(2), -1)
+
+        assertEquals(SmsSendState.PENDING, recorder.record(0, -1))
+        assertEquals(SmsSendState.PENDING, recorder.record(0, -1))
+        assertEquals(SmsSendState.SENT, recorder.record(1, -1))
+    }
+
 }

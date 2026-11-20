@@ -80,5 +80,13 @@ abstract class JarvisTaskDatabase : RoomDatabase() {
                 "jarvis_tasks.db"
             ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build().also { instance = it }
         }
+
+        /** Closes the singleton so instrumentation can verify the file-backed DB after a process-style reopen. */
+        internal fun closeInstanceForTesting() {
+            synchronized(this) {
+                instance?.close()
+                instance = null
+            }
+        }
     }
 }
