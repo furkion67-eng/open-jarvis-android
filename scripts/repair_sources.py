@@ -3761,7 +3761,7 @@ else:
     )
 
 activity_pattern = re.compile(
-    r"<activity\b(?=[^>]*android:name\s*=\s*['\"])"
+    r"<activity\b(?=[^>]*\bandroid:name\s*=\s*['\"]"
     + re.escape(player_test_activity)
     + r"['\"])[^>]*/?>",
     re.DOTALL
