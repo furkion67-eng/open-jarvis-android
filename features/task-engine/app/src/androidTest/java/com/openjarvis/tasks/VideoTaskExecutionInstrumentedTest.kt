@@ -308,13 +308,18 @@ class VideoTaskExecutionInstrumentedTest {
     }
 
     private fun parseSrtTimeMs(value: String): Long {
-        val match = Regex("""(\\d{2}):(\\d{2}):(\\d{2}),(\\d{3})""")
-            .matchEntire(value.trim()) ?: throw AssertionError("Invalid SRT timestamp: $value")
-        val (hours, minutes, seconds, millis) = match.destructured
-        return hours.toLong() * 3_600_000L +
-            minutes.toLong() * 60_000L +
-            seconds.toLong() * 1_000L +
-            millis.toLong()
+        val parts = value.trim().split(':', ',')
+        if (parts.size != 4 || parts.any { it.isEmpty() || it.any { char -> !char.isDigit() } }) {
+            throw AssertionError("Invalid SRT timestamp: $value")
+        }
+        val hours = parts[0].toLong()
+        val minutes = parts[1].toLong()
+        val seconds = parts[2].toLong()
+        val millis = parts[3].toLong()
+        return hours * 3_600_000L +
+            minutes * 60_000L +
+            seconds * 1_000L +
+            millis
     }
 
 }
