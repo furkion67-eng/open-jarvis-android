@@ -2,9 +2,7 @@ package com.openjarvis.tasks
 
 /** Closed set of device-action categories persisted without caller-provided text. */
 enum class DeviceActionType(val storageValue: String) {
-    SMS("sms"),
-    CALL("call"),
-    STORAGE("storage")
+    SMS("sms")
 }
 
 /**
@@ -18,7 +16,7 @@ enum class DeviceActionOutcomeCode(
 ) {
     SENT(
         "SENT",
-        "Android gönderim callback'leri başarılı; teslimat doğrulanmadı."
+        "Tüm SMS_SENT callback'leri RESULT_OK döndü; teslimat doğrulanmadı."
     ),
     FAILED(
         "FAILED",

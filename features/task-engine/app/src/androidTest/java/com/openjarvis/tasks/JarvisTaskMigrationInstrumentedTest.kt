@@ -287,6 +287,19 @@ class JarvisTaskMigrationInstrumentedTest {
                 "UNKNOWN",
                 migrated.taskDao().findDeviceActionEventById("v6-upgrade-unknown")?.outcomeCode
             )
+            migrated.taskDao().insertDeviceActionEvent(
+                DeviceActionEventEntity(
+                    id = "v6-upgrade-draft",
+                    actionType = "sms",
+                    outcomeCode = "DRAFT",
+                    safeSummary = DeviceActionOutcomeCode.DRAFT.safeSummary,
+                    createdAt = 301L
+                )
+            )
+            assertEquals(
+                "DRAFT",
+                migrated.taskDao().findDeviceActionEventById("v6-upgrade-draft")?.outcomeCode
+            )
         } finally {
             migrated.close()
             context.deleteDatabase(databaseName)

@@ -11,10 +11,6 @@ class JarvisTaskRepository(
     fun observeRecentTasks(limit: Int = 8): Flow<List<JarvisTaskEntity>> = dao.observeRecent(limit)
 
     /**
-     * Persist only a safe outcome code and summary for a device action. Contact details and
-     * message bodies are deliberately excluded from this journal.
-     */
-    /**
      * Persist a typed device-action result with a fixed summary. Arbitrary caller text is not
      * accepted, so contact names, phone numbers and message bodies cannot enter this journal.
      */
