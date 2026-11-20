@@ -3736,5 +3736,64 @@ if panel_marker not in dashboard_text:
 
 dashboard_path.write_text(dashboard_text, encoding="utf-8")
 print("Wired embedded video player, capability status, SAF files and contact-first SMS into DashboardScreen")
+
+# Register the player-only instrumentation host in the test APK. This keeps the
+# production MainActivity Accessibility/Overlay gate intact while allowing the
+# embedded player composable to be exercised without appops or permission bypass.
+video_test_manifest_source = video_feature_root / "app/src/androidTest/AndroidManifest.xml"
+if not video_test_manifest_source.is_file():
+    raise SystemExit("video-mvp androidTest manifest for embedded player host is missing")
+video_test_manifest_text = video_test_manifest_source.read_text(encoding="utf-8")
+player_test_activity = "com.openjarvis.ui.player.DashboardPlayerTestActivity"
+if player_test_activity not in video_test_manifest_text:
+    raise SystemExit("video-mvp androidTest manifest does not declare DashboardPlayerTestActivity")
+
+host_test_manifest = root / "app/src/androidTest/AndroidManifest.xml"
+host_test_manifest.parent.mkdir(parents=True, exist_ok=True)
+if host_test_manifest.is_file():
+    host_test_manifest_text = host_test_manifest.read_text(encoding="utf-8")
+else:
+    host_test_manifest_text = (
+        '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
+        '    <application>\n'
+        '    </application>\n'
+        '</manifest>\n'
+    )
+
+activity_pattern = re.compile(
+    r"<activity\b(?=[^>]*\bandroid:name\s*=\s*['\"]"
+    + re.escape(player_test_activity)
+    + r"['\"])[^>]*/?>",
+    re.DOTALL
+)
+if not activity_pattern.search(host_test_manifest_text):
+    activity_declaration = (
+        '        <activity android:name="' + player_test_activity
+        + '" android:exported="false" />\n'
+    )
+    application_close = re.search(r"</application\s*>", host_test_manifest_text)
+    if application_close:
+        host_test_manifest_text = (
+            host_test_manifest_text[:application_close.start()]
+            + activity_declaration
+            + host_test_manifest_text[application_close.start():]
+        )
+    else:
+        manifest_close = re.search(r"</manifest\s*>", host_test_manifest_text)
+        if not manifest_close:
+            raise SystemExit("Host androidTest manifest has no closing manifest element")
+        application_block = (
+            '    <application>\n' + activity_declaration
+            + '    </application>\n'
+        )
+        host_test_manifest_text = (
+            host_test_manifest_text[:manifest_close.start()]
+            + application_block
+            + host_test_manifest_text[manifest_close.start():]
+        )
+if not host_test_manifest.is_file() or host_test_manifest.read_text(encoding="utf-8") != host_test_manifest_text:
+    host_test_manifest.write_text(host_test_manifest_text, encoding="utf-8")
+print("Registered the isolated embedded-player instrumentation host without changing production permission gates")
+
 repair_marker.write_text(repair_digest + "\n", encoding="utf-8")
 print("OPEN_JARVIS_REPAIR_IDEMPOTENT_MARKER_WRITTEN")
