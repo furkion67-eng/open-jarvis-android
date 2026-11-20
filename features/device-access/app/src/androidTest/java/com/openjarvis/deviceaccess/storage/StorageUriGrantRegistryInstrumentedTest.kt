@@ -64,7 +64,7 @@ class StorageUriGrantRegistryInstrumentedTest {
         assertTrue(reopened.grantedTreeUris().isEmpty())
         assertFalse(preferences.getStringSet("uris", emptySet()).orEmpty().contains(uri.toString()))
         assertTrue(history.getBoolean("grantedBefore.shared-storage-read", false))
-        assertTrue(history.getBoolean("grantedBefore.shared-storage-write", false))
+        assertFalse(history.getBoolean("grantedBefore.shared-storage-write", false))
         preferences.edit().clear().commit()
         history.edit().clear().commit()
     }
