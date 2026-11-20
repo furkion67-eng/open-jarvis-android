@@ -36,8 +36,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 internal sealed interface PlaybackAvailability {
-    data object Empty : PlaybackAvailability
-    data object Loading : PlaybackAvailability
+    object Empty : PlaybackAvailability
+    object Loading : PlaybackAvailability
     data class Ready(val uri: Uri, val metadata: VideoArtifactMetadata) : PlaybackAvailability
     data class Unavailable(val reason: String) : PlaybackAvailability
 }
@@ -185,7 +185,6 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
                                     }
                                     tag = state.uri.toString()
                                     setVideoURI(state.uri)
-                                    player = this
                                 }
                             },
                             update = { view ->
