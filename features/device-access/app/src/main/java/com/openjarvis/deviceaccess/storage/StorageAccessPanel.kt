@@ -49,6 +49,8 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
     var refreshKey by remember { mutableStateOf(0) }
     var entries by remember { mutableStateOf<List<SafStorageGateway.Entry>>(emptyList()) }
     var folderName by rememberSaveable { mutableStateOf("") }
+    var newFileName by rememberSaveable { mutableStateOf("") }
+    var newFileContent by rememberSaveable { mutableStateOf("") }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var selectedForDeletion by remember { mutableStateOf<SafStorageGateway.Entry?>(null) }
     var typedDeleteName by rememberSaveable { mutableStateOf("") }
@@ -84,7 +86,7 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
         val destinationTree = data?.data
         if (result.resultCode == Activity.RESULT_OK && destinationTree != null && source != null) {
             try {
-                grantRegistry.persistPickerResult(destinationTree, data.flags, makeLast = false)
+                grantRegistry.persistPickerResult(destinationTree, data?.flags ?: 0, makeLast = false)
                 val hasWriteGrant = context.contentResolver.persistedUriPermissions.any {
                     it.uri == destinationTree && it.isWritePermission
                 }
@@ -248,6 +250,43 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
                         }
                     }
                 ) { Text("Klasör oluştur") }
+                OutlinedTextField(
+                    value = newFileName,
+                    onValueChange = { newFileName = it },
+                    label = { Text("Yeni metin dosyası adı") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = newFileContent,
+                    onValueChange = { newFileContent = it },
+                    label = { Text("Dosya içeriği") },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Button(
+                    enabled = newFileName.isNotBlank() && !loading,
+                    onClick = {
+                        val name = newFileName.trim()
+                        val bytes = newFileContent.toByteArray(Charsets.UTF_8)
+                        scope.launch {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    val parent = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentDocumentId!!)
+                                    val gateway = SafStorageGateway(context)
+                                    val created = gateway.createFile(parent, "text/plain", name)
+                                    gateway.write(created, bytes)
+                                }
+                                newFileName = ""
+                                newFileContent = ""
+                                status = "Metin dosyası oluşturuldu."
+                                refreshKey++
+                            } catch (error: Exception) {
+                                status = "Metin dosyası oluşturulamadı: " + (error.message ?: "sağlayıcı hatası")
+                            }
+                        }
+                    }
+                ) { Text("Metin dosyası oluştur") }
 
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(visibleEntries, key = { it.uri.toString() }) { entry ->
