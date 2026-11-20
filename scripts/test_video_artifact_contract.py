@@ -115,7 +115,7 @@ def verify_command_task_source() -> None:
             "SmsSendOutcome.Sent" in sms_panel and "SmsSendOutcome.Unknown" in sms_panel and
             "ACTION_SENDTO" in sms_panel and "DRAFT" in sms_panel and "SENT" in sms_panel,
         "SMS journal instrumentation excludes phone and message body":
-            "smsOutcomeIsDurablyJournaledWithoutContactOrMessageData" in task_persistence_test and
+            "outcomeJournalReturnsOnlyAfterPrivacySafeRoomCommit" in task_persistence_test and
             'assertFalse(event.safeSummary.contains("+905551112233"))' in task_persistence_test and
             'assertFalse(event.safeSummary.contains("Özel mesaj metni"))' in task_persistence_test,
         "Room version 7 migration clears synthetic failed progress":
