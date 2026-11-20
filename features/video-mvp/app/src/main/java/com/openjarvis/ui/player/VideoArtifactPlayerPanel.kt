@@ -35,6 +35,7 @@ import com.openjarvis.tasks.VideoArtifactMetadata
 import com.openjarvis.tasks.VideoArtifactMetadataCodec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 
 internal sealed interface PlaybackAvailability {
     object Empty : PlaybackAvailability
@@ -71,8 +72,15 @@ internal object VideoArtifactPlaybackValidator {
                 val width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
                 val height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
                 val hasAudio = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO) == "yes"
-                if (duration <= 0L || width <= 0 || height <= width || !hasAudio) {
-                    return PlaybackAvailability.Unavailable("MP4 video/ses izleri artık doğrulanamıyor.")
+                if (
+                    duration <= 0L ||
+                    width != metadata.width ||
+                    height != metadata.height ||
+                    height <= width ||
+                    abs(duration - metadata.durationMs) > 2_000L ||
+                    !hasAudio
+                ) {
+                    return PlaybackAvailability.Unavailable("MP4 video/ses izleri saklanan metadata ile eşleşmiyor.")
                 }
             } finally {
                 runCatching { retriever.release() }
