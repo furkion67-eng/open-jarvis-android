@@ -335,8 +335,10 @@ class VideoArtifactPlayerInstrumentedTest {
             instrumentation.runOnMainSync {
                 val player = findVideoView(activity.window.decorView)
                     ?: throw AssertionError("The production embedded VideoView disappeared.")
-                if (player.isPlaying || player.currentPosition > 0) {
-                    progressMs = player.currentPosition.coerceAtLeast(1)
+                // Require actual playback-time advancement, not merely an isPlaying flag.
+                // A start request can be accepted before the decoder has rendered a frame.
+                if (player.currentPosition >= 500) {
+                    progressMs = player.currentPosition
                 }
             }
             if (progressMs > 0) return progressMs
