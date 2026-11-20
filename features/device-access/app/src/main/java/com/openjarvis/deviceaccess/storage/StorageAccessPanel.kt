@@ -336,16 +336,20 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
                                         }) { Text("Silme onayı") }
                                     }
                                 }
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    TextButton(onClick = {
-                                        selectedForRename = entry
-                                        renameValue = entry.name
-                                    }) { Text("Yeniden adlandır") }
-                                    TextButton(onClick = { beginTransfer(entry, StorageTransferOperation.COPY) }) {
-                                        Text("Kopyala…")
+                                Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        TextButton(onClick = {
+                                            selectedForRename = entry
+                                            renameValue = entry.name
+                                        }) { Text("Yeniden adlandır") }
+                                        TextButton(onClick = { beginTransfer(entry, StorageTransferOperation.COPY) }) {
+                                            Text("Kopyala…")
+                                        }
                                     }
-                                    TextButton(onClick = { beginTransfer(entry, StorageTransferOperation.MOVE) }) {
-                                        Text("Taşı…")
+                                    Row {
+                                        TextButton(onClick = { beginTransfer(entry, StorageTransferOperation.MOVE) }) {
+                                            Text("Taşı…")
+                                        }
                                     }
                                 }
                             }
@@ -357,7 +361,7 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
                 val requestedName = renameValue.trim()
                 AlertDialog(
                     onDismissRequest = { if (!mutationInProgress) selectedForRename = null },
-                    title = { Text("Dosyayı yeniden adlandır") },
+                    title = { Text("Öğeyi yeniden adlandır") },
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("Mevcut ad: " + entry.name)
