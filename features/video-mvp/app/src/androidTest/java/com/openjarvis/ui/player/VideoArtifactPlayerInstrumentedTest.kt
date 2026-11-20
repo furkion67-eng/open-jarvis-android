@@ -3,10 +3,14 @@ package com.openjarvis.ui.player
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
+import android.os.Bundle
 import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
 import android.widget.VideoView
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.material3.MaterialTheme
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -15,7 +19,6 @@ import com.openjarvis.tasks.JarvisTaskRepository
 import com.openjarvis.tasks.JarvisTaskStatus
 import com.openjarvis.tasks.VIDEO_TASK_EXECUTION_MODE
 import com.openjarvis.tasks.VideoArtifactMetadataCodec
-import com.openjarvis.ui.MainActivity
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.junit.Assert.assertEquals
@@ -57,7 +60,7 @@ class VideoArtifactPlayerInstrumentedTest {
         var videoUri: Uri? = null
         var captionsUri: Uri? = null
         var thumbnailUri: Uri? = null
-        var scenario: ActivityScenario<MainActivity>? = null
+        var scenario: ActivityScenario<DashboardPlayerTestActivity>? = null
 
         try {
             // Use the production repository and its registered VideoStoryTaskExecutor. The plan
@@ -175,9 +178,10 @@ class VideoArtifactPlayerInstrumentedTest {
             )
             assertTrue("The persisted MP4/SRT pair must pass the same validator used by the Dashboard.", initialAvailability is PlaybackAvailability.Ready)
 
-            // Open the real host Activity and wait for the Dashboard-owned player to restore the
-            // exact URI produced by the accepted production task.
-            scenario = ActivityScenario.launch(MainActivity::class.java)
+            // Render the production player in an isolated test host. MainActivity's explicit
+            // Accessibility/Overlay gate is validated separately by the launcher test; this
+            // test must not bypass or auto-grant those production capabilities.
+            scenario = ActivityScenario.launch(DashboardPlayerTestActivity::class.java)
             awaitDashboardPlayer(scenario!!, persistedVideoUri.toString())
             scenario!!.recreate()
             val recreatedPlayer = awaitDashboardPlayer(scenario!!, persistedVideoUri.toString())
@@ -219,7 +223,7 @@ class VideoArtifactPlayerInstrumentedTest {
             )
             assertTrue("The restored URI pair must remain playable after Room reopen.", reopenedAvailability is PlaybackAvailability.Ready)
 
-            scenario = ActivityScenario.launch(MainActivity::class.java)
+            scenario = ActivityScenario.launch(DashboardPlayerTestActivity::class.java)
             val restoredPlayer = awaitDashboardPlayer(scenario!!, persistedVideoUri.toString())
             assertEquals(videoUri.toString(), restoredPlayer.tag)
 
@@ -251,7 +255,7 @@ class VideoArtifactPlayerInstrumentedTest {
     }
 
     private fun awaitDashboardPlayer(
-        scenario: ActivityScenario<MainActivity>,
+        scenario: ActivityScenario<DashboardPlayerTestActivity>,
         expectedUri: String
     ): VideoView {
         val deadline = SystemClock.elapsedRealtime() + 30_000L
@@ -264,10 +268,10 @@ class VideoArtifactPlayerInstrumentedTest {
             if (found != null) return found!!
             SystemClock.sleep(100)
         }
-        throw AssertionError("Production DashboardScreen did not restore the embedded VideoArtifactPlayerPanel for the persisted URI.")
+        throw AssertionError("Production VideoArtifactPlayerPanel did not restore the persisted URI in the test host.")
     }
 
-    private fun awaitPlaybackProgress(scenario: ActivityScenario<MainActivity>): Int {
+    private fun awaitPlaybackProgress(scenario: ActivityScenario<DashboardPlayerTestActivity>): Int {
         val deadline = SystemClock.elapsedRealtime() + 30_000L
         while (SystemClock.elapsedRealtime() < deadline) {
             var progressMs = 0
@@ -292,5 +296,23 @@ class VideoArtifactPlayerInstrumentedTest {
             }
         }
         return null
+    }
+}
+
+/**
+ * Test-only host for the real embedded player composable.
+ *
+ * MainActivity's Accessibility/Overlay requirement remains intact and is covered by the
+ * independent launcher permission-gate test. The player acceptance test must not grant or
+ * bypass those user-controlled capabilities just to render a video.
+ */
+class DashboardPlayerTestActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent {
+            MaterialTheme {
+                VideoArtifactPlayerPanel()
+            }
+        }
     }
 }
