@@ -313,7 +313,7 @@ jobs:
           grep -Fq '.filter { isExactTurkishLocale(it.localeTag) }' app/src/main/java/com/openjarvis/voice/TurkishTtsPolicy.kt
           grep -Fq 'TurkishTtsPolicy.exactActualEngineLocale(actualLocaleTag)' app/src/main/java/com/openjarvis/voice/AndroidTTSEngine.kt
           grep -Fq 'TurkishVoiceMissing' app/src/androidTest/java/com/openjarvis/voice/TurkishTtsEngineInstrumentedTest.kt
-          grep -Fq 'nullActualEngineVoiceNeverReportsReadyAndCompletesSttHandoffExactlyOnce' app/src/androidTest/java/com/openjarvis/voice/TurkishTtsEngineInstrumentedTest.kt
+          grep -Fq 'actualTtsVoiceMustBePresentAndExactlyTurkishAfterSelection' app/src/test/java/com/openjarvis/video/VideoNarrationComposerTest.kt
           grep -Fq 'private const val EXACT_TURKISH_LOCALE_TAG = "tr-TR"' app/src/main/java/com/openjarvis/voice/TurkishTtsPolicy.kt
           grep -Fq 'localeTag.equals(EXACT_TURKISH_LOCALE_TAG, ignoreCase = true)' app/src/main/java/com/openjarvis/voice/TurkishTtsPolicy.kt
           grep -Fq 'exactTrTrRejectsLocaleVariantsExtensionsAndMalformedTags' app/src/test/java/com/openjarvis/voice/TurkishTtsPolicyTest.kt
@@ -374,7 +374,7 @@ jobs:
           grep -Fq 'markNotExecutedIfCurrent' app/src/main/java/com/openjarvis/tasks/JarvisTaskDao.kt
           grep -Fq 'markInterruptedIfCurrent' app/src/main/java/com/openjarvis/tasks/JarvisTaskDao.kt
           grep -Fq 'VideoStoryTaskExecutor(context.applicationContext)' app/src/main/java/com/openjarvis/tasks/JarvisTaskRepository.kt
-          grep -Fq 'productionRepositoryRunsRegisteredVideoExecutorAndPersistsReadableMediaStorePair' app/src/androidTest/java/com/openjarvis/tasks/VideoTaskExecutionInstrumentedTest.kt
+          grep -Fq 'productionRepositoryRunsRegisteredVideoExecutorAndPersistsVerifiedMediaStoreBundle' app/src/androidTest/java/com/openjarvis/tasks/VideoTaskExecutionInstrumentedTest.kt
           grep -Fq 'nullActualEngineVoiceNeverReportsReadyAndCompletesSttHandoffExactlyOnce' app/src/androidTest/java/com/openjarvis/voice/TurkishTtsEngineInstrumentedTest.kt
           echo "PR97-DURABLE-TASK-ROOM6-VIDEO-PLAYER-DEVICE-HOST-TTS-SOURCE-OK"
 
