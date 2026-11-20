@@ -47,7 +47,7 @@ class StorageUriGrantRegistryInstrumentedTest {
         val access = FakeStorageUriGrantAccess()
         val uri = Uri.parse("content://jarvis.fake.documents/tree/revoked")
         val registry = StorageUriGrantRegistry(context, access)
-        registry.persistPickerResult(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        registry.persistPickerResult(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
         access.revoke(uri)
 
         val reopened = StorageUriGrantRegistry(context, access)
@@ -64,7 +64,7 @@ class StorageUriGrantRegistryInstrumentedTest {
         preferences.edit().clear().commit()
         val access = FakeStorageUriGrantAccess()
         val uri = Uri.parse("content://jarvis.fake.documents/tree/read-only")
-        StorageUriGrantRegistry(context, access).persistPickerResult(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        StorageUriGrantRegistry(context, access).persistPickerResult(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
 
         assertTrue(StorageUriGrantPolicy.hasUriGrant(uri.toString(), access.snapshots(), requireWrite = false))
         assertFalse(StorageUriGrantPolicy.hasUriGrant(uri.toString(), access.snapshots(), requireWrite = true))
@@ -77,7 +77,7 @@ class StorageUriGrantRegistryInstrumentedTest {
         val access = FakeStorageUriGrantAccess()
         val uri = Uri.parse("content://jarvis.fake.documents/tree/no-read")
         val error = runCatching {
-            StorageUriGrantRegistry(context, access).persistPickerResult(uri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            StorageUriGrantRegistry(context, access).persistPickerResult(uri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
         }.exceptionOrNull()
         assertTrue(error is IllegalArgumentException)
         assertNull(access.lastTakenFlags)
