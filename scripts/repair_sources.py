@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from pathlib import Path
 import hashlib
+import re
 import sys
 
 root = Path(sys.argv[1])
@@ -19,24 +20,142 @@ def edit(rel, fn):
     if updated != s:
         p.write_text(updated)
 
+def _kotlin_brace_balance(source):
+    depth = 0
+    index = 0
+    state = "code"
+    block_depth = 0
+    while index < len(source):
+        if state == "code":
+            if source.startswith("//", index):
+                state = "line"
+                index += 2
+            elif source.startswith("/*", index):
+                state = "block"
+                block_depth = 1
+                index += 2
+            elif source.startswith('"""', index):
+                state = "raw"
+                index += 3
+            elif source[index] == '"':
+                state = "string"
+                index += 1
+            elif source[index] == "'":
+                state = "char"
+                index += 1
+            elif source[index] == chr(96):
+                state = "backtick"
+                index += 1
+            elif source[index] == "{":
+                depth += 1
+                index += 1
+            elif source[index] == "}":
+                depth -= 1
+                if depth < 0:
+                    raise ValueError("unbalanced Kotlin closing brace")
+                index += 1
+            else:
+                index += 1
+        elif state == "line":
+            if source[index] == "\n":
+                state = "code"
+            index += 1
+        elif state == "block":
+            if source.startswith("/*", index):
+                block_depth += 1
+                index += 2
+            elif source.startswith("*/", index):
+                block_depth -= 1
+                index += 2
+                if block_depth == 0:
+                    state = "code"
+            else:
+                index += 1
+        elif state in ("string", "char"):
+            quote = '"' if state == "string" else "'"
+            if source[index] == "\\":
+                index += 2
+            elif source[index] == quote:
+                state = "code"
+                index += 1
+            else:
+                index += 1
+        elif state == "raw":
+            if source.startswith('"""', index):
+                state = "code"
+                index += 3
+            else:
+                index += 1
+        elif state == "backtick":
+            if source[index] == chr(96):
+                state = "code"
+            index += 1
+    if state in ("block", "string", "char", "raw", "backtick"):
+        raise ValueError("unterminated Kotlin lexical construct")
+    return depth
+
+
 def agent(s):
     marker = "\n    suspend fun testConnection(): Result<Long> {"
-    if marker not in s:
-        raise SystemExit("AgentCore.kt: testConnection marker not found")
-    # executeTask() opens scope.launch { taskMutex.withLock { ... } }.
-    # The packaged file closes those two lambdas but omits executeTask() itself.
-    before = s.split(marker, 1)[0]
-    last_nonblank = next(
-        (line for line in reversed(before.splitlines()) if line.strip()),
-        ""
-    )
-    last_indent = len(last_nonblank) - len(last_nonblank.lstrip())
-    # executeTask is a class member, so its own closing brace is indented four spaces.
-    # Looking at only the final nonblank line avoids inserting another brace when the
-    # previous two lines have different nesting levels.
-    if last_indent != 4:
-        s = s.replace(marker, "\n    }\n\n    suspend fun testConnection(): Result<Long> {", 1)
-    return s
+    if s.count(marker) != 1:
+        raise SystemExit("AgentCore.kt: expected exactly one testConnection marker")
+    marker_index = s.index(marker)
+    declarations = list(re.finditer(
+        r"(?m)^[ \t]*(?:[\w]+\s+)*fun[ \t]+executeTask[ \t]*\(",
+        s[:marker_index]
+    ))
+    if len(declarations) != 1:
+        raise SystemExit("AgentCore.kt: expected exactly one executeTask declaration before testConnection")
+    start = declarations[0].start()
+    balance = _kotlin_brace_balance(s[start:marker_index])
+    if balance == 0:
+        return s
+    if balance != 1:
+        raise SystemExit("AgentCore.kt: executeTask brace balance is " + str(balance) + "; refusing unsafe repair")
+    indent = re.match(r"[ \t]*", s[start:]).group(0)
+    repaired = s[:marker_index] + "\n" + indent + "}" + s[marker_index:]
+    repaired_marker = repaired.index(marker)
+    if _kotlin_brace_balance(repaired[start:repaired_marker]) != 0:
+        raise SystemExit("AgentCore.kt: executeTask remains structurally unbalanced after repair")
+    return repaired
+
+
+def _agent_patch_regression_test():
+    broken = '''class AgentCore {
+    fun executeTask(cleanCommand: String) {
+        scope.launch {
+            taskMutex.withLock {
+                println("literal } {")
+                // A brace in a comment must not affect the balance: }
+                runCommand(cleanCommand)
+            }
+        }
+    suspend fun testConnection(): Result<Long> {
+        return Result.success(1L)
+    }
+}
+'''
+    repaired = agent(broken)
+    if repaired.count("suspend fun testConnection") != 1 or agent(repaired) != repaired:
+        raise SystemExit("AgentCore.kt: missing-brace regression test failed")
+    balanced = '''class AgentCore {
+    fun executeTask(cleanCommand: String) {
+        scope.launch {
+            taskMutex.withLock {
+                runCommand(cleanCommand)
+            }
+        }
+    }
+    suspend fun testConnection(): Result<Long> {
+        return Result.success(1L)
+    }
+}
+'''
+    if agent(balanced) != balanced:
+        raise SystemExit("AgentCore.kt: already-balanced regression test failed")
+
+
+_agent_patch_regression_test()
 def mcp(s):
     s = s.replace("import okhttp3.Request\n", "import okhttp3.Request\nimport okhttp3.MediaType.Companion.toMediaType\nimport okhttp3.RequestBody.Companion.toRequestBody\n")
     old = """okhttp3.RequestBody.create(

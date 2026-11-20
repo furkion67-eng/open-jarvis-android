@@ -3,6 +3,7 @@ package com.openjarvis.ui.player
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.widget.ImageView
 import android.widget.MediaController
 import android.widget.VideoView
 import androidx.compose.foundation.layout.Arrangement
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -41,7 +43,7 @@ import kotlin.math.abs
 internal sealed interface PlaybackAvailability {
     object Empty : PlaybackAvailability
     object Loading : PlaybackAvailability
-    data class Ready(val uri: Uri, val metadata: VideoArtifactMetadata) : PlaybackAvailability
+    data class Ready(val uri: Uri, val metadata: VideoArtifactMetadata, val thumbnailUri: Uri?) : PlaybackAvailability
     data class Unavailable(val reason: String) : PlaybackAvailability
 }
 
@@ -93,7 +95,13 @@ internal object VideoArtifactPlaybackValidator {
             if (captionsText.isBlank() || !captionsText.contains("-->")) {
                 return PlaybackAvailability.Unavailable("SRT altyazı içeriği doğrulanamadı.")
             }
-            PlaybackAvailability.Ready(videoUri, metadata)
+            val thumbnailUri = metadata.thumbnailUri?.let(::parseContentUri)
+            val readableThumbnail = thumbnailUri?.takeIf { candidate ->
+                runCatching {
+                    context.contentResolver.openFileDescriptor(candidate, "r")?.use { true } == true
+                }.getOrDefault(false)
+            }
+            PlaybackAvailability.Ready(videoUri, metadata, readableThumbnail)
         } catch (error: SecurityException) {
             PlaybackAvailability.Unavailable("Android medya erişim izni geri alınmış: " + (error.message ?: "erişim reddedildi"))
         } catch (error: Exception) {
@@ -138,6 +146,7 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
         latest?.videoArtifactMetadataJson,
         retryKey
     ) {
+        playbackError = null
         val task = latest
         availability = if (task == null) PlaybackAvailability.Empty else PlaybackAvailability.Loading
         if (task != null) {
@@ -179,10 +188,78 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
                     }
                     is PlaybackAvailability.Ready -> {
                         val metadata = state.metadata
+                        val thumbnailUri = state.thumbnailUri
                         Text(
-                            "\${metadata.width}×\${metadata.height} · \${metadata.durationMs / 1_000L} sn · \${metadata.narrationLocale}",
+                            metadata.width.toString() + "×" + metadata.height + " · " +
+                                (metadata.durationMs / 1_000L) + " sn · " + metadata.narrationLocale,
                             style = MaterialTheme.typography.bodySmall
                         )
+                        if (thumbnailUri != null) {
+                            AndroidView(
+                                modifier = Modifier.fillMaxWidth().height(170.dp),
+                                factory = { imageContext ->
+                                    ImageView(imageContext).apply {
+                                        scaleType = ImageView.ScaleType.CENTER_CROP
+                                        contentDescription = metadata.thumbnailAltText
+                                        runCatching { setImageURI(thumbnailUri) }
+                                    }
+                                },
+                                update = { image ->
+                                    image.contentDescription = metadata.thumbnailAltText
+                                    runCatching { image.setImageURI(thumbnailUri) }
+                                }
+                            )
+                        } else {
+                            Text(
+                                "Kapak görseli şu anda okunamıyor; doğrulanmış MP4 yine JARVIS içinde oynatılabilir.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        metadata.captionLocale?.let {
+                            Text("Altyazı dili: " + it + " · Kanca: " + (metadata.hookDurationMs ?: 0L) + " ms")
+                        }
+                        metadata.audioDescription?.let {
+                            Text("Ses: " + it, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Text(
+                            if (metadata.backgroundMusicIncluded) "Arka plan müziği mevcut" else "Arka plan müziği eklenmedi",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        if (metadata.attributionManifestComplete) {
+                            Text("Görsel atıfları", style = MaterialTheme.typography.titleSmall)
+                            Text(metadata.attributionCredits.orEmpty(), style = MaterialTheme.typography.bodySmall)
+                            Text("Araştırma kaynakları", style = MaterialTheme.typography.titleSmall)
+                            Text(metadata.researchCredits.orEmpty(), style = MaterialTheme.typography.bodySmall)
+                            Text("Kapak açıklaması: " + metadata.thumbnailAltText.orEmpty(), style = MaterialTheme.typography.bodySmall)
+                            metadata.attributionManifest.forEach { asset ->
+                                Text(
+                                    "Sahne " + (asset.sceneIndex + 1) + " · " + asset.sceneId.orEmpty() +
+                                        "\nVarlık: " + asset.assetId + "\nSHA-256: " + asset.sha256 +
+                                        "\nKaynak: " + asset.sourceUrl.orEmpty() +
+                                        "\nÜretici: " + asset.creator.orEmpty() +
+                                        "\nLisans: " + asset.licenseId.orEmpty() + " " + asset.licenseVersion.orEmpty() +
+                                        "\nLisans URL: " + asset.licenseUrl.orEmpty() +
+                                        "\nAtıf: " + asset.attributionText.orEmpty() +
+                                        "\nAlınma zamanı (epoch ms): " + (asset.retrievedAtEpochMs ?: 0L) +
+                                        "\nCache anahtarı: " + asset.cacheKey.orEmpty() +
+                                        "\nCache: " + asset.cacheMetadata.orEmpty() +
+                                        "\nTicari kullanım: " + asset.commercialUseAllowed +
+                                        " · Türev: " + asset.derivativesAllowed +
+                                        " · Share-alike: " + asset.shareAlikeRequired +
+                                        " · Çıktı lisansı: " + asset.requiredOutputLicense.orEmpty(),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                            metadata.claimSources.forEach { source ->
+                                Text(
+                                    "İddia: " + source.claimId + " · Sahne: " + source.sceneId +
+                                        "\n" + source.publisher + " · " + source.checkedOn +
+                                        "\n" + source.supportedClaim + "\n" + source.sourceUrl +
+                                        (source.uncertaintyNote?.let { "\nNot: " + it } ?: ""),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
                         key(retryKey, state.uri) {
                             AndroidView(
                             modifier = Modifier

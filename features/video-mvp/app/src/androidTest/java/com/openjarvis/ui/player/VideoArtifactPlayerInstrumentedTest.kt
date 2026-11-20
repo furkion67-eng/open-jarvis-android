@@ -12,6 +12,7 @@ import com.openjarvis.tasks.JarvisTaskEntity
 import com.openjarvis.tasks.JarvisTaskStatus
 import com.openjarvis.tasks.VideoArtifactMetadata
 import com.openjarvis.tasks.VideoArtifactMetadataCodec
+import com.openjarvis.tasks.VideoRendererMetadataAdapter
 import com.openjarvis.ui.MainActivity
 import com.openjarvis.video.VideoStoryPipeline
 import kotlinx.coroutines.runBlocking
@@ -44,39 +45,46 @@ class VideoArtifactPlayerInstrumentedTest {
     }
 
     @Test
-    fun productionDashboardRestoresAndPlaysThePersistedMediaStoreArtifactAfterActivityRecreation() = runBlocking {
+    fun productionDashboardRestoresAndPlaysRendererArtifactAndCreditsAfterRoomReopen() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val database = JarvisTaskDatabase.getInstance(context)
         val artifactKey = UUID.randomUUID().toString().replace("-", "")
         val rendered = VideoStoryPipeline(context).render(
-            prompt = "JARVIS uygulama içi video oynatıcı testi",
+            prompt = "İstanbul'un fethi 1453 uygulama içi video oynatıcı testi",
             artifactKey = artifactKey
         )
-        val metadata = VideoArtifactMetadata(
+        val metadata = VideoRendererMetadataAdapter.fromRenderResult(
+            renderResult = rendered,
             durationMs = rendered.video.durationMs,
             audioDurationMs = rendered.audioDurationMs,
             width = rendered.video.width,
             height = rendered.video.height,
             frameRate = 24,
             hasAudio = true,
-            narrationLocale = "tr-TR",
             sceneCount = rendered.sceneCount,
-            sourceLabel = rendered.sourceLabel,
-            attributionManifest = emptyList(),
-            attributionManifestComplete = false
+            sourceLabel = rendered.sourceLabel
         )
+        assertTrue(metadata.attributionManifestComplete)
+        assertEquals(rendered.sceneCount, metadata.attributionManifest.size)
+        assertTrue(metadata.claimSources.isNotEmpty())
+        assertTrue(!metadata.thumbnailUri.isNullOrBlank())
+
+        val videoUri = rendered.exportedUri.toString()
+        val captionsUri = rendered.captionsUri.toString()
+        val thumbnailUri = metadata.thumbnailUri
+            ?: throw AssertionError("Renderer thumbnail URI must be present.")
         val now = System.currentTimeMillis()
         val task = JarvisTaskEntity(
             id = "player-" + artifactKey,
             goal = "JARVIS player instrumentation",
             status = JarvisTaskStatus.SUCCEEDED.storageValue,
-            outputSummary = "Renderer MP4 ve SRT doğrulandı.",
-            artifactRefs = encodeRefs(rendered.exportedUri.toString(), rendered.captionsUri.toString()),
+            outputSummary = "Renderer MP4, SRT, cover and attribution verified.",
+            artifactRefs = encodeRefs(videoUri, captionsUri, thumbnailUri),
             idempotencyKey = "player-key-" + artifactKey,
             createdAt = now,
             updatedAt = now,
-            videoUri = rendered.exportedUri.toString(),
-            captionsUri = rendered.captionsUri.toString(),
+            videoUri = videoUri,
+            captionsUri = captionsUri,
             videoArtifactMetadataJson = VideoArtifactMetadataCodec.encode(metadata)
         )
 
@@ -84,28 +92,47 @@ class VideoArtifactPlayerInstrumentedTest {
         try {
             database.taskDao().insert(task)
             scenario = ActivityScenario.launch(MainActivity::class.java)
-            awaitDashboardPlayer(scenario, rendered.exportedUri.toString())
+            awaitDashboardPlayer(scenario, videoUri)
             scenario.recreate()
-            val activityRestoredPlayer = awaitDashboardPlayer(scenario, rendered.exportedUri.toString())
-            assertEquals(rendered.exportedUri.toString(), activityRestoredPlayer.tag)
+            val activityRestoredPlayer = awaitDashboardPlayer(scenario, videoUri)
+            assertEquals(videoUri, activityRestoredPlayer.tag)
 
             // Simulate process loss: close the production Room singleton, then launch a fresh
             // Activity against a newly opened database instance backed by the same on-disk file.
             scenario.close()
             scenario = null
             JarvisTaskDatabase.closeInstanceForTesting()
-            JarvisTaskDatabase.getInstance(context)
-            scenario = ActivityScenario.launch(MainActivity::class.java)
+            val reopenedDatabase = JarvisTaskDatabase.getInstance(context)
+            val restoredTask = reopenedDatabase.taskDao().findById(task.id)
+                ?: throw AssertionError("The production Room task must survive database reopen.")
+            assertEquals(videoUri, restoredTask.videoUri)
+            assertEquals(captionsUri, restoredTask.captionsUri)
+            assertTrue(restoredTask.artifactRefs.contains(videoUri))
+            assertTrue(restoredTask.artifactRefs.contains(captionsUri))
+            assertTrue(restoredTask.artifactRefs.contains(thumbnailUri))
+            val restoredMetadata = VideoArtifactMetadataCodec.decode(restoredTask.videoArtifactMetadataJson)
+                ?: throw AssertionError("Renderer metadata must survive database reopen.")
+            assertEquals(metadata, restoredMetadata)
+            assertEquals(metadata.attributionCredits, restoredMetadata.attributionCredits)
+            assertEquals(metadata.researchCredits, restoredMetadata.researchCredits)
+            assertEquals(metadata.thumbnailUri, restoredMetadata.thumbnailUri)
+            assertTrue(restoredMetadata.attributionManifestComplete)
+            assertTrue(restoredMetadata.attributionManifest.all { it.isValid() })
+            assertTrue(restoredMetadata.claimSources.all { it.isValid() })
+            assertEquals(metadata.attributionManifest.first().sha256, restoredMetadata.attributionManifest.first().sha256)
+            assertEquals(metadata.attributionManifest.first().licenseUrl, restoredMetadata.attributionManifest.first().licenseUrl)
+            assertEquals(metadata.attributionManifest.first().cacheMetadata, restoredMetadata.attributionManifest.first().cacheMetadata)
 
-            val restoredPlayer = awaitDashboardPlayer(scenario, rendered.exportedUri.toString())
-            assertEquals(rendered.exportedUri.toString(), restoredPlayer.tag)
+            scenario = ActivityScenario.launch(MainActivity::class.java)
+            val restoredPlayer = awaitDashboardPlayer(scenario, videoUri)
+            assertEquals(videoUri, restoredPlayer.tag)
 
             // Start the exact VideoView created by VideoArtifactPlayerPanel. Do not construct
             // another player or reset its URI: the Dashboard must restore the persisted task URI.
             scenario.onActivity {
                 val player = findVideoView(it.window.decorView)
                     ?: throw AssertionError("The embedded dashboard VideoView must exist.")
-                assertEquals(rendered.exportedUri.toString(), player.tag)
+                assertEquals(videoUri, player.tag)
                 player.start()
             }
             val playbackProgressMs = awaitPlaybackProgress(scenario)
@@ -120,6 +147,7 @@ class VideoArtifactPlayerInstrumentedTest {
             JarvisTaskDatabase.closeInstanceForTesting()
             runCatching { context.contentResolver.delete(rendered.exportedUri, null, null) }
             runCatching { context.contentResolver.delete(rendered.captionsUri, null, null) }
+            runCatching { context.contentResolver.delete(android.net.Uri.parse(thumbnailUri), null, null) }
             runCatching { rendered.video.file.delete() }
             runCatching { rendered.captionsFile.delete() }
         }
@@ -169,7 +197,6 @@ class VideoArtifactPlayerInstrumentedTest {
         return null
     }
 
-    private fun encodeRefs(video: String, captions: String): String =
-        "[\"" + video.replace("\\", "\\\\").replace("\"", "\\\"") +
-            "\",\"" + captions.replace("\\", "\\\\").replace("\"", "\\\"") + "\"]"
+    private fun encodeRefs(vararg values: String): String =
+        org.json.JSONArray(values.toList()).toString()
 }
