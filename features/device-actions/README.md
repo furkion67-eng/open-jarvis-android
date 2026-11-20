@@ -18,6 +18,7 @@ This isolated feature slice adds contact-first recipient resolution and a confir
 - AndroidSmsSender uses SmsManager only when SEND_SMS is granted and the device exposes telephony messaging.
 - Multipart messages are tracked per part. The outcome is Sent only after every SMS_SENT callback reports Activity.RESULT_OK. A failure becomes Failed; a missing callback becomes Unknown, never Sent.
 - Sent means Android reported successful submission to the telephony stack. It does not mean the recipient's device received or read the message; no delivery claim is made.
+- If direct SMS permission is denied or unavailable, the user may explicitly open an ACTION_SENDTO draft in the default SMS app. That draft is not sent and JARVIS does not mark it Sent.
 - No real SMS is sent by unit or CI tests. Tests use pure policy/state contracts and fake transports.
 
 ## Android permission and distribution limits
