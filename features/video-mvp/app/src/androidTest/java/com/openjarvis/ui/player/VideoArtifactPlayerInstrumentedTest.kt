@@ -58,6 +58,7 @@ class VideoArtifactPlayerInstrumentedTest {
         )
         val metadata = VideoArtifactMetadata(
             durationMs = rendered.video.durationMs,
+            audioDurationMs = rendered.audioDurationMs,
             width = rendered.video.width,
             height = rendered.video.height,
             frameRate = 24,
