@@ -18,7 +18,9 @@ class StorageUriGrantRegistryInstrumentedTest {
     fun returnedReadWriteFlagsPersistAndRestoreAcrossRegistryReopen() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val preferences = context.getSharedPreferences("jarvis_storage_uri_grants", 0)
+        val history = context.getSharedPreferences("jarvis_capability_history", 0)
         preferences.edit().clear().commit()
+        history.edit().clear().commit()
         val access = FakeStorageUriGrantAccess()
         val uri = Uri.parse("content://jarvis.fake.documents/tree/root")
         val returnedFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
@@ -36,7 +38,12 @@ class StorageUriGrantRegistryInstrumentedTest {
         assertEquals(uri, reopened.lastGrantedTreeUri())
         assertEquals(listOf(uri), reopened.grantedTreeUris())
         assertTrue(StorageUriGrantPolicy.hasUriGrant(uri.toString(), access.snapshots(), requireWrite = true))
+        assertTrue(history.getBoolean("requested.shared-storage-read", false))
+        assertTrue(history.getBoolean("grantedBefore.shared-storage-read", false))
+        assertTrue(history.getBoolean("requested.shared-storage-write", false))
+        assertTrue(history.getBoolean("grantedBefore.shared-storage-write", false))
         preferences.edit().clear().commit()
+        history.edit().clear().commit()
     }
 
     @Test
@@ -61,14 +68,21 @@ class StorageUriGrantRegistryInstrumentedTest {
     fun writeAccessIsNeverInventedWhenPickerReturnsReadOnlyGrant() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val preferences = context.getSharedPreferences("jarvis_storage_uri_grants", 0)
+        val history = context.getSharedPreferences("jarvis_capability_history", 0)
         preferences.edit().clear().commit()
+        history.edit().clear().commit()
         val access = FakeStorageUriGrantAccess()
         val uri = Uri.parse("content://jarvis.fake.documents/tree/read-only")
         StorageUriGrantRegistry(context, access).persistPickerResult(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
 
         assertTrue(StorageUriGrantPolicy.hasUriGrant(uri.toString(), access.snapshots(), requireWrite = false))
         assertFalse(StorageUriGrantPolicy.hasUriGrant(uri.toString(), access.snapshots(), requireWrite = true))
+        assertTrue(history.getBoolean("requested.shared-storage-read", false))
+        assertTrue(history.getBoolean("grantedBefore.shared-storage-read", false))
+        assertTrue(history.getBoolean("requested.shared-storage-write", false))
+        assertFalse(history.getBoolean("grantedBefore.shared-storage-write", false))
         preferences.edit().clear().commit()
+        history.edit().clear().commit()
     }
 
     @Test
