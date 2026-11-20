@@ -206,8 +206,8 @@ class VideoTaskExecutionInstrumentedTest {
             assertEquals(JarvisTaskStatus.WAITING_FOR_USER.storageValue, preview.status)
             assertTrue(preview.requiresNetwork)
             // Before explicit plan acceptance, the durable task must have no playable artifacts.
-        assertTrue(preview.videoUri.isNullOrBlank())
-        assertTrue(preview.captionsUri.isNullOrBlank())
+            assertTrue(preview.videoUri.isNullOrBlank())
+            assertTrue(preview.captionsUri.isNullOrBlank())
 
             productionRepository.acceptPlan(taskId!!)
             val completed = productionDao.findById(taskId!!)!!
