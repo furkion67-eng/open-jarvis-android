@@ -137,10 +137,13 @@ def verify_command_task_source() -> None:
         "production executor E2E uses the singleton repository":
             "productionRepositoryRunsRegisteredVideoExecutorAndPersistsVerifiedMediaStoreBundle" in video_execution_test and
             "JarvisTaskRepository.getInstance(context)" in video_execution_test,
-        "production executor E2E verifies H.264/AAC and both exported URIs":
+        "production executor E2E verifies H.264/AAC and all three exported URIs":
             "MediaFormat.MIMETYPE_VIDEO_AVC" in video_execution_test and
             "MediaFormat.MIMETYPE_AUDIO_AAC" in video_execution_test and
-            "Both verified MediaStore artifacts must be persisted" in video_execution_test,
+            "Verified MP4, SRT and thumbnail must all be persisted" in video_execution_test and
+            "assertEquals(artifacts.getString(0), completed.videoUri)" in video_execution_test and
+            "assertEquals(artifacts.getString(1), completed.captionsUri)" in video_execution_test and
+            "thumbnailUri = Uri.parse(artifacts.getString(2))" in video_execution_test,
         "migration test covers legacy unavailable and interrupted rows":
             "versionOneDatabaseMigratesAndPreservesTasksWithoutInventingPlanAcceptance" in migration_test and
             "legacy-not-executed" in migration_test and "legacy-interrupted" in migration_test,
