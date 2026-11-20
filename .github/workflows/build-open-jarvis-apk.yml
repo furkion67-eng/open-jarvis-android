@@ -3,9 +3,9 @@ name: Build Open Jarvis APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, "feature/approval-toggle", "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "infra/issue15-node24-mainline", "infra/issue8-video-ci-validation", "infra/issue8-video-ci-validation-current", "infra/issue8-video-ci-validation-latest", "infra/verify-pr31-tts-exact", "infra/verify-pr31-tts-exact-3dc58e6", "infra/verify-pr32-app-launch-exact-952a", "infra/verify-pr32-app-launch-exact-d465", "infra/verify-pr52-video-storyboard-exact-ef9e507", "infra/verify-pr52-video-storyboard-exact-084f209", "infra/verify-pr59-video-procedural-exact-605226c", "infra/verify-pr97-device-host-player-f4a911b-20261120" ]
+    branches: [ main, "feature/approval-toggle", "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "infra/issue15-node24-mainline", "infra/issue8-video-ci-validation", "infra/issue8-video-ci-validation-current", "infra/issue8-video-ci-validation-latest", "infra/verify-pr31-tts-exact", "infra/verify-pr31-tts-exact-3dc58e6", "infra/verify-pr32-app-launch-exact-952a", "infra/verify-pr32-app-launch-exact-d465", "infra/verify-pr52-video-storyboard-exact-ef9e507", "infra/verify-pr52-video-storyboard-exact-084f209", "infra/verify-pr59-video-procedural-exact-605226c", "infra/verify-pr97-device-host-player-f4a911b-20261120", "infra/verify-combined-jarvis-20261120" ]
   pull_request:
-    branches: [ main, "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "feature/issue8-local-mp4-prototype", "feature/video-storyboard-captions-2026-11-19", "feature/video-procedural-scenes-2026-11-19", "feature/device-host-player-persistence-2026-11-20" ]
+    branches: [ main, "integration/turkish-stt-rebased-main", "integration/task-engine-rebased-main", "feature/issue8-local-mp4-prototype", "feature/video-storyboard-captions-2026-11-19", "feature/video-procedural-scenes-2026-11-19", "feature/device-host-player-persistence-2026-11-20", "feature/shorts-provenance-hardening-2026-11-20" ]
 
 permissions:
   contents: read
@@ -33,10 +33,10 @@ jobs:
           echo "Checked out SHA: $actual"
           test "$actual" = "$GITHUB_SHA"
 
-      - name: "Assert PR #97 exact feature source and eight-path CI overlay"
+      - name: "Assert exact combined PR #97/#100/#101 source and eight-path CI overlay"
         shell: bash
         env:
-          EXPECTED_FEATURE_SOURCE_SHA: f4a911b789d34de82508499ffd99ce8ad96e1fc9
+          EXPECTED_FEATURE_SOURCE_SHA: b76e82a541967ade4d98d4d4fdc8afdd19fcb781
         run: |
           set -euo pipefail
           python3 - "$EXPECTED_FEATURE_SOURCE_SHA" <<'PY'
