@@ -3642,6 +3642,7 @@ def insert_manifest_declaration(text, tag, name, extra_attributes=""):
 for permission in (
     "android.permission.READ_CONTACTS",
     "android.permission.SEND_SMS",
+    "android.permission.POST_NOTIFICATIONS",
 ):
     manifest_text = insert_manifest_declaration(
         manifest_text, "uses-permission", permission
