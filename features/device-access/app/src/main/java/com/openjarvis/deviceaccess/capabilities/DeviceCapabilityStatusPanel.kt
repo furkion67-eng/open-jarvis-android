@@ -1,5 +1,6 @@
 package com.openjarvis.deviceaccess.capabilities
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
@@ -49,6 +50,13 @@ fun DeviceCapabilityStatusPanel(modifier: Modifier = Modifier) {
                             Text(item.title, style = MaterialTheme.typography.titleSmall)
                             Text(stateLabel(item.state), color = stateColor(item.state))
                             Text(item.detail, style = MaterialTheme.typography.bodySmall)
+                            if (item.state != CapabilityState.ENABLED && item.state != CapabilityState.NOT_AVAILABLE &&
+                                item.id != "shared-storage"
+                            ) {
+                                androidx.compose.material3.TextButton(
+                                    onClick = { openCapabilitySettings(context, item.id) }
+                                ) { Text("İlgili Android ayarını aç") }
+                            }
                         }
                     }
                 }
@@ -86,4 +94,22 @@ private fun stateColor(state: CapabilityState) = when (state) {
     CapabilityState.NOT_REQUESTED -> MaterialTheme.colorScheme.onSurfaceVariant
     CapabilityState.DENIED, CapabilityState.REVOKED -> MaterialTheme.colorScheme.error
     CapabilityState.REQUIRES_SETTINGS, CapabilityState.NOT_AVAILABLE -> MaterialTheme.colorScheme.tertiary
+}
+
+
+private fun openCapabilitySettings(context: Context, id: String) {
+    val appDetails = Intent(
+        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        Uri.parse("package:" + context.packageName)
+    )
+    val intent = when (id) {
+        "overlay" -> Intent(
+            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            Uri.parse("package:" + context.packageName)
+        )
+        "accessibility" -> Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+        "background" -> Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+        else -> appDetails
+    }
+    runCatching { context.startActivity(intent) }
 }

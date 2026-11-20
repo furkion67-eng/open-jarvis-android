@@ -150,9 +150,14 @@ fun SmsComposePanel(
                         Button(
                             onClick = {
                                 selectedContact = candidate
-                                selectedPhone = if (candidate.phoneNumbers.size == 1) {
-                                    candidate.phoneNumbers.single()
-                                } else null
+                                if (candidate.phoneNumbers.size == 1) {
+                                    val onlyPhone = candidate.phoneNumbers.single()
+                                    selectedPhone = onlyPhone
+                                    lookupResult = ContactLookupResult.Unique(candidate, onlyPhone)
+                                } else {
+                                    selectedPhone = null
+                                    lookupResult = ContactLookupResult.ChooseNumber(candidate)
+                                }
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) { Text(candidate.displayName + " · " + candidate.phoneNumbers.size + " numara") }
