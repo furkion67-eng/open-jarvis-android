@@ -197,6 +197,13 @@ class JarvisTaskPersistenceInstrumentedTest {
         assertFalse(event.safeSummary.contains("+905551112233"))
         assertFalse(event.safeSummary.contains("Özel mesaj metni"))
         assertEquals(eventId, dao.observeRecentDeviceActionEvents(10).first().single().id)
+
+        val draftId = repository.recordDeviceActionOutcome(
+            actionType = "sms",
+            outcomeCode = "DRAFT",
+            safeSummary = "ACTION_SENDTO taslağı açıldı; JARVIS mesajı göndermedi."
+        )
+        assertEquals("DRAFT", dao.findDeviceActionEventById(draftId)?.outcomeCode)
     }
 
     @Test
