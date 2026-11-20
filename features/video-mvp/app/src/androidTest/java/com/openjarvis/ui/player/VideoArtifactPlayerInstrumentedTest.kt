@@ -53,7 +53,7 @@ class VideoArtifactPlayerInstrumentedTest {
         val databaseName = "jarvis_player_reopen_" + artifactKey + ".db"
         context.deleteDatabase(databaseName)
         val rendered = VideoStoryPipeline(context).render(
-            topic = "JARVIS uygulama içi video oynatıcı testi",
+            prompt = "JARVIS uygulama içi video oynatıcı testi",
             artifactKey = artifactKey
         )
         val metadata = VideoArtifactMetadata(
