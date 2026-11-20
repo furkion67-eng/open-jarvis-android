@@ -22,10 +22,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import com.openjarvis.deviceaccess.capabilities.AndroidCapabilityStatusReader
 import com.openjarvis.deviceactions.contacts.AndroidContactsResolver
 import com.openjarvis.deviceactions.contacts.ContactCandidate
@@ -37,21 +40,17 @@ import com.openjarvis.deviceactions.sms.SmsConfirmationGate
 import com.openjarvis.deviceactions.sms.SmsPermission
 import com.openjarvis.deviceactions.sms.SmsSendOutcome
 import com.openjarvis.deviceactions.sms.SmsSelectionInvalidationPolicy
+import com.openjarvis.tasks.DeviceActionOutcomeCode
 import com.openjarvis.tasks.DeviceActionOutcomeJournal
+import com.openjarvis.tasks.DeviceActionType
 
-private fun SmsSendOutcome.toJournalEntry(): Pair<String, String> = when (this) {
-    SmsSendOutcome.Sent ->
-        "SENT" to "Tüm SMS_SENT callback'leri RESULT_OK döndü; teslimat doğrulanmadı."
-    SmsSendOutcome.PermissionDenied ->
-        "NOT_EXECUTED" to "SEND_SMS izni yok veya geri alındı; mesaj gönderilmedi."
-    SmsSendOutcome.Unsupported ->
-        "NOT_EXECUTED" to "Cihaz SMS gönderimini desteklemiyor; mesaj gönderilmedi."
-    SmsSendOutcome.Rejected ->
-        "NOT_EXECUTED" to "Tek kullanımlık gönderim onayı geçersiz veya kullanılmış; mesaj gönderilmedi."
-    is SmsSendOutcome.Failed ->
-        "FAILED" to "Android SMS gönderim callback'i başarısız oldu."
-    is SmsSendOutcome.Unknown ->
-        "UNKNOWN" to "SMS gönderim sonucu doğrulanamadı; otomatik tekrar yapılmadı."
+private fun SmsSendOutcome.toJournalOutcomeCode(): DeviceActionOutcomeCode = when (this) {
+    SmsSendOutcome.Sent -> DeviceActionOutcomeCode.SENT
+    SmsSendOutcome.PermissionDenied,
+    SmsSendOutcome.Unsupported,
+    SmsSendOutcome.Rejected -> DeviceActionOutcomeCode.NOT_EXECUTED
+    is SmsSendOutcome.Failed -> DeviceActionOutcomeCode.FAILED
+    is SmsSendOutcome.Unknown -> DeviceActionOutcomeCode.UNKNOWN
 }
 
 /** Contact-first SMS flow. No phone-number field is shown for a unique contact match. */
@@ -61,6 +60,7 @@ fun SmsComposePanel(
     onSmsOutcome: (SmsSendOutcome) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val contacts = remember(context) { AndroidContactsResolver(context) }
     val capabilityStatus = remember(context) { AndroidCapabilityStatusReader(context) }
     val sender = remember(context) { AndroidSmsSender(context) }
@@ -84,10 +84,25 @@ fun SmsComposePanel(
     var status by remember { mutableStateOf("SMS için önce rehberden bir kişi bul.") }
     var showConfirmation by remember { mutableStateOf(false) }
 
-    fun persistSmsOutcome(outcome: SmsSendOutcome) {
-        val (code, summary) = outcome.toJournalEntry()
-        DeviceActionOutcomeJournal.record(context, "sms", code, summary)
+    suspend fun persistSmsOutcome(outcome: SmsSendOutcome) {
+        val journalFailed = try {
+            DeviceActionOutcomeJournal.record(
+                context,
+                DeviceActionType.SMS,
+                outcome.toJournalOutcomeCode()
+            )
+            false
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            true
+        }
+
+        // The platform SMS result remains authoritative even if the secondary history write fails.
         onSmsOutcome(outcome)
+        if (journalFailed) {
+            status += "\nGönderim sonucu yerel geçmişe kaydedilemedi. SMS sonucu değişmedi; otomatik tekrar yapılmadı."
+        }
     }
 
     LaunchedEffect(sender) {
@@ -280,13 +295,20 @@ fun SmsComposePanel(
                         ).putExtra("sms_body", message)
                         try {
                             context.startActivity(handoff)
-                            DeviceActionOutcomeJournal.record(
-                                context,
-                                "sms",
-                                "DRAFT",
-                                "ACTION_SENDTO taslağı açıldı; JARVIS mesajı göndermedi."
-                            )
                             status = "SMS uygulamasında taslak açıldı. JARVIS bunu gönderildi olarak işaretlemez; son gönderme işlemi SMS uygulamasında sana aittir."
+                            coroutineScope.launch {
+                                try {
+                                    DeviceActionOutcomeJournal.record(
+                                        context,
+                                        DeviceActionType.SMS,
+                                        DeviceActionOutcomeCode.DRAFT
+                                    )
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (_: Exception) {
+                                    status += "\nTaslak açıldı ancak yerel işlem geçmişine kaydedilemedi."
+                                }
+                            }
                         } catch (_: Exception) {
                             status = "Varsayılan SMS uygulaması açılamadı."
                         }
@@ -340,7 +362,7 @@ fun SmsComposePanel(
                                 is SmsSendOutcome.Unknown ->
                                     "Gönderim sonucu doğrulanamadı: " + outcome.reason
                             }
-                            persistSmsOutcome(outcome)
+                            coroutineScope.launch { persistSmsOutcome(outcome) }
                         }
                     }
                 }) { Text("Onayla ve SMS gönder") }

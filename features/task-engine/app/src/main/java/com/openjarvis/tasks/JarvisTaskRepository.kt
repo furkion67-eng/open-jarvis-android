@@ -11,28 +11,21 @@ class JarvisTaskRepository(
     fun observeRecentTasks(limit: Int = 8): Flow<List<JarvisTaskEntity>> = dao.observeRecent(limit)
 
     /**
-     * Persist only a safe outcome code and summary for a device action. Contact details and
-     * message bodies are deliberately excluded from this journal.
+     * Persist a typed device-action result with a fixed summary. Arbitrary caller text is not
+     * accepted, so contact names, phone numbers and message bodies cannot enter this journal.
      */
     suspend fun recordDeviceActionOutcome(
-        actionType: String,
-        outcomeCode: String,
-        safeSummary: String
+        actionType: DeviceActionType,
+        outcomeCode: DeviceActionOutcomeCode
     ): String {
-        require(actionType in setOf("sms", "call", "storage")) { "Cihaz işlemi türü desteklenmiyor." }
-        require(outcomeCode in setOf("SENT", "FAILED", "UNKNOWN", "NOT_EXECUTED", "DRAFT")) {
-            "Cihaz işlemi sonucu geçersiz."
-        }
-        val summary = safeSummary.trim()
-        require(summary.isNotEmpty() && summary.length <= 240) { "Güvenli işlem özeti geçersiz." }
         val now = System.currentTimeMillis()
         val id = UUID.randomUUID().toString()
         dao.insertDeviceActionEvent(
             DeviceActionEventEntity(
                 id = id,
-                actionType = actionType,
-                outcomeCode = outcomeCode,
-                safeSummary = summary,
+                actionType = actionType.storageValue,
+                outcomeCode = outcomeCode.storageValue,
+                safeSummary = outcomeCode.safeSummary,
                 createdAt = now
             )
         )

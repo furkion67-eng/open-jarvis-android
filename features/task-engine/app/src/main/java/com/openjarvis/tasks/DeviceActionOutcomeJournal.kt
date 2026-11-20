@@ -1,21 +1,32 @@
 package com.openjarvis.tasks
 
 import android.content.Context
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-/** Application-lifetime bridge from confirmed device actions to the durable Room journal. */
+/**
+ * Awaitable bridge from a confirmed device action to the durable Room journal.
+ *
+ * The call returns only after Room has committed the event. Persistence errors propagate to
+ * the caller so the UI can report them separately without changing or replaying the action.
+ */
 object DeviceActionOutcomeJournal {
-    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
-    fun record(context: Context, actionType: String, outcomeCode: String, safeSummary: String) {
-        ioScope.launch {
-            runCatching {
-                JarvisTaskRepository.getInstance(context.applicationContext)
-                    .recordDeviceActionOutcome(actionType, outcomeCode, safeSummary)
-            }
-        }
+    suspend fun record(
+        context: Context,
+        actionType: DeviceActionType,
+        outcomeCode: DeviceActionOutcomeCode
+    ): String = withContext(Dispatchers.IO) {
+        record(
+            JarvisTaskRepository.getInstance(context.applicationContext),
+            actionType,
+            outcomeCode
+        )
     }
+
+    /** Injectable repository overload keeps the commit-before-return contract instrumentable. */
+    internal suspend fun record(
+        repository: JarvisTaskRepository,
+        actionType: DeviceActionType,
+        outcomeCode: DeviceActionOutcomeCode
+    ): String = repository.recordDeviceActionOutcome(actionType, outcomeCode)
 }
