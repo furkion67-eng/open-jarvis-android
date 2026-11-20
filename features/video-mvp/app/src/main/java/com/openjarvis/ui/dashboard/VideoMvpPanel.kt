@@ -3,9 +3,12 @@ package com.openjarvis.ui.dashboard
 import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
+import android.widget.MediaController
+import android.widget.VideoView
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
@@ -26,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.openjarvis.video.VideoRenderProgress
 import com.openjarvis.video.VideoRenderSpec
 import com.openjarvis.video.VideoStoryPipeline
@@ -39,6 +43,7 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     var topic by remember { mutableStateOf("İstanbul'un Fethi") }
     var status by remember { mutableStateOf("Henüz video oluşturulmadı.") }
+    var playbackError by remember { mutableStateOf<String?>(null) }
     var renderProgress by remember { mutableStateOf(VideoRenderProgress()) }
     val progress by renderProgress.progress.collectAsState()
     var output by remember { mutableStateOf<String?>(null) }
@@ -58,7 +63,7 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
         ) {
             Text("Türkçe sesli yerel video üretimi", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Konu başlığından beş yerel prosedürel sahne, Türkçe TTS anlatım, AAC ses, dikey H.264 MP4 ve konuşma sürelerine göre SRT üretir.",
+                "Konu başlığından sahneler, Türkçe TTS anlatım, AAC ses, dikey H.264 MP4 ve konuşma sürelerine göre SRT üretir.",
                 style = MaterialTheme.typography.bodySmall
             )
             OutlinedTextField(
@@ -79,12 +84,12 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
                         narrationText = null
                         exportedUri = null
                         captionsUri = null
+                        playbackError = null
                         status = "Storyboard hazırlanıyor…"
                         try {
                             val result = VideoStoryPipeline(context).render(
                                 prompt = topic,
                                 onProgress = { done, total ->
-                                    // Renderer invokes this callback on Dispatchers.IO. StateFlow is thread-safe.
                                     progressForThisRender.report(done, total)
                                 },
                                 onStage = { stage -> status = stage }
@@ -126,7 +131,46 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
             Text(status, style = MaterialTheme.typography.bodySmall)
             output?.let { Text("Dosya: $it", style = MaterialTheme.typography.bodySmall) }
             captionsUri?.let { Text("SRT altyazı: İndirilenler / Open JARVIS", style = MaterialTheme.typography.bodySmall) }
+
+            // The generated MP4 is previewed in the JARVIS screen itself. The user no longer
+            // needs a file manager or an external video player to watch the result.
             exportedUri?.let { uri ->
+                Text("Videonu JARVIS içinde izle", style = MaterialTheme.typography.titleSmall)
+                AndroidView(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(9f / 16f),
+                    factory = { viewContext ->
+                        VideoView(viewContext).apply {
+                            val controller = MediaController(viewContext)
+                            controller.setAnchorView(this)
+                            setMediaController(controller)
+                            setOnPreparedListener {
+                                playbackError = null
+                                start()
+                            }
+                            setOnErrorListener { _, _, _ ->
+                                playbackError = "Video JARVIS içinde oynatılamadı. Videoyu yeniden oluşturmayı dene."
+                                true
+                            }
+                            tag = uri
+                            setVideoURI(uri)
+                        }
+                    },
+                    update = { player ->
+                        if (player.tag != uri) {
+                            player.tag = uri
+                            player.setOnPreparedListener {
+                                playbackError = null
+                                player.start()
+                            }
+                            player.setVideoURI(uri)
+                        }
+                    }
+                )
+                playbackError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
                 Button(
                     onClick = {
                         val send = Intent(Intent.ACTION_SEND).apply {
@@ -144,7 +188,7 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
                 Text("Türkçe anlatım metni: $it", style = MaterialTheme.typography.bodySmall)
             }
             Text(
-                "MP4, Türkçe TTS anlatımını AAC ses iziyle ve yerel prosedürel vektör sahnelerini H.264 olarak içerir. Zamanlı SRT ayrıca İndirilenler/Open JARVIS klasörüne kaydedilir. Çizimler cihazda üretilir; AI görseli değildir. Paylaşım menüsü yalnızca kullanıcı seçtiğinde açılır; otomatik YouTube/TikTok yayını yapılmaz.",
+                "MP4, Türkçe TTS anlatımını AAC ses iziyle ve yerel sahneleri H.264 olarak içerir. Zamanlı SRT ayrıca İndirilenler/Open JARVIS klasörüne kaydedilir. Paylaşım menüsü yalnızca sen seçtiğinde açılır; otomatik YouTube/TikTok yayını yapılmaz.",
                 style = MaterialTheme.typography.bodySmall
             )
         }
