@@ -15,6 +15,9 @@ data class StorageGrantSnapshot(
 )
 
 object StorageUriGrantPolicy {
+    fun hasPersistableGrant(returnedFlags: Int, persistableFlag: Int): Boolean =
+        returnedFlags and persistableFlag != 0
+
     fun persistableFlags(returnedFlags: Int, readFlag: Int, writeFlag: Int): Int =
         returnedFlags and (readFlag or writeFlag)
 
@@ -94,6 +97,9 @@ class StorageUriGrantRegistry internal constructor(
     )
 
     fun persistPickerResult(uri: Uri, returnedFlags: Int, makeLast: Boolean = true) {
+        require(StorageUriGrantPolicy.hasPersistableGrant(returnedFlags, Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)) {
+            "Android dosya seçicisi kalıcı URI izni vermedi."
+        }
         val flags = StorageUriGrantPolicy.persistableFlags(
             returnedFlags,
             Intent.FLAG_GRANT_READ_URI_PERMISSION,

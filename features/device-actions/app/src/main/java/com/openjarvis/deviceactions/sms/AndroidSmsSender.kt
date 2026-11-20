@@ -56,7 +56,6 @@ class AndroidSmsSender(context: Context) : SmsTransport {
             return
         }
 
-        val tracker = SmsSendTracker(parts.size)
         val finished = AtomicBoolean(false)
         val registered = AtomicBoolean(false)
         val handler = Handler(Looper.getMainLooper())
@@ -70,7 +69,6 @@ class AndroidSmsSender(context: Context) : SmsTransport {
         val callbackRecorder = SmsPlatformCallbackRecorder(
             requestId = journalId,
             journal = attemptJournal,
-            tracker = tracker,
             resultOk = Activity.RESULT_OK
         )
         lateinit var timeout: Runnable

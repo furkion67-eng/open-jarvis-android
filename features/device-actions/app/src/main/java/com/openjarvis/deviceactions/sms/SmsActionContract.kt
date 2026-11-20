@@ -200,35 +200,15 @@ internal class SmsAttemptJournal(private val store: SmsAttemptStore) {
 internal class SmsPlatformCallbackRecorder(
     private val requestId: String,
     private val journal: SmsAttemptJournal,
-    private val tracker: SmsSendTracker,
     private val resultOk: Int
 ) {
+    /** The durable per-part journal is the sole source of truth for SENT/FAILED/UNKNOWN. */
     @Synchronized
-    fun record(partIndex: Int, resultCode: Int): SmsSendState {
-        val durableState = journal.recordPlatformResult(requestId, partIndex, resultCode, resultOk)
-        return when (durableState) {
-            SmsSendState.SENT -> {
-                val inMemoryState = tracker.recordPlatformResult(partIndex, resultCode, resultOk)
-                if (inMemoryState == SmsSendState.SENT) SmsSendState.SENT else SmsSendState.UNKNOWN
-            }
-            SmsSendState.FAILED -> {
-                tracker.recordPlatformResult(partIndex, resultCode, resultOk)
-                SmsSendState.FAILED
-            }
-            SmsSendState.UNKNOWN -> {
-                tracker.markUnknown()
-                SmsSendState.UNKNOWN
-            }
-            SmsSendState.PENDING -> tracker.recordPlatformResult(partIndex, resultCode, resultOk)
-        }
-    }
+    fun record(partIndex: Int, resultCode: Int): SmsSendState =
+        journal.recordPlatformResult(requestId, partIndex, resultCode, resultOk)
 
     @Synchronized
-    fun markUnknown(): SmsSendState {
-        val durableState = journal.markUnknown(requestId)
-        tracker.markUnknown()
-        return durableState
-    }
+    fun markUnknown(): SmsSendState = journal.markUnknown(requestId)
 }
 
 sealed interface SmsSendOutcome {

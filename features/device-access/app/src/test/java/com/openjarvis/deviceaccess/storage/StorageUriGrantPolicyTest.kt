@@ -17,6 +17,14 @@ class StorageUriGrantPolicyTest {
     }
 
     @Test
+    fun onlyAnExplicitPersistablePickerFlagAllowsTakingTheGrant() {
+        val read = 1
+        val persistable = 4
+        assertTrue(StorageUriGrantPolicy.hasPersistableGrant(read or persistable, persistable))
+        assertFalse(StorageUriGrantPolicy.hasPersistableGrant(read, persistable))
+    }
+
+    @Test
     fun processRestartRestoreRequiresMatchingLiveReadGrant() {
         assertTrue(StorageUriGrantPolicy.isStillReadable("content://tree/1", "content://tree/1", true))
         assertFalse(StorageUriGrantPolicy.isStillReadable("content://tree/1", "content://tree/1", false))

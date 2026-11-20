@@ -78,6 +78,9 @@ class SafStorageGateway(context: Context) {
 
     /** Persist only read/write flags actually returned by the Android picker. */
     fun persistPickerGrant(uri: Uri, returnedFlags: Int) {
+        require(returnedFlags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0) {
+            "Android dosya seçicisi kalıcı URI izni vermedi."
+        }
         val persistable = returnedFlags and
             (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
         require(persistable and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0) {

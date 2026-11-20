@@ -146,7 +146,7 @@ class SmsActionContractTest {
         val store = InMemorySmsAttemptStore()
         val journal = SmsAttemptJournal(store)
         journal.begin("receiver-ok", 3)
-        val recorder = SmsPlatformCallbackRecorder("receiver-ok", journal, SmsSendTracker(3), -1)
+        val recorder = SmsPlatformCallbackRecorder("receiver-ok", journal, -1)
 
         assertEquals(SmsSendState.PENDING, recorder.record(0, -1))
         assertEquals(SmsSendState.PENDING, recorder.record(1, -1))
@@ -159,7 +159,7 @@ class SmsActionContractTest {
         val store = InMemorySmsAttemptStore()
         val journal = SmsAttemptJournal(store)
         journal.begin("receiver-failed", 3)
-        val recorder = SmsPlatformCallbackRecorder("receiver-failed", journal, SmsSendTracker(3), -1)
+        val recorder = SmsPlatformCallbackRecorder("receiver-failed", journal, -1)
 
         assertEquals(SmsSendState.PENDING, recorder.record(0, -1))
         assertEquals(SmsSendState.FAILED, recorder.record(1, 0))
@@ -176,7 +176,7 @@ class SmsActionContractTest {
 
         val afterRestart = SmsAttemptJournal(store)
         assertEquals(1, afterRestart.recoverPendingAsUnknown().size)
-        val recorder = SmsPlatformCallbackRecorder("receiver-restart", afterRestart, SmsSendTracker(2), -1)
+        val recorder = SmsPlatformCallbackRecorder("receiver-restart", afterRestart, -1)
         assertEquals(SmsSendState.UNKNOWN, recorder.record(1, -1))
         assertEquals(SmsSendState.UNKNOWN, store.get("receiver-restart")?.state)
     }
@@ -186,7 +186,7 @@ class SmsActionContractTest {
         val store = InMemorySmsAttemptStore()
         val journal = SmsAttemptJournal(store)
         journal.begin("receiver-duplicate", 2)
-        val recorder = SmsPlatformCallbackRecorder("receiver-duplicate", journal, SmsSendTracker(2), -1)
+        val recorder = SmsPlatformCallbackRecorder("receiver-duplicate", journal, -1)
 
         assertEquals(SmsSendState.PENDING, recorder.record(0, -1))
         assertEquals(SmsSendState.PENDING, recorder.record(0, -1))

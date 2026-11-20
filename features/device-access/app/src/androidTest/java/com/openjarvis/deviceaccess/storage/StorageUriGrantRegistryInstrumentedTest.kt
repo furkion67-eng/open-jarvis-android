@@ -83,6 +83,24 @@ class StorageUriGrantRegistryInstrumentedTest {
         assertNull(access.lastTakenFlags)
     }
 
+    @Test
+    fun nonPersistablePickerResultIsRejectedBeforeTakingAnyGrant() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val preferences = context.getSharedPreferences("jarvis_storage_uri_grants", 0)
+        preferences.edit().clear().commit()
+        val access = FakeStorageUriGrantAccess()
+        val uri = Uri.parse("content://jarvis.fake.documents/tree/not-persistable")
+        val error = runCatching {
+            StorageUriGrantRegistry(context, access).persistPickerResult(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }.exceptionOrNull()
+        assertTrue(error is IllegalArgumentException)
+        assertNull(access.lastTakenFlags)
+        preferences.edit().clear().commit()
+    }
+
     private class FakeStorageUriGrantAccess : StorageUriGrantAccess {
         private val grants = linkedMapOf<String, StorageGrantSnapshot>()
         var lastTakenFlags: Int? = null
