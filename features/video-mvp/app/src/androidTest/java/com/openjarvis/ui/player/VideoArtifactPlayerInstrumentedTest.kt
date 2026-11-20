@@ -1,5 +1,8 @@
 package com.openjarvis.ui.player
 
+import android.content.ContentResolver
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.media.MediaExtractor
 import android.media.MediaFormat
@@ -12,6 +15,8 @@ import android.widget.VideoView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalContext
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.openjarvis.tasks.JarvisTaskDatabase
@@ -375,9 +380,20 @@ class DashboardPlayerTestActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         current = this
+        val targetApplicationContext =
+            InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
+        // The Activity itself lives in the instrumentation APK, but the production player must
+        // read the target application's Room database and MediaStore grants. Keep the Activity
+        // window/theme while delegating application storage and ContentResolver to the target.
+        val playerContext = object : ContextWrapper(this) {
+            override fun getApplicationContext(): Context = targetApplicationContext
+            override fun getContentResolver(): ContentResolver = targetApplicationContext.contentResolver
+        }
         setContent {
-            MaterialTheme {
-                VideoArtifactPlayerPanel()
+            CompositionLocalProvider(LocalContext provides playerContext) {
+                MaterialTheme {
+                    VideoArtifactPlayerPanel()
+                }
             }
         }
     }
