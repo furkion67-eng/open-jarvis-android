@@ -30,6 +30,6 @@ SEND_SMS is a restricted/sensitive permission for Google Play distribution and m
 ## Integration still required
 
 - Add this feature source set to the real Android app's Gradle settings and merge app/src/main/AndroidManifest.xml.
-- Wire SmsComposePanel into a user-visible assistant screen and connect onSmsOutcome to the durable task journal. Persist SENT only for SmsSendOutcome.Sent; preserve Unknown when the callback is absent or the process dies.
+- The host repair script wires SmsComposePanel into DashboardScreen. Every final onSmsOutcome is appended to the Room device-action journal as a privacy-minimal event (action type, outcome code and safe summary only); recipient name, phone number and message body are never copied into the task journal. SENT is persisted only for SmsSendOutcome.Sent after all SMS_SENT callbacks report RESULT_OK; recovered/missing callbacks remain UNKNOWN, and ACTION_SENDTO is recorded as DRAFT, never SENT.
 - The repository snapshot currently has no root Gradle wrapper/build scripts or host app manifest. Therefore this source slice cannot yet be compiled as an Android app or instrumented on Android 13/14 in this repository state.
 - Physical TECNO acceptance, real contact-provider behavior and real SMS delivery are not claimed. Never use a real recipient or real SMS in CI.

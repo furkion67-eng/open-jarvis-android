@@ -12,6 +12,24 @@ interface JarvisTaskDao {
     @Query("SELECT * FROM jarvis_tasks ORDER BY updatedAt DESC LIMIT :limit")
     fun observeRecent(limit: Int): Flow<List<JarvisTaskEntity>>
 
+    @Query("SELECT * FROM jarvis_device_action_events ORDER BY createdAt DESC LIMIT :limit")
+    fun observeRecentDeviceActionEvents(limit: Int): Flow<List<DeviceActionEventEntity>>
+
+    @Query("SELECT * FROM jarvis_device_action_events WHERE id = :id LIMIT 1")
+    suspend fun findDeviceActionEventById(id: String): DeviceActionEventEntity?
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertDeviceActionEvent(event: DeviceActionEventEntity)
+
+    @Query("""
+        DELETE FROM jarvis_device_action_events
+        WHERE id NOT IN (
+            SELECT id FROM jarvis_device_action_events
+            ORDER BY createdAt DESC LIMIT :keep
+        )
+    """)
+    suspend fun pruneDeviceActionEvents(keep: Int): Int
+
     @Query("SELECT * FROM jarvis_tasks WHERE id = :id LIMIT 1")
     suspend fun findById(id: String): JarvisTaskEntity?
 

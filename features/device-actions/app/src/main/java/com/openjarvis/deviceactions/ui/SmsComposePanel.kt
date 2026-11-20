@@ -37,6 +37,22 @@ import com.openjarvis.deviceactions.sms.SmsConfirmationGate
 import com.openjarvis.deviceactions.sms.SmsPermission
 import com.openjarvis.deviceactions.sms.SmsSendOutcome
 import com.openjarvis.deviceactions.sms.SmsSelectionInvalidationPolicy
+import com.openjarvis.tasks.DeviceActionOutcomeJournal
+
+private fun SmsSendOutcome.toJournalEntry(): Pair<String, String> = when (this) {
+    SmsSendOutcome.Sent ->
+        "SENT" to "Tüm SMS_SENT callback'leri RESULT_OK döndü; teslimat doğrulanmadı."
+    SmsSendOutcome.PermissionDenied ->
+        "NOT_EXECUTED" to "SEND_SMS izni yok veya geri alındı; mesaj gönderilmedi."
+    SmsSendOutcome.Unsupported ->
+        "NOT_EXECUTED" to "Cihaz SMS gönderimini desteklemiyor; mesaj gönderilmedi."
+    SmsSendOutcome.Rejected ->
+        "NOT_EXECUTED" to "Tek kullanımlık gönderim onayı geçersiz veya kullanılmış; mesaj gönderilmedi."
+    is SmsSendOutcome.Failed ->
+        "FAILED" to "Android SMS gönderim callback'i başarısız oldu."
+    is SmsSendOutcome.Unknown ->
+        "UNKNOWN" to "SMS gönderim sonucu doğrulanamadı; otomatik tekrar yapılmadı."
+}
 
 /** Contact-first SMS flow. No phone-number field is shown for a unique contact match. */
 @Composable
@@ -68,9 +84,18 @@ fun SmsComposePanel(
     var status by remember { mutableStateOf("SMS için önce rehberden bir kişi bul.") }
     var showConfirmation by remember { mutableStateOf(false) }
 
+    fun persistSmsOutcome(outcome: SmsSendOutcome) {
+        val (code, summary) = outcome.toJournalEntry()
+        DeviceActionOutcomeJournal.record(context, "sms", code, summary)
+        onSmsOutcome(outcome)
+    }
+
     LaunchedEffect(sender) {
         if (sender.recoveredUnknownCount > 0) {
             status = "Önceki SMS gönderiminin sonucu uygulama yeniden açıldığında doğrulanamadı (UNKNOWN). JARVIS mesajı otomatik tekrar göndermedi."
+            persistSmsOutcome(
+                SmsSendOutcome.Unknown("Önceki süreçte SMS gönderim callback'i alınamadı; otomatik tekrar yapılmadı.")
+            )
         }
     }
 
@@ -255,6 +280,12 @@ fun SmsComposePanel(
                         ).putExtra("sms_body", message)
                         try {
                             context.startActivity(handoff)
+                            DeviceActionOutcomeJournal.record(
+                                context,
+                                "sms",
+                                "DRAFT",
+                                "ACTION_SENDTO taslağı açıldı; JARVIS mesajı göndermedi."
+                            )
                             status = "SMS uygulamasında taslak açıldı. JARVIS bunu gönderildi olarak işaretlemez; son gönderme işlemi SMS uygulamasında sana aittir."
                         } catch (_: Exception) {
                             status = "Varsayılan SMS uygulaması açılamadı."
@@ -309,7 +340,7 @@ fun SmsComposePanel(
                                 is SmsSendOutcome.Unknown ->
                                     "Gönderim sonucu doğrulanamadı: " + outcome.reason
                             }
-                            onSmsOutcome(outcome)
+                            persistSmsOutcome(outcome)
                         }
                     }
                 }) { Text("Onayla ve SMS gönder") }

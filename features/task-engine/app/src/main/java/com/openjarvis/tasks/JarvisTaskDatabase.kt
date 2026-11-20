@@ -8,7 +8,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 /** Separate database keeps the new task schema independent from legacy graphify.db migrations. */
-@Database(entities = [JarvisTaskEntity::class], version = 6, exportSchema = false)
+@Database(entities = [JarvisTaskEntity::class, DeviceActionEventEntity::class], version = 7, exportSchema = false)
 abstract class JarvisTaskDatabase : RoomDatabase() {
     abstract fun taskDao(): JarvisTaskDao
 
@@ -70,6 +70,26 @@ abstract class JarvisTaskDatabase : RoomDatabase() {
             }
         }
 
+        /** Add a privacy-minimal journal for confirmed device-action outcomes. */
+        val MIGRATION_6_7: Migration = object : Migration(6, 7) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS jarvis_device_action_events (
+                        id TEXT NOT NULL,
+                        actionType TEXT NOT NULL,
+                        outcomeCode TEXT NOT NULL,
+                        safeSummary TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        PRIMARY KEY(id)
+                    )
+                """.trimIndent())
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_jarvis_device_action_events_createdAt " +
+                        "ON jarvis_device_action_events (createdAt)"
+                )
+            }
+        }
+
         @Volatile
         private var instance: JarvisTaskDatabase? = null
 
@@ -78,7 +98,7 @@ abstract class JarvisTaskDatabase : RoomDatabase() {
                 context.applicationContext,
                 JarvisTaskDatabase::class.java,
                 "jarvis_tasks.db"
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7).build().also { instance = it }
         }
 
         /** Closes the singleton so instrumentation can verify the file-backed DB after a process-style reopen. */

@@ -183,6 +183,23 @@ class JarvisTaskPersistenceInstrumentedTest {
     }
 
     @Test
+    fun smsOutcomeIsDurablyJournaledWithoutContactOrMessageData() = runBlocking {
+        val eventId = repository.recordDeviceActionOutcome(
+            actionType = "sms",
+            outcomeCode = "SENT",
+            safeSummary = "Tüm SMS_SENT callback'leri RESULT_OK döndü; teslimat doğrulanmadı."
+        )
+
+        val event = dao.findDeviceActionEventById(eventId)!!
+        assertEquals("sms", event.actionType)
+        assertEquals("SENT", event.outcomeCode)
+        assertTrue(event.safeSummary.contains("RESULT_OK"))
+        assertFalse(event.safeSummary.contains("+905551112233"))
+        assertFalse(event.safeSummary.contains("Özel mesaj metni"))
+        assertEquals(eventId, dao.observeRecentDeviceActionEvents(10).first().single().id)
+    }
+
+    @Test
     fun planReviewDoesNotGrantActionApproval() = runBlocking {
         val now = System.currentTimeMillis()
         val id = "approval-gated-task"
