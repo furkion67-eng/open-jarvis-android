@@ -37,6 +37,7 @@ data class VideoArtifactMetadata(
     val captionsMimeType: String = "application/x-subrip",
     val audioTrackMimeType: String? = "audio/mp4a-latm",
     val durationMs: Long,
+    val audioDurationMs: Long? = null,
     val width: Int,
     val height: Int,
     val frameRate: Int,
@@ -52,6 +53,7 @@ data class VideoArtifactMetadata(
             videoTrackMimeType == "video/avc" &&
             captionsMimeType == "application/x-subrip" &&
             durationMs > 0L &&
+            (audioDurationMs == null || audioDurationMs > 0L) &&
             width > 0 && height > width &&
             frameRate in 1..120 &&
             hasAudio &&
@@ -109,6 +111,7 @@ object VideoArtifactMetadataCodec {
             put("captionsMimeType", metadata.captionsMimeType)
             putNullable("audioTrackMimeType", metadata.audioTrackMimeType)
             put("durationMs", metadata.durationMs)
+            putNullable("audioDurationMs", metadata.audioDurationMs)
             put("width", metadata.width)
             put("height", metadata.height)
             put("frameRate", metadata.frameRate)
@@ -154,6 +157,7 @@ object VideoArtifactMetadataCodec {
                 captionsMimeType = json.getString("captionsMimeType"),
                 audioTrackMimeType = json.stringOrNull("audioTrackMimeType"),
                 durationMs = json.getLong("durationMs"),
+                audioDurationMs = json.longOrNull("audioDurationMs"),
                 width = json.getInt("width"),
                 height = json.getInt("height"),
                 frameRate = json.getInt("frameRate"),
