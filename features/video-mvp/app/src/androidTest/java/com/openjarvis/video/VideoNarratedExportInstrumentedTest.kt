@@ -62,8 +62,8 @@ class VideoNarratedExportInstrumentedTest {
                 val audio = audioTracks.single()
                 assertEquals(MediaFormat.MIMETYPE_VIDEO_AVC, video.getString(MediaFormat.KEY_MIME))
                 assertEquals(MediaFormat.MIMETYPE_AUDIO_AAC, audio.getString(MediaFormat.KEY_MIME))
-                assertEquals(360, video.getInteger(MediaFormat.KEY_WIDTH))
-                assertEquals(640, video.getInteger(MediaFormat.KEY_HEIGHT))
+                assertEquals("Shorts export must use the agreed 720px portrait width", 720, video.getInteger(MediaFormat.KEY_WIDTH))
+                assertEquals("Shorts export must use the agreed 1280px portrait height", 1_280, video.getInteger(MediaFormat.KEY_HEIGHT))
 
                 val audioTrackIndex = formats.indexOf(audio)
                 assertTrue("AAC track must contain encoded samples", audioTrackIndex >= 0)
@@ -89,11 +89,39 @@ class VideoNarratedExportInstrumentedTest {
                 ?.bufferedReader(Charsets.UTF_8)
                 ?.use { it.readText() }
                 ?: error("Exported SRT could not be opened")
-            val cueCount = Regex("(?m)^\\d+$").findAll(srt).count()
-            assertEquals("One caption cue per storyboard scene is expected", result.sceneCount, cueCount)
+            val cueTimes = Regex(
+                "(?m)^(\\d{2}:\\d{2}:\\d{2},\\d{3}) --> (\\d{2}:\\d{2}:\\d{2},\\d{3})$"
+            ).findAll(srt).toList()
+            assertEquals(
+                "A dedicated measured hook cue plus one cue per storyboard scene is expected",
+                result.sceneCount + 1,
+                cueTimes.size
+            )
             assertEquals(5, result.sceneCount)
-            val expectedSpeechEnd = formatSrtTime(result.audioDurationMs)
-            assertTrue("Final SRT cue must end at actual speech duration", srt.contains("--> $expectedSpeechEnd"))
+            assertTrue("The measured hook must be positive and no longer than two seconds", result.hookDurationMs in 1L..2_000L)
+            assertEquals("The hook caption must start at video time zero", formatSrtTime(0L), cueTimes.first().groupValues[1])
+            assertEquals(
+                "The hook caption must end at the measured hook TTS duration",
+                formatSrtTime(result.hookDurationMs),
+                cueTimes.first().groupValues[2]
+            )
+            assertEquals(
+                "The first scene caption must begin immediately after the hook",
+                cueTimes.first().groupValues[2],
+                cueTimes[1].groupValues[1]
+            )
+            for (index in 1 until cueTimes.lastIndex) {
+                assertEquals(
+                    "Speech caption cues must be contiguous",
+                    cueTimes[index].groupValues[2],
+                    cueTimes[index + 1].groupValues[1]
+                )
+            }
+            assertEquals(
+                "Final SRT cue must end at actual measured narration duration",
+                formatSrtTime(result.audioDurationMs),
+                cueTimes.last().groupValues[2]
+            )
             assertTrue("Spoken scene heading must appear in captions", srt.contains("Kuşatma başladı."))
         } finally {
             context.contentResolver.delete(result.exportedUri, null, null)
