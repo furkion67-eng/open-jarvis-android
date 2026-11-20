@@ -45,6 +45,18 @@ class JarvisTaskStateMachineTest {
     }
 
     @Test
+    fun onlyVerifiedSuccessHasNonZeroDefaultProgress() {
+        assertEquals(0, JarvisTaskStatus.QUEUED.defaultProgress)
+        assertEquals(0, JarvisTaskStatus.PLANNING.defaultProgress)
+        assertEquals(0, JarvisTaskStatus.RUNNING.defaultProgress)
+        assertEquals(0, JarvisTaskStatus.WAITING_FOR_USER.defaultProgress)
+        assertEquals(0, JarvisTaskStatus.WAITING_FOR_NETWORK.defaultProgress)
+        assertEquals(100, JarvisTaskStatus.SUCCEEDED.defaultProgress)
+        assertEquals(0, JarvisTaskStatus.FAILED.defaultProgress)
+        assertEquals(0, JarvisTaskStatus.CANCELLED.defaultProgress)
+    }
+
+    @Test
     fun nonExecutionAndInterruptionAreDurableRetryableStates() {
         assertEquals(JarvisTaskStatus.NOT_EXECUTED, JarvisTaskStatus.fromStorage("not_executed"))
         assertEquals(JarvisTaskStatus.INTERRUPTED, JarvisTaskStatus.fromStorage("interrupted"))
