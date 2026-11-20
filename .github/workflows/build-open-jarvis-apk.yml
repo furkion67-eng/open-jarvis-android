@@ -559,10 +559,10 @@ jobs:
                   "geminiListModelsUsesHeaderAndNeverPlacesKeyInUrl",
               },
               "VideoStoryPlanTest": {
-                  "istanbulConquestCreatesFiveScenesAndFortyFiveSecondShortsDraft",
-                  "istanbulScenesUseDistinctLocalProceduralVisuals",
+                  "istanbulConquestCreatesFiveSourceBackedScenesAndFortyFiveSecondDraft",
+                  "everySceneHasDistinctSourceBackedVisualAndClaim",
                   "captionsAreMonotonicAndSrtUsesTurkishText",
-                  "genericTopicUsesStructureWithoutInventingSpecificFacts",
+                  "unsupportedTopicFailsClosedInsteadOfUsingGenericFiller",
                   "speechFrameBoundariesSelectTheMatchingVisualScene",
                   "blankPromptIsRejected",
               },
