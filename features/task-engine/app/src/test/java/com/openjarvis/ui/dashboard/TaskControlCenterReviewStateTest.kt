@@ -96,6 +96,52 @@ class TaskControlCenterReviewStateTest {
     }
 
     @Test
+    fun ordinaryNetworkWaitShowsNoSyntheticProgressOrPercent() {
+        val task = task(
+            status = JarvisTaskStatus.WAITING_FOR_NETWORK,
+            errorCode = "NETWORK_UNAVAILABLE",
+            executionMode = "remote.device-action",
+            progressPercent = 25
+        )
+        assertEquals("Ağ bağlantısı bekleniyor", taskStatusLabel(task))
+        assertFalse(shouldShowDeterminateProgress(task))
+        assertFalse(shouldShowIndeterminateProgress(task))
+    }
+
+    @Test
+    fun planningAndGenericExecutionUseIndeterminateProgressUntilMeasured() {
+        val planning = task(
+            status = JarvisTaskStatus.PLANNING,
+            executionMode = "remote.device-action",
+            progressPercent = 10
+        )
+        assertEquals("Planlanıyor", taskStatusLabel(planning))
+        assertFalse(shouldShowDeterminateProgress(planning))
+        assertTrue(shouldShowIndeterminateProgress(planning))
+
+        val running = task(
+            status = JarvisTaskStatus.RUNNING,
+            executionMode = "remote.device-action",
+            progressPercent = 50
+        )
+        assertEquals("Çalışıyor", taskStatusLabel(running))
+        assertFalse(shouldShowDeterminateProgress(running))
+        assertTrue(shouldShowIndeterminateProgress(running))
+    }
+
+    @Test
+    fun onlyVerifiedGenericSuccessShowsDeterminateCompletion() {
+        val task = task(
+            status = JarvisTaskStatus.SUCCEEDED,
+            executionMode = "remote.device-action",
+            progressPercent = 100
+        )
+        assertEquals("Tamamlandı", taskStatusLabel(task))
+        assertTrue(shouldShowDeterminateProgress(task))
+        assertFalse(shouldShowIndeterminateProgress(task))
+    }
+
+    @Test
     fun localPlanPreviewNeverClaimsDeterminateExecutionProgress() {
         val task = task(
             status = JarvisTaskStatus.NOT_EXECUTED,

@@ -184,15 +184,12 @@ internal enum class TaskReviewUiState {
 }
 
 internal fun shouldShowDeterminateProgress(task: JarvisTaskEntity): Boolean {
-    val status = JarvisTaskStatus.fromStorage(task.status)
-    return status != JarvisTaskStatus.FAILED &&
-        status != JarvisTaskStatus.CANCELLED &&
+    // No executor currently reports measured intermediate progress. Only a verified terminal
+    // success may display a determinate 100% bar; waiting/running states must not invent a percent.
+    return JarvisTaskStatus.fromStorage(task.status) == JarvisTaskStatus.SUCCEEDED &&
+        task.progressPercent >= 100 &&
         task.executionMode != "local_plan_preview" &&
-        task.executionMode != VIDEO_TASK_EXECUTION_MODE &&
-        taskReviewUiState(task) != TaskReviewUiState.EXECUTOR_UNAVAILABLE &&
-        taskReviewUiState(task) != TaskReviewUiState.INTERRUPTED &&
-        taskReviewUiState(task) != TaskReviewUiState.PLAN_REVIEW &&
-        taskReviewUiState(task) != TaskReviewUiState.ACTION_APPROVAL_REQUIRED
+        task.executionMode != VIDEO_TASK_EXECUTION_MODE
 }
 
 internal fun taskStatusLabel(task: JarvisTaskEntity): String {
@@ -218,13 +215,15 @@ internal fun taskStatusLabel(task: JarvisTaskEntity): String {
             "Türkçe video oluşturuluyor"
         task.executionMode == VIDEO_TASK_EXECUTION_MODE && status == JarvisTaskStatus.SUCCEEDED ->
             "Türkçe sesli video hazır"
-        else -> "${status.turkishLabel} • ${task.progressPercent}%"
+        else -> status.turkishLabel
     }
 }
 
-internal fun shouldShowIndeterminateProgress(task: JarvisTaskEntity): Boolean =
-    task.executionMode == VIDEO_TASK_EXECUTION_MODE &&
-        JarvisTaskStatus.fromStorage(task.status) == JarvisTaskStatus.RUNNING
+internal fun shouldShowIndeterminateProgress(task: JarvisTaskEntity): Boolean {
+    val status = JarvisTaskStatus.fromStorage(task.status)
+    // Planning and execution are active work, but there is no measured percentage yet.
+    return status == JarvisTaskStatus.PLANNING || status == JarvisTaskStatus.RUNNING
+}
 
 /** A missing executor is a configuration state, not an actionable retry. */
 internal fun shouldOfferRetry(task: JarvisTaskEntity): Boolean {

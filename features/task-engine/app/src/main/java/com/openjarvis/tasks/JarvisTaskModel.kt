@@ -53,10 +53,10 @@ enum class JarvisTaskStatus(
     val defaultProgress: Int
 ) {
     QUEUED("queued", "Sırada", 0),
-    PLANNING("planning", "Planlanıyor", 10),
-    RUNNING("running", "Çalışıyor", 50),
-    WAITING_FOR_USER("waiting_for_user", "Senden bilgi / plan onayı bekliyor", 25),
-    WAITING_FOR_NETWORK("waiting_for_network", "Ağ bağlantısı bekleniyor", 25),
+    PLANNING("planning", "Planlanıyor", 0),
+    RUNNING("running", "Çalışıyor", 0),
+    WAITING_FOR_USER("waiting_for_user", "Senden bilgi / plan onayı bekliyor", 0),
+    WAITING_FOR_NETWORK("waiting_for_network", "Ağ bağlantısı bekleniyor", 0),
     NOT_EXECUTED("not_executed", "Yürütülmedi", 0),
     INTERRUPTED("interrupted", "Kesintiye uğradı", 0),
     SUCCEEDED("succeeded", "Tamamlandı", 100),
