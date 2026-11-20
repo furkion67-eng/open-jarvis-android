@@ -27,6 +27,26 @@ import java.util.concurrent.atomic.AtomicReference
 @RunWith(AndroidJUnit4::class)
 class VideoArtifactPlayerInstrumentedTest {
     @Test
+    fun revokedOrUnreadableContentUriReturnsUnavailableForRetry() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val metadata = VideoArtifactMetadata(
+            durationMs = 6_000L,
+            width = 360,
+            height = 640,
+            frameRate = 24,
+            hasAudio = true,
+            narrationLocale = "tr-TR"
+        )
+        val state = VideoArtifactPlaybackValidator.inspect(
+            context,
+            "content://com.openjarvis.revoked/video/1",
+            "content://com.openjarvis.revoked/captions/1",
+            VideoArtifactMetadataCodec.encode(metadata)
+        )
+        assertTrue(state is PlaybackAvailability.Unavailable)
+    }
+
+    @Test
     fun persistedMediaStoreVideoReopensAndPlaysInsideJarvisAfterActivityRecreation() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val artifactKey = UUID.randomUUID().toString().replace("-", "")
