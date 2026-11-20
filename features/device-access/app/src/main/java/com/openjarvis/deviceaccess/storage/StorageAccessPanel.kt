@@ -58,6 +58,7 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
     var renameValue by rememberSaveable { mutableStateOf("") }
     var pendingTransferSource by remember { mutableStateOf<StorageTransferSource?>(null) }
     var pendingTransfer by remember { mutableStateOf<PendingStorageTransfer?>(null) }
+    var mutationInProgress by remember { mutableStateOf(false) }
     var status by rememberSaveable { mutableStateOf("Henüz klasör erişimi verilmedi.") }
     var loading by remember { mutableStateOf(false) }
 
@@ -355,7 +356,7 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
             selectedForRename?.let { entry ->
                 val requestedName = renameValue.trim()
                 AlertDialog(
-                    onDismissRequest = { selectedForRename = null },
+                    onDismissRequest = { if (!mutationInProgress) selectedForRename = null },
                     title = { Text("Dosyayı yeniden adlandır") },
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -372,8 +373,9 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
                     },
                     confirmButton = {
                         TextButton(
-                            enabled = requestedName.isNotBlank() && requestedName != entry.name,
+                            enabled = requestedName.isNotBlank() && requestedName != entry.name && !mutationInProgress,
                             onClick = {
+                                mutationInProgress = true
                                 scope.launch {
                                     try {
                                         withContext(Dispatchers.IO) {
@@ -400,13 +402,15 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
                                         refreshKey++
                                     } catch (error: Exception) {
                                         status = "Dosya yeniden adlandırılamadı: " + (error.message ?: "işlem başarısız")
+                                    } finally {
+                                        mutationInProgress = false
                                     }
                                 }
                             }
                         ) { Text("Onayla ve yeniden adlandır") }
                     },
                     dismissButton = {
-                        TextButton(onClick = { selectedForRename = null }) { Text("Vazgeç") }
+                        TextButton(enabled = !mutationInProgress, onClick = { selectedForRename = null }) { Text("Vazgeç") }
                     }
                 )
             }
@@ -415,17 +419,19 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
                 val preview = transfer.preview
                 val actionLabel = if (preview.operation == StorageTransferOperation.COPY) "kopyala" else "taşı"
                 AlertDialog(
-                    onDismissRequest = { pendingTransfer = null },
+                    onDismissRequest = { if (!mutationInProgress) pendingTransfer = null },
                     title = { Text(if (preview.operation == StorageTransferOperation.COPY) "Kopyalama onayı" else "Taşıma onayı") },
                     text = {
                         Text(
-                            "Kaynak: ${preview.sourceName}\nHedef klasör: ${preview.targetName}\n\n" +
+                            "Kaynak: ${preview.sourceName}\nHedef klasör: ${preview.targetName}\nHedef URI: ${preview.targetParentUri}\n\n" +
                                 "JARVIS bu işlemi yalnızca sen onayladıktan sonra yapacak."
                         )
                     },
                     confirmButton = {
                         TextButton(
+                            enabled = !mutationInProgress,
                             onClick = {
+                                mutationInProgress = true
                                 scope.launch {
                                     try {
                                         withContext(Dispatchers.IO) {
@@ -461,13 +467,15 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
                                         refreshKey++
                                     } catch (error: Exception) {
                                         status = "Dosya işlemi tamamlanamadı: " + (error.message ?: actionLabel)
+                                    } finally {
+                                        mutationInProgress = false
                                     }
                                 }
                             }
                         ) { Text(if (preview.operation == StorageTransferOperation.COPY) "Onayla ve kopyala" else "Onayla ve taşı") }
                     },
                     dismissButton = {
-                        TextButton(onClick = { pendingTransfer = null }) { Text("Vazgeç") }
+                        TextButton(enabled = !mutationInProgress, onClick = { pendingTransfer = null }) { Text("Vazgeç") }
                     }
                 )
             }
