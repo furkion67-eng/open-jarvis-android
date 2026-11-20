@@ -99,7 +99,7 @@ jobs:
           for path in sorted(p for p in root.rglob("*") if p.is_file()):
               rel = path.relative_to(root).as_posix()
               rows.append(hashlib.sha256(path.read_bytes()).hexdigest() + "  " + rel)
-          out.write_text("\\n".join(rows) + "\\n", encoding="utf-8")
+          out.write_text("\n".join(rows) + "\n", encoding="utf-8")
           PY
           python3 scripts/repair_sources.py "$PROJECT_DIR"
           python3 - "$PROJECT_DIR" "$RUNNER_TEMP/repair-second.sha256" <<'PY'
@@ -110,7 +110,7 @@ jobs:
           for path in sorted(p for p in root.rglob("*") if p.is_file()):
               rel = path.relative_to(root).as_posix()
               rows.append(hashlib.sha256(path.read_bytes()).hexdigest() + "  " + rel)
-          out.write_text("\\n".join(rows) + "\\n", encoding="utf-8")
+          out.write_text("\n".join(rows) + "\n", encoding="utf-8")
           PY
           diff -u "$RUNNER_TEMP/repair-first.sha256" "$RUNNER_TEMP/repair-second.sha256"
           echo "REPAIR_SOURCES_IDEMPOTENT_OK: two consecutive repairs are byte-identical"
