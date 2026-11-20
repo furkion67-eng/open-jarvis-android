@@ -2,6 +2,7 @@ package com.openjarvis.ui.player
 
 import android.content.Context
 import android.media.MediaMetadataRetriever
+import android.media.MediaPlayer
 import android.net.Uri
 import android.widget.ImageView
 import android.widget.MediaController
@@ -132,8 +133,9 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
     var availability by remember(latest?.id, latest?.videoUri) {
         mutableStateOf<PlaybackAvailability>(PlaybackAvailability.Empty)
     }
-    var player by remember(latest?.videoUri) { mutableStateOf<VideoView?>(null) }
+    var player by remember(latest?.videoUri, retryKey) { mutableStateOf<VideoView?>(null) }
     var playbackError by remember(latest?.id, latest?.videoUri) { mutableStateOf<String?>(null) }
+    var playerPreparing by remember(latest?.id, latest?.videoUri, retryKey) { mutableStateOf(false) }
 
     DisposableEffect(player) {
         onDispose { player?.stopPlayback() }
@@ -270,17 +272,30 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
                                     val controller = MediaController(viewContext)
                                     controller.setAnchorView(this)
                                     setMediaController(controller)
-                                    setOnPreparedListener { playbackError = null }
+                                    setOnPreparedListener {
+                                        playbackError = null
+                                        playerPreparing = false
+                                    }
+                                    setOnInfoListener { _, what, _ ->
+                                        when (what) {
+                                            MediaPlayer.MEDIA_INFO_BUFFERING_START -> playerPreparing = true
+                                            MediaPlayer.MEDIA_INFO_BUFFERING_END -> playerPreparing = false
+                                        }
+                                        false
+                                    }
                                     setOnErrorListener { _, _, _ ->
+                                        playerPreparing = false
                                         playbackError = "Video JARVIS içinde oynatılamadı. Yeniden denetleyebilir veya tekrar deneyebilirsin."
                                         true
                                     }
                                     tag = state.uri.toString()
+                                    playerPreparing = true
                                     setVideoURI(state.uri)
                                 }
                             },
                             update = { view ->
                                 if (view.tag != state.uri.toString()) {
+                                    playerPreparing = true
                                     view.tag = state.uri.toString()
                                     view.setVideoURI(state.uri)
                                 }
@@ -288,14 +303,20 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
                             }
                             )
                         }
+                        if (playerPreparing) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                CircularProgressIndicator()
+                                Text("Video oynatıcı hazırlanıyor veya arabelleğe alınıyor…")
+                            }
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { player?.start() }, enabled = player != null) { Text("Oynat") }
+                            Button(onClick = { player?.start() }, enabled = player != null && !playerPreparing) { Text("Oynat") }
                             TextButton(
                                 onClick = {
                                     player?.seekTo(0)
                                     player?.start()
                                 },
-                                enabled = player != null
+                                enabled = player != null && !playerPreparing
                             ) { Text("Baştan oynat") }
                             TextButton(onClick = { retryKey++ }) { Text("Yeniden denetle") }
                         }
