@@ -10,6 +10,7 @@ import android.provider.MediaStore
 import com.openjarvis.video.VideoCommandOrigin
 import com.openjarvis.video.VideoCommandRouter
 import com.openjarvis.video.VideoStoryPipeline
+import com.openjarvis.video.VideoStoryPlanBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.nio.ByteBuffer
@@ -42,16 +43,23 @@ class VideoStoryTaskCapability : JarvisTaskCapability {
             ?.takeIf { it.isNotBlank() }
             ?: throw IllegalArgumentException("Video konusu belirtilmedi.")
 
+        // Validate the same researched story pack the renderer will execute before the user
+        // accepts the plan. Unsupported topics fail here, not after an apparently valid preview.
+        val researchedPlan = VideoStoryPlanBuilder.build(topic)
+
         return JarvisTaskPlan(
-            summary = "“" + topic + "” için plan taslağı hazır. Henüz video oluşturulmadı. Planı kabul ettiğinde cihazda Türkçe sesli MP4 ve SRT üretilecek; otomatik paylaşım yapılmayacak.",
+            summary = "“" + researchedPlan.title + "” için " + researchedPlan.scenes.size +
+                " sahneli kaynaklı plan hazır. Video henüz oluşturulmadı. Görsel dosyaları ve lisans kanıtları render sırasında doğrulanacak; otomatik paylaşım yapılmayacak.",
             steps = listOf(
-                "Kurulu tam tr-TR sesini doğrula; uygun ses yoksa Türkçe hata ile dur.",
-                "Beş sahneli yerel prosedürel storyboard hazırla.",
-                "Her sahneyi Türkçe seslendir ve gerçek konuşma sürelerini ölç.",
-                "Dikey H.264 video, AAC ses ve konuşma zamanlı SRT üret.",
-                "MP4 ve SRT'yi MediaStore'a aktar; iki URI de okunabiliyorsa sonucu kaydet."
+                "Desteklenen araştırma paketini, sahne iddialarını ve kaynak eşleşmelerini doğrula.",
+                "Her sahne için Wikimedia Commons görselini, lisansını ve SHA-256 bütünlüğünü doğrula; geçerli önbellek yoksa internetten al.",
+                "Kurulu tam tr-TR sesini doğrula; gerçek Türkçe anlatımı ve konuşma sürelerini ölç.",
+                "Kaynaklı görsellerle dikey H.264 video, AAC ses ve konuşma zamanlı SRT üret.",
+                "MediaStore MP4, SRT ve kapak URI'lerini okuyarak A/V, altyazı ve atıf manifestini doğrula; tüm kanıtlar geçerse başarı kaydet."
             ),
-            requiresNetwork = false,
+            // The renderer currently has no side-effect-free cache availability query. Be
+            // conservative: an uncached first render downloads Commons assets over HTTPS.
+            requiresNetwork = true,
             requiresApproval = false
         )
     }
