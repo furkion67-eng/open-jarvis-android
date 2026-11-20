@@ -36,6 +36,9 @@ import java.util.UUID
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
+internal fun isActualVoiceExactTurkish(actualLocale: Locale?): Boolean =
+    actualLocale != null && TurkishTtsPolicy.isExactTurkishLocale(actualLocale.toLanguageTag())
+
 internal data class PcmWav(
     val sampleRate: Int,
     val channels: Int,
@@ -386,8 +389,8 @@ class VideoNarrationComposer(private val context: Context) {
         if (runCatching { engine.setVoice(voice) }.getOrDefault(TextToSpeech.ERROR) != TextToSpeech.SUCCESS) {
             throw VideoRenderException("Türkçe ses seçilemedi.")
         }
-        val actualLocale = runCatching { engine.voice?.locale ?: voice.locale }.getOrDefault(voice.locale)
-        if (!TurkishTtsPolicy.isExactTurkishLocale(actualLocale.toLanguageTag())) {
+        val actualLocale = runCatching { engine.voice?.locale }.getOrNull()
+        if (!isActualVoiceExactTurkish(actualLocale)) {
             throw VideoRenderException("Kurulu Android ses motorunda kullanılabilir Türkçe ses bulunamadı (tr-TR gerekli).")
         }
         runCatching { engine.setSpeechRate(1.08f) }
