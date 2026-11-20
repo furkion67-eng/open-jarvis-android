@@ -231,6 +231,7 @@ capture_post_instrumentation
 
 # Require the feature-owned command/task integration tests to be discovered and pass.
 # A class name in the log alone is insufficient: pair each class with a successful test result.
+set +e
 python3 - instrumented.log <<'PY'
 import pathlib, sys
 lines = pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines()
@@ -298,6 +299,8 @@ if missing:
     raise SystemExit(f"{len(missing)} required command/task/video/launch instrumentation tests did not pass")
 print(f"VIDEO-COMMAND-TASK-INSTRUMENTATION-OK: {len(required)} required tests passed")
 PY
+required_instrumentation_exit=$?
+set -e
 
 # Confirm the CI-only narrated-video integration test ran. The test writes an
 # explicit status file: either a verified AAC+H.264 export, or a verified fail-closed
@@ -364,7 +367,7 @@ verify_launcher_visible_after_tests
 launcher_visible_exit=$?
 set -e
 
-if [ "$instrumented_exit" -ne 0 ] || ! grep -q "OK (" instrumented.log || grep -q "FAILURES" instrumented.log || [ "$video_contract_exit" -ne 0 ]; then
+if [ "$instrumented_exit" -ne 0 ] || [ "$required_instrumentation_exit" -ne 0 ] || ! grep -q "OK (" instrumented.log || grep -q "FAILURES" instrumented.log || [ "$video_contract_exit" -ne 0 ]; then
   if [ "$launcher_visible_exit" -eq 0 ]; then
     echo "Launcher visibility passed independently; the instrumented assertion suite still failed."
   else
