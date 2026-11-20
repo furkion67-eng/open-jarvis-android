@@ -249,7 +249,8 @@ private fun finalizePendingCameraCapture(context: Context, uri: Uri) {
 }
 
 private fun postCapabilityTestNotification(context: Context): Boolean = runCatching {
-    val manager = context.getSystemService(NotificationManager::class.java) ?: return false
+    val manager = context.getSystemService(NotificationManager::class.java)
+        ?: throw IllegalStateException("NotificationManager is unavailable.")
     val channelId = "jarvis_capability_test"
     if (Build.VERSION.SDK_INT >= 26) {
         manager.createNotificationChannel(
