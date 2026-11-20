@@ -61,7 +61,9 @@ class VideoTaskExecutionInstrumentedTest {
         assertEquals(JarvisTaskCheckpoint.PLAN_CREATED, preview.checkpoint)
         assertEquals("local_plan_preview", preview.executionMode)
         assertEquals(null, preview.planAcceptedAt)
-        assertTrue(preview.outputSummary!!.contains("Video henüz oluşturulmadı"))
+        // Before explicit plan acceptance, the durable task must have no playable artifacts.
+        assertTrue(preview.videoUri.isNullOrBlank())
+        assertTrue(preview.captionsUri.isNullOrBlank())
         assertEquals(0, executor.calls)
 
         repository.acceptPlan(id)
@@ -203,7 +205,9 @@ class VideoTaskExecutionInstrumentedTest {
             assertEquals("local_plan_preview", preview.executionMode)
             assertEquals(JarvisTaskStatus.WAITING_FOR_USER.storageValue, preview.status)
             assertTrue(preview.requiresNetwork)
-            assertTrue(preview.outputSummary!!.contains("Video henüz oluşturulmadı"))
+            // Before explicit plan acceptance, the durable task must have no playable artifacts.
+        assertTrue(preview.videoUri.isNullOrBlank())
+        assertTrue(preview.captionsUri.isNullOrBlank())
 
             productionRepository.acceptPlan(taskId!!)
             val completed = productionDao.findById(taskId!!)!!
