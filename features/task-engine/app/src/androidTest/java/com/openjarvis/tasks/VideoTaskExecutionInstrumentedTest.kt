@@ -61,7 +61,7 @@ class VideoTaskExecutionInstrumentedTest {
         assertEquals(JarvisTaskCheckpoint.PLAN_CREATED, preview.checkpoint)
         assertEquals("local_plan_preview", preview.executionMode)
         assertEquals(null, preview.planAcceptedAt)
-        assertTrue(preview.outputSummary!!.contains("Henüz video oluşturulmadı"))
+        assertTrue(preview.outputSummary!!.contains("Video henüz oluşturulmadı"))
         assertEquals(0, executor.calls)
 
         repository.acceptPlan(id)
@@ -203,7 +203,7 @@ class VideoTaskExecutionInstrumentedTest {
             assertEquals("local_plan_preview", preview.executionMode)
             assertEquals(JarvisTaskStatus.WAITING_FOR_USER.storageValue, preview.status)
             assertTrue(preview.requiresNetwork)
-            assertTrue(preview.outputSummary!!.contains("Henüz video oluşturulmadı"))
+            assertTrue(preview.outputSummary!!.contains("Video henüz oluşturulmadı"))
 
             productionRepository.acceptPlan(taskId!!)
             val completed = productionDao.findById(taskId!!)!!
