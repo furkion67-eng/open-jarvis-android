@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -289,7 +290,10 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
                     }
                 ) { Text("Metin dosyası oluştur") }
 
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 300.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     items(visibleEntries, key = { it.uri.toString() }) { entry ->
                         Card(
                             modifier = Modifier.fillMaxWidth().clickable {
