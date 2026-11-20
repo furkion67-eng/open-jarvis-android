@@ -50,30 +50,30 @@ data class VideoAssetAttribution(
     val shareAlikeRequired: Boolean,
     val requiredOutputLicense: String?
 ) {
-    fun isValid(): Boolean =
-        sceneIndex >= 0 &&
-            sceneId.isNotBlank() &&
-            assetId.isNotBlank() &&
-            sha256.matches(Regex("[a-f0-9]{64}")) &&
-            runCatching { URI(sourceUrl).host == "commons.wikimedia.org" }.getOrDefault(false) &&
-            creator.isNotBlank() &&
-            licenseId.isNotBlank() &&
-            licenseVersion.isNotBlank() &&
-            licenseUrl.startsWith("https://creativecommons.org/") &&
-            attributionText.isNotBlank() &&
-            attributionText.contains(licenseUrl) &&
-            retrievedAtEpochMs > 0L &&
-            cacheKey.matches(Regex("[a-f0-9]{64}")) &&
-            cacheMetadata.isNotBlank() &&
-            commercialUseAllowed &&
-            derivativesAllowed &&
-            VideoAssetLicensePolicy.isAllowedAttribution(
+    fun isValid(): Boolean {
+        if (sceneIndex < 0 || sceneId.isBlank() || assetId.isBlank() ||
+            !sha256.matches(Regex("[a-f0-9]{64}")) ||
+            !VideoAssetLicensePolicy.isPinnedCommonsSource(sourceUrl) ||
+            creator.isBlank() || licenseId.isBlank() || licenseVersion.isBlank() ||
+            attributionText.isBlank() ||
+            !attributionText.contains(creator) ||
+            !attributionText.contains(licenseId) ||
+            !attributionText.contains("$licenseId $licenseVersion") ||
+            !attributionText.contains(licenseUrl) ||
+            !attributionText.contains(sourceUrl) ||
+            retrievedAtEpochMs <= 0L ||
+            !cacheKey.matches(Regex("[a-f0-9]{64}")) ||
+            !commercialUseAllowed || !derivativesAllowed ||
+            !VideoAssetLicensePolicy.isAllowedAttribution(
                 licenseId,
                 licenseVersion,
                 licenseUrl,
                 shareAlikeRequired,
                 requiredOutputLicense
             )
+        ) return false
+        return VideoAssetLicensePolicy.isValidCacheMetadata(cacheMetadata, retrievedAtEpochMs)
+    }
 }
 
 data class ResolvedSceneVisual(
@@ -172,14 +172,11 @@ object VideoAssetLicensePolicy {
         require(descriptor.title.isNotBlank() && descriptor.creator.isNotBlank()) {
             "Görsel başlığı veya üreticisi doğrulanamadı."
         }
-        val sourceUri = URI(descriptor.sourceUrl)
-        require(sourceUri.scheme == "https" && sourceUri.host == "commons.wikimedia.org" &&
-            sourceUri.query?.contains("oldid=") == true) {
-            "Görselin sabit Wikimedia kaynak revizyonu bulunamadı."
+        require(isPinnedCommonsSource(descriptor.sourceUrl)) {
+            "Görselin HTTPS Wikimedia dosya sayfası ve sayısal sabit revizyon kimliği doğrulanamadı."
         }
-        val downloadUri = URI(descriptor.downloadUrl)
-        require(downloadUri.scheme == "https" && downloadUri.host in ALLOWED_DOWNLOAD_HOSTS) {
-            "Görsel indirme adresi güvenilir Wikimedia alan adında değil."
+        require(isAllowedDownloadUrl(descriptor.downloadUrl)) {
+            "Görsel indirme adresi güvenilir HTTPS Wikimedia dosya yolunda değil."
         }
         require(descriptor.expectedMimeType in ALLOWED_IMAGE_MIME_TYPES) {
             "Görsel biçimi desteklenmiyor."
@@ -201,13 +198,60 @@ object VideoAssetLicensePolicy {
             "ShareAlike yükümlülüğü eksik veya tutarsız."
         }
         require(descriptor.attributionText.contains(descriptor.creator) &&
-            descriptor.attributionText.contains(descriptor.licenseId) &&
+            descriptor.attributionText.contains("${descriptor.licenseId} ${descriptor.licenseVersion}") &&
             descriptor.attributionText.contains(descriptor.licenseUrl) &&
             descriptor.attributionText.contains(descriptor.sourceUrl)) {
             "Atıf metni üretici, lisans ve kaynak bağlantısını birlikte içermeli."
         }
     }
 
+    internal fun isPinnedCommonsSource(value: String): Boolean {
+        val uri = runCatching { URI(value) }.getOrNull() ?: return false
+        if (uri.scheme != "https" || uri.host != "commons.wikimedia.org" ||
+            uri.rawUserInfo != null || (uri.port != -1 && uri.port != 443) ||
+            uri.path != "/w/index.php" || uri.rawFragment != null
+        ) return false
+        val parameters = uri.rawQuery?.split("&") ?: return false
+        val titles = parameters.filter { it.substringBefore('=') == "title" }
+        val revisions = parameters.filter { it.substringBefore('=') == "oldid" }
+        return titles.size == 1 &&
+            titles.single().substringAfter('=', "").startsWith("File:") &&
+            revisions.size == 1 &&
+            revisions.single().substringAfter('=', "").matches(Regex("[1-9][0-9]{0,11}"))
+    }
+
+    internal fun isAllowedDownloadUrl(value: String): Boolean {
+        val uri = runCatching { URI(value) }.getOrNull() ?: return false
+        return uri.scheme == "https" &&
+            uri.host in ALLOWED_DOWNLOAD_HOSTS &&
+            uri.rawUserInfo == null &&
+            (uri.port == -1 || uri.port == 443) &&
+            uri.path.startsWith("/wikipedia/commons/") &&
+            uri.rawFragment == null
+    }
+
+    internal fun isValidCacheMetadata(value: String, retrievedAtEpochMs: Long): Boolean {
+        val entries = value.split(';')
+        if (entries.size != 4) return false
+        val fields = linkedMapOf<String, String>()
+        entries.forEach { entry ->
+            val separator = entry.indexOf('=')
+            if (separator <= 0 || separator == entry.lastIndex) return false
+            val key = entry.substring(0, separator)
+            if (fields.put(key, entry.substring(separator + 1)) != null) return false
+        }
+        val byteSize = fields["bytes"]?.toLongOrNull() ?: return false
+        val expiresAt = fields["expiresAt"]?.toLongOrNull() ?: return false
+        return fields.keys == setOf("provider", "mime", "bytes", "expiresAt") &&
+            fields["provider"] == "WikimediaCommons" &&
+            fields["mime"]?.let { it in ALLOWED_IMAGE_MIME_TYPES } == true &&
+            byteSize in 1L..5_000_000L &&
+            retrievedAtEpochMs > 0L &&
+            expiresAt > retrievedAtEpochMs &&
+            expiresAt - retrievedAtEpochMs <= MAX_CACHE_TTL_MS
+    }
+
+    internal const val MAX_CACHE_TTL_MS = 30L * 24L * 60L * 60L * 1_000L
     internal val ALLOWED_DOWNLOAD_HOSTS = setOf("upload.wikimedia.org", "thumb.wikimedia.org")
     internal val ALLOWED_IMAGE_MIME_TYPES = setOf("image/jpeg", "image/png")
 }
@@ -219,7 +263,9 @@ class VideoVisualAssetResolver(
     private val cacheTtlMs: Long = DEFAULT_CACHE_TTL_MS
 ) {
     init {
-        require(cacheTtlMs > 0L)
+        require(cacheTtlMs in 1L..VideoAssetLicensePolicy.MAX_CACHE_TTL_MS) {
+            "Görsel önbellek süresi 30 günü aşamaz."
+        }
     }
 
     fun resolveAll(descriptors: List<VideoVisualAssetDescriptor>): List<ResolvedSceneVisual> {
@@ -309,10 +355,8 @@ class VideoVisualAssetResolver(
         descriptor: VideoVisualAssetDescriptor,
         downloaded: DownloadedVisualAsset
     ) {
-        val finalUri = URI(downloaded.finalUrl)
-        require(finalUri.scheme == "https" &&
-            finalUri.host in VideoAssetLicensePolicy.ALLOWED_DOWNLOAD_HOSTS) {
-            "Görsel indirme yönlendirmesi güvenilir alan adının dışına çıktı."
+        require(VideoAssetLicensePolicy.isAllowedDownloadUrl(downloaded.finalUrl)) {
+            "Görsel indirme yönlendirmesi güvenilir HTTPS Wikimedia dosya yolunun dışına çıktı."
         }
         require(downloaded.mimeType == descriptor.expectedMimeType) {
             "Görselin MIME türü kaynak kaydıyla eşleşmiyor."
@@ -334,7 +378,7 @@ class VideoVisualAssetResolver(
     }
 
     companion object {
-        const val DEFAULT_CACHE_TTL_MS = 30L * 24L * 60L * 60L * 1_000L
+        const val DEFAULT_CACHE_TTL_MS = VideoAssetLicensePolicy.MAX_CACHE_TTL_MS
     }
 }
 
@@ -532,9 +576,8 @@ class WikimediaCommonsVisualAssetDownloader : VideoVisualAssetDownloader {
     }
 
     private fun validateUrl(url: URL) {
-        val uri = URI(url.toExternalForm())
-        require(uri.scheme == "https" && uri.host in VideoAssetLicensePolicy.ALLOWED_DOWNLOAD_HOSTS) {
-            "Wikimedia yönlendirmesi izin verilmeyen bir adrese çıktı."
+        require(VideoAssetLicensePolicy.isAllowedDownloadUrl(url.toExternalForm())) {
+            "Wikimedia yönlendirmesi izin verilmeyen HTTPS dosya yoluna çıktı."
         }
     }
 
