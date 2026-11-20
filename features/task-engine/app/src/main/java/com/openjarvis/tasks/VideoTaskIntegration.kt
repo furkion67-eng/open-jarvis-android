@@ -4,6 +4,7 @@ import android.content.ContentUris
 import android.content.Context
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.BaseColumns
 import android.provider.MediaStore
@@ -97,9 +98,11 @@ class VideoStoryTaskExecutor(context: Context) : JarvisTaskExecutor {
         }
         if (existing != null) {
             return verifiedResult(
+                artifactId = task.id,
                 videoUri = existing.first,
                 captionsUri = existing.second,
-                summary = "Aynı görev kimliğiyle daha önce dışa aktarılmış Türkçe sesli video yeniden kullanıldı."
+                summary = "Aynı görev kimliğiyle daha önce dışa aktarılmış Türkçe sesli video yeniden kullanıldı.",
+                metadata = readMetadata(existing.first)
             )
         }
 
@@ -116,10 +119,23 @@ class VideoStoryTaskExecutor(context: Context) : JarvisTaskExecutor {
 
             keepExports = true
             return verifiedResult(
+                artifactId = task.id,
                 videoUri = rendered.exportedUri,
                 captionsUri = rendered.captionsUri,
                 summary = "Türkçe sesli MP4 hazır: " + (rendered.video.durationMs / 1_000L) +
-                    " sn, " + rendered.sceneCount + " sahne. Görseller: " + rendered.sourceLabel
+                    " sn, " + rendered.sceneCount + " sahne. Görseller: " + rendered.sourceLabel,
+                metadata = VideoArtifactMetadata(
+                    durationMs = rendered.video.durationMs,
+                    width = rendered.video.width,
+                    height = rendered.video.height,
+                    frameRate = 24,
+                    hasAudio = true,
+                    narrationLocale = "tr-TR",
+                    sceneCount = rendered.sceneCount,
+                    sourceLabel = rendered.sourceLabel,
+                    attributionManifest = emptyList(),
+                    attributionManifestComplete = false
+                )
             )
         } finally {
             rendered.video.file.delete()
@@ -131,13 +147,52 @@ class VideoStoryTaskExecutor(context: Context) : JarvisTaskExecutor {
         }
     }
 
-    private fun verifiedResult(videoUri: Uri, captionsUri: Uri, summary: String): JarvisTaskExecutionResult =
-        JarvisTaskExecutionResult(
-            outputSummary = summary + "\nMP4: " + videoUri + "\nSRT: " + captionsUri,
-            evidenceReference = videoUri.toString(),
-            verified = true,
-            artifactReferences = listOf(videoUri.toString(), captionsUri.toString())
+    private fun verifiedResult(
+        artifactId: String,
+        videoUri: Uri,
+        captionsUri: Uri,
+        summary: String,
+        metadata: VideoArtifactMetadata
+    ): JarvisTaskExecutionResult = JarvisTaskExecutionResult(
+        outputSummary = summary + "\nMP4: " + videoUri + "\nSRT: " + captionsUri,
+        evidenceReference = videoUri.toString(),
+        verified = true,
+        artifactReferences = listOf(videoUri.toString(), captionsUri.toString()),
+        videoArtifact = PersistedVideoArtifact(
+            artifactId = artifactId,
+            exportedUri = videoUri.toString(),
+            captionsUri = captionsUri.toString(),
+            metadata = metadata
         )
+    )
+
+    private fun readMetadata(uri: Uri): VideoArtifactMetadata {
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(appContext, uri)
+            val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                ?: throw IllegalStateException("Önceki MP4 süresi okunamadı.")
+            val width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull()
+                ?: throw IllegalStateException("Önceki MP4 genişliği okunamadı.")
+            val height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull()
+                ?: throw IllegalStateException("Önceki MP4 yüksekliği okunamadı.")
+            val hasAudio = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO) == "yes"
+            if (!hasAudio) throw IllegalStateException("Önceki MP4 AAC ses izi doğrulanamadı.")
+            return VideoArtifactMetadata(
+                durationMs = duration,
+                width = width,
+                height = height,
+                frameRate = 24,
+                hasAudio = true,
+                narrationLocale = "tr-TR",
+                sourceLabel = "Aynı görev kimliğiyle yeniden kullanılan doğrulanmış MediaStore çıktısı",
+                attributionManifest = emptyList(),
+                attributionManifestComplete = false
+            )
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
 
     private data class MediaStoreArtifactRow(val uri: Uri, val isPending: Boolean)
 
