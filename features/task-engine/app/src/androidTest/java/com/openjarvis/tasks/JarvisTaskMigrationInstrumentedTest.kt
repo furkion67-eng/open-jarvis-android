@@ -121,7 +121,7 @@ class JarvisTaskMigrationInstrumentedTest {
             context,
             JarvisTaskDatabase::class.java,
             databaseName
-        ).addMigrations(JarvisTaskDatabase.MIGRATION_1_2, JarvisTaskDatabase.MIGRATION_2_3, JarvisTaskDatabase.MIGRATION_3_4, JarvisTaskDatabase.MIGRATION_4_5, JarvisTaskDatabase.MIGRATION_5_6).build()
+        ).addMigrations(JarvisTaskDatabase.MIGRATION_1_2, JarvisTaskDatabase.MIGRATION_2_3, JarvisTaskDatabase.MIGRATION_3_4, JarvisTaskDatabase.MIGRATION_4_5, JarvisTaskDatabase.MIGRATION_5_6, JarvisTaskDatabase.MIGRATION_6_7).build()
 
         try {
             val task = migrated.taskDao().findById("legacy-task")!!
@@ -159,6 +159,20 @@ class JarvisTaskMigrationInstrumentedTest {
             val failed = migrated.taskDao().findById("legacy-failed")!!
             assertEquals(JarvisTaskStatus.FAILED.storageValue, failed.status)
             assertEquals(0, failed.progressPercent)
+
+            migrated.taskDao().insertDeviceActionEvent(
+                DeviceActionEventEntity(
+                    id = "migration-sms-event",
+                    actionType = "sms",
+                    outcomeCode = "UNKNOWN",
+                    safeSummary = "SMS callback yok; otomatik tekrar yapılmadı.",
+                    createdAt = 6L
+                )
+            )
+            assertEquals(
+                "UNKNOWN",
+                migrated.taskDao().findDeviceActionEventById("migration-sms-event")?.outcomeCode
+            )
         } finally {
             migrated.close()
             context.deleteDatabase(databaseName)

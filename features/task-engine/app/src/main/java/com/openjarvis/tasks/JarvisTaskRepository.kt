@@ -10,6 +10,39 @@ class JarvisTaskRepository(
 ) {
     fun observeRecentTasks(limit: Int = 8): Flow<List<JarvisTaskEntity>> = dao.observeRecent(limit)
 
+    /**
+     * Persist only a safe outcome code and summary for a device action. Contact details and
+     * message bodies are deliberately excluded from this journal.
+     */
+    suspend fun recordDeviceActionOutcome(
+        actionType: String,
+        outcomeCode: String,
+        safeSummary: String
+    ): String {
+        require(actionType in setOf("sms", "call", "storage")) { "Cihaz işlemi türü desteklenmiyor." }
+        require(outcomeCode in setOf("SENT", "FAILED", "UNKNOWN", "NOT_EXECUTED", "DRAFT")) {
+            "Cihaz işlemi sonucu geçersiz."
+        }
+        val summary = safeSummary.trim()
+        require(summary.isNotEmpty() && summary.length <= 240) { "Güvenli işlem özeti geçersiz." }
+        val now = System.currentTimeMillis()
+        val id = UUID.randomUUID().toString()
+        dao.insertDeviceActionEvent(
+            DeviceActionEventEntity(
+                id = id,
+                actionType = actionType,
+                outcomeCode = outcomeCode,
+                safeSummary = summary,
+                createdAt = now
+            )
+        )
+        dao.pruneDeviceActionEvents(MAX_DEVICE_ACTION_EVENTS)
+        return id
+    }
+
+    fun observeRecentDeviceActionEvents(limit: Int = 20): Flow<List<DeviceActionEventEntity>> =
+        dao.observeRecentDeviceActionEvents(limit.coerceIn(1, MAX_DEVICE_ACTION_EVENTS))
+
     suspend fun createTask(
         goal: String,
         idempotencyKey: String = UUID.randomUUID().toString()
@@ -140,6 +173,8 @@ class JarvisTaskRepository(
     }
 
     companion object {
+        private const val MAX_DEVICE_ACTION_EVENTS = 100
+
         fun getInstance(context: Context): JarvisTaskRepository {
             val dao = JarvisTaskDatabase.getInstance(context).taskDao()
             return createWithRegistry(dao, createDefaultRegistry(context.applicationContext))

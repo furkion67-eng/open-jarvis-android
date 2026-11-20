@@ -27,9 +27,9 @@ The feature manifest declares READ_CONTACTS and SEND_SMS; the host app must merg
 
 SEND_SMS is a restricted/sensitive permission for Google Play distribution and may require an eligible core use case and policy approval. If distribution policy or the device does not allow direct sending, use an explicit ACTION_SENDTO hand-off to the user's SMS app; that hand-off is not evidence that a message was sent.
 
-## Integration still required
+## Host integration and verification
 
-- Add this feature source set to the real Android app's Gradle settings and merge app/src/main/AndroidManifest.xml.
-- Wire SmsComposePanel into a user-visible assistant screen and connect onSmsOutcome to the durable task journal. Persist SENT only for SmsSendOutcome.Sent; preserve Unknown when the callback is absent or the process dies.
+- `scripts/repair_sources.py` copies the feature sources/resources into the extracted host, merges READ_CONTACTS/SEND_SMS and optional telephony messaging declarations, and wires SmsComposePanel into DashboardScreen. The immutable host ZIP remains unchanged.
+- The host repair script wires SmsComposePanel into DashboardScreen. Every final onSmsOutcome is appended to the Room device-action journal as a privacy-minimal event (action type, outcome code and safe summary only); recipient name, phone number and message body are never copied into the task journal. SENT is persisted only for SmsSendOutcome.Sent after all SMS_SENT callbacks report RESULT_OK; recovered/missing callbacks remain UNKNOWN, and ACTION_SENDTO is recorded as DRAFT, never SENT.
 - The repository snapshot currently has no root Gradle wrapper/build scripts or host app manifest. Therefore this source slice cannot yet be compiled as an Android app or instrumented on Android 13/14 in this repository state.
 - Physical TECNO acceptance, real contact-provider behavior and real SMS delivery are not claimed. Never use a real recipient or real SMS in CI.
