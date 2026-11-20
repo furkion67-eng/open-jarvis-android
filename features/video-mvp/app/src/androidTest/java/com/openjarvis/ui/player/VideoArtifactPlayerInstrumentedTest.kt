@@ -78,7 +78,7 @@ class VideoArtifactPlayerInstrumentedTest {
             assertEquals(null, preview.planAcceptedAt)
             assertTrue(preview.videoUri.isNullOrBlank())
             assertTrue(preview.captionsUri.isNullOrBlank())
-            assertTrue(preview.outputSummary.orEmpty().contains("Henüz video oluşturulmadı"))
+            assertTrue(preview.outputSummary.orEmpty().contains("Video henüz oluşturulmadı"))
 
             repository.acceptPlan(createdTaskId)
 
