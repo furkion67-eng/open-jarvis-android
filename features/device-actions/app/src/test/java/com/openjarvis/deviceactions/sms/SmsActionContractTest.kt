@@ -26,6 +26,15 @@ class SmsActionContractTest {
     }
 
     @Test
+    fun forgedTokenCannotConsumeLegitimateConfirmation() {
+        val gate = SmsConfirmationGate()
+        val review = gate.prepare("İpek Yılmaz", "+905321112233", "Tam metin")
+        val legitimate = gate.confirm(review.reviewId)!!
+        assertNull(gate.consume(ConfirmedSmsAction(review.reviewId, "wrong-token")))
+        assertEquals("Tam metin", gate.consume(legitimate)?.exactMessage)
+    }
+
+    @Test
     fun deniedPermissionCancelsConfirmationAndNeverCallsTransport() {
         val gate = SmsConfirmationGate()
         val review = gate.prepare("İpek Yılmaz", "+905321112233", "Merhaba")
@@ -66,6 +75,7 @@ class SmsActionContractTest {
     @Test
     fun invalidPhoneAndEmptyMessageCannotCreateReview() {
         val gate = SmsConfirmationGate()
+        assertTrue(runCatching { gate.prepare("İpek", "123abc456", "Merhaba") }.isFailure)
         assertTrue(runCatching { gate.prepare("İpek", "abc", "Merhaba") }.isFailure)
         assertTrue(runCatching { gate.prepare("İpek", "+905321112233", "  ") }.isFailure)
     }

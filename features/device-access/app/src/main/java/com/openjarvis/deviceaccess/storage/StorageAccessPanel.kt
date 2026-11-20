@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -121,7 +122,9 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
                                 Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
                                 Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
                         )
-                        if (treeUri != null) putExtra(DocumentsContract.EXTRA_INITIAL_URI, treeUri)
+                        if (treeUri != null && Build.VERSION.SDK_INT >= 26) {
+                            putExtra(DocumentsContract.EXTRA_INITIAL_URI, treeUri)
+                        }
                     }
                     picker.launch(request)
                 }) {

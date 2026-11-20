@@ -49,8 +49,9 @@ class SmsConfirmationGate {
 
     @Synchronized
     fun consume(confirmation: ConfirmedSmsAction): SmsDraft? {
-        val expectedToken = tokens.remove(confirmation.reviewId) ?: return null
+        val expectedToken = tokens[confirmation.reviewId] ?: return null
         if (expectedToken != confirmation.oneTimeToken) return null
+        tokens.remove(confirmation.reviewId)
         val review = reviews.remove(confirmation.reviewId) ?: return null
         return SmsDraft(review.recipientName, review.phoneNumber, review.exactMessage)
     }
@@ -65,6 +66,7 @@ class SmsConfirmationGate {
         val trimmed = value.trim()
         if (trimmed.count { it == '+' } > 1) return false
         if (trimmed.contains('+') && !trimmed.startsWith('+')) return false
+        if (trimmed.any { !it.isDigit() && it !in "+ ()-./" }) return false
         return trimmed.count(Char::isDigit) in 5..20
     }
 }
