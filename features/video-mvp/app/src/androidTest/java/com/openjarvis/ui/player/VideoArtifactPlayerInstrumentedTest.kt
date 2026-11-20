@@ -18,6 +18,7 @@ import com.openjarvis.ui.MainActivity
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -86,14 +87,17 @@ class VideoArtifactPlayerInstrumentedTest {
 
             val artifacts = JSONArray(completed.artifactRefs)
             assertEquals("The executor must persist MP4, SRT and thumbnail together.", 3, artifacts.length())
-            videoUri = Uri.parse(artifacts.getString(0))
-            captionsUri = Uri.parse(artifacts.getString(1))
-            thumbnailUri = Uri.parse(artifacts.getString(2))
-            assertEquals(videoUri.toString(), completed.videoUri)
-            assertEquals(captionsUri.toString(), completed.captionsUri)
-            assertTrue(videoUri.toString().startsWith("content://"))
-            assertTrue(captionsUri.toString().startsWith("content://"))
-            assertTrue(thumbnailUri.toString().startsWith("content://"))
+            val persistedVideoUri = Uri.parse(artifacts.getString(0))
+            val persistedCaptionsUri = Uri.parse(artifacts.getString(1))
+            val persistedThumbnailUri = Uri.parse(artifacts.getString(2))
+            videoUri = persistedVideoUri
+            captionsUri = persistedCaptionsUri
+            thumbnailUri = persistedThumbnailUri
+            assertEquals(persistedVideoUri.toString(), completed.videoUri)
+            assertEquals(persistedCaptionsUri.toString(), completed.captionsUri)
+            assertTrue(persistedVideoUri.toString().startsWith("content://"))
+            assertTrue(persistedCaptionsUri.toString().startsWith("content://"))
+            assertTrue(persistedThumbnailUri.toString().startsWith("content://"))
 
             val metadata = VideoArtifactMetadataCodec.decode(completed.videoArtifactMetadataJson)
                 ?: throw AssertionError("Production renderer metadata must be persisted.")
@@ -113,15 +117,15 @@ class VideoArtifactPlayerInstrumentedTest {
             assertTrue(!metadata.researchCredits.isNullOrBlank())
             assertTrue(!metadata.audioDescription.isNullOrBlank())
             assertFalse(metadata.backgroundMusicIncluded)
-            assertEquals(thumbnailUri.toString(), metadata.thumbnailUri)
-            assertTrue(completed.outputSummary.orEmpty().contains(videoUri.toString()))
-            assertTrue(completed.outputSummary.orEmpty().contains(captionsUri.toString()))
-            assertTrue(completed.outputSummary.orEmpty().contains(thumbnailUri.toString()))
+            assertEquals(persistedThumbnailUri.toString(), metadata.thumbnailUri)
+            assertTrue(completed.outputSummary.orEmpty().contains(persistedVideoUri.toString()))
+            assertTrue(completed.outputSummary.orEmpty().contains(persistedCaptionsUri.toString()))
+            assertTrue(completed.outputSummary.orEmpty().contains(persistedThumbnailUri.toString()))
 
             // Verify the exact persisted MP4 is readable and contains both expected tracks.
             val extractor = MediaExtractor()
             try {
-                extractor.setDataSource(context, videoUri, null)
+                extractor.setDataSource(context, persistedVideoUri, null)
                 val mimeTypes = (0 until extractor.trackCount).mapNotNull { index ->
                     extractor.getTrackFormat(index).getString(MediaFormat.KEY_MIME)
                 }
@@ -139,13 +143,13 @@ class VideoArtifactPlayerInstrumentedTest {
                 extractor.release()
             }
 
-            val captionsText = context.contentResolver.openInputStream(captionsUri)!!
+            val captionsText = context.contentResolver.openInputStream(persistedCaptionsUri)!!
                 .bufferedReader(Charsets.UTF_8).use { it.readText() }
             val cueBlocks = captionsText.trim().split(Regex("\\r?\\n\\s*\\r?\\n"))
             assertEquals("The renderer must persist one hook cue and five scene cues.", 6, cueBlocks.size)
             assertTrue(cueBlocks.all { it.contains("-->") })
 
-            val thumbnailHeader = context.contentResolver.openInputStream(thumbnailUri)!!.use { input ->
+            val thumbnailHeader = context.contentResolver.openInputStream(persistedThumbnailUri)!!.use { input ->
                 ByteArray(3).also { header ->
                     var offset = 0
                     while (offset < header.size) {
@@ -162,8 +166,8 @@ class VideoArtifactPlayerInstrumentedTest {
 
             val initialAvailability = VideoArtifactPlaybackValidator.inspect(
                 context,
-                videoUri.toString(),
-                captionsUri.toString(),
+                persistedVideoUri.toString(),
+                persistedCaptionsUri.toString(),
                 completed.videoArtifactMetadataJson
             )
             assertTrue("The persisted MP4/SRT pair must pass the same validator used by the Dashboard.", initialAvailability is PlaybackAvailability.Ready)
@@ -171,10 +175,10 @@ class VideoArtifactPlayerInstrumentedTest {
             // Open the real host Activity and wait for the Dashboard-owned player to restore the
             // exact URI produced by the accepted production task.
             scenario = ActivityScenario.launch(MainActivity::class.java)
-            awaitDashboardPlayer(scenario!!, videoUri.toString())
+            awaitDashboardPlayer(scenario!!, persistedVideoUri.toString())
             scenario!!.recreate()
-            val recreatedPlayer = awaitDashboardPlayer(scenario!!, videoUri.toString())
-            assertEquals(videoUri.toString(), recreatedPlayer.tag)
+            val recreatedPlayer = awaitDashboardPlayer(scenario!!, persistedVideoUri.toString())
+            assertEquals(persistedVideoUri.toString(), recreatedPlayer.tag)
 
             // Simulate process loss: close the Activity and production Room singleton, then
             // reopen the same on-disk database before launching a fresh host Activity.
@@ -185,11 +189,11 @@ class VideoArtifactPlayerInstrumentedTest {
             val restoredTask = reopenedDatabase.taskDao().findById(createdTaskId)
                 ?: throw AssertionError("The production-created task must survive Room reopen.")
             assertEquals(JarvisTaskStatus.SUCCEEDED.storageValue, restoredTask.status)
-            assertEquals(videoUri.toString(), restoredTask.videoUri)
-            assertEquals(captionsUri.toString(), restoredTask.captionsUri)
-            assertTrue(restoredTask.artifactRefs.contains(videoUri.toString()))
-            assertTrue(restoredTask.artifactRefs.contains(captionsUri.toString()))
-            assertTrue(restoredTask.artifactRefs.contains(thumbnailUri.toString()))
+            assertEquals(persistedVideoUri.toString(), restoredTask.videoUri)
+            assertEquals(persistedCaptionsUri.toString(), restoredTask.captionsUri)
+            assertTrue(restoredTask.artifactRefs.contains(persistedVideoUri.toString()))
+            assertTrue(restoredTask.artifactRefs.contains(persistedCaptionsUri.toString()))
+            assertTrue(restoredTask.artifactRefs.contains(persistedThumbnailUri.toString()))
 
             val restoredMetadata = VideoArtifactMetadataCodec.decode(restoredTask.videoArtifactMetadataJson)
                 ?: throw AssertionError("Renderer metadata must survive Room reopen.")
@@ -221,7 +225,7 @@ class VideoArtifactPlayerInstrumentedTest {
             scenario!!.onActivity {
                 val player = findVideoView(it.window.decorView)
                     ?: throw AssertionError("The embedded dashboard VideoView must exist.")
-                assertEquals(videoUri.toString(), player.tag)
+                assertEquals(persistedVideoUri.toString(), player.tag)
                 player.start()
             }
             val playbackProgressMs = awaitPlaybackProgress(scenario!!)
