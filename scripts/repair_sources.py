@@ -3808,6 +3808,9 @@ def ensure_debug_player_activity(manifest_text, activity_name):
             + ' android:exported="false"'
             + declaration[insertion:]
         )
+        # Canonical spacing makes the second repair pass byte-identical.
+        declaration = re.sub(r"[ \\t]{2,}", " ", declaration)
+        declaration = re.sub(r"\\s*/>", " />", declaration)
         return (
             manifest_text[:match.start()]
             + declaration
