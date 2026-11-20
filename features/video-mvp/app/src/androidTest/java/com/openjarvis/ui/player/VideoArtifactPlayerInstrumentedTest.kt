@@ -85,9 +85,10 @@ class VideoArtifactPlayerInstrumentedTest {
             val prepared = CountDownLatch(1)
             val playbackError = AtomicReference<String?>(null)
             val playerReference = AtomicReference<VideoView?>(null)
-            scenario = ActivityScenario.launch(MainActivity::class.java)
-            scenario.recreate()
-            scenario.onActivity { activity ->
+            val activeScenario = ActivityScenario.launch(MainActivity::class.java)
+            scenario = activeScenario
+            activeScenario.recreate()
+            activeScenario.onActivity { activity ->
                 val player = VideoView(activity)
                 val controller = MediaController(activity)
                 controller.setAnchorView(player)
@@ -112,7 +113,7 @@ class VideoArtifactPlayerInstrumentedTest {
             assertTrue("VideoView must prepare the persisted content URI", prepared.await(30, TimeUnit.SECONDS))
             assertTrue("VideoView error: " + playbackError.get(), playbackError.get() == null)
             Thread.sleep(600)
-            scenario.onActivity { assertTrue(playerReference.get()?.isPlaying == true || (playerReference.get()?.currentPosition ?: 0) > 0) }
+            activeScenario.onActivity { assertTrue(playerReference.get()?.isPlaying == true || (playerReference.get()?.currentPosition ?: 0) > 0) }
         } finally {
             scenario?.close()
             reopened.close()
