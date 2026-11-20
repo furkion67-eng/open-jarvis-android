@@ -44,6 +44,22 @@ class SafStorageGatewayInstrumentedTest {
     }
 
     @Test
+    fun directPersistedDocumentGrantWorksOnlyForThatExactUri() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val selected = Uri.parse("content://jarvis.fake.documents/document/one")
+        val renamed = Uri.parse("content://jarvis.fake.documents/document/one-renamed")
+        val grants = listOf(StorageGrantSnapshot(selected.toString(), selected.authority, null, true, true))
+        val gateway = SafStorageGateway(
+            context,
+            { grants },
+            FakeSafDocumentOperations(renameResult = renamed)
+        )
+        assertEquals(renamed, gateway.rename(selected, "renamed.txt"))
+        val other = Uri.parse("content://jarvis.fake.documents/document/two")
+        assertTrue(runCatching { gateway.rename(other, "not-allowed.txt") }.exceptionOrNull() is SecurityException)
+    }
+
+    @Test
     fun providerUnsupportedCopyRemainsAnExplicitFailure() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val tree = Uri.parse("content://jarvis.fake.documents/tree/root")
@@ -65,10 +81,11 @@ class SafStorageGatewayInstrumentedTest {
 
     private class FakeSafDocumentOperations(
         private val copyResult: Uri? = null,
-        private val moveResult: Uri? = null
+        private val moveResult: Uri? = null,
+        private val renameResult: Uri? = null
     ) : SafDocumentOperations {
         override fun createDocument(parent: Uri, mimeType: String, displayName: String): Uri? = null
-        override fun renameDocument(uri: Uri, newDisplayName: String): Uri? = null
+        override fun renameDocument(uri: Uri, newDisplayName: String): Uri? = renameResult
         override fun copyDocument(source: Uri, targetParent: Uri): Uri? = copyResult
         override fun moveDocument(source: Uri, sourceParent: Uri, targetParent: Uri): Uri? = moveResult
         override fun deleteDocument(uri: Uri): Boolean = false

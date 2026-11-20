@@ -35,11 +35,22 @@ class StorageUriGrantPolicyTest {
     }
 
     @Test
+    fun directDocumentGrantAllowsOnlyTheExactPersistedContentUri() {
+        val selected = "content://provider/document/123"
+        val directGrant = listOf(StorageGrantSnapshot(selected, "provider", null, true, true))
+        assertTrue(StorageUriGrantPolicy.allows(selected, "provider", null, directGrant, requireWrite = false))
+        assertTrue(StorageUriGrantPolicy.allows(selected, "provider", null, directGrant, requireWrite = true))
+        assertFalse(StorageUriGrantPolicy.allows("content://provider/document/124", "provider", null, directGrant, requireWrite = false))
+    }
+
+    @Test
     fun readOnlyGrantAllowsReadButNeverMutation() {
         val treeUri = "content://provider/tree/root"
         val readOnly = listOf(StorageGrantSnapshot(treeUri, "provider", "root", true, false))
         assertTrue(StorageUriGrantPolicy.hasUriGrant(treeUri, readOnly, requireWrite = false))
         assertFalse(StorageUriGrantPolicy.hasUriGrant(treeUri, readOnly, requireWrite = true))
-        assertFalse(StorageUriGrantPolicy.allows("provider", "root", readOnly, requireWrite = true))
+        assertFalse(StorageUriGrantPolicy.allows(treeUri, "provider", "root", readOnly, requireWrite = true))
     }
 }
+
+

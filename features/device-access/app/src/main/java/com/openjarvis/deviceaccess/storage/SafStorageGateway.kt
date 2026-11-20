@@ -41,7 +41,6 @@ class SafStorageGateway(context: Context) {
     private var grantSnapshotReader: () -> List<StorageGrantSnapshot> = {
         resolver.persistedUriPermissions.mapNotNull { grant ->
             val treeId = runCatching { DocumentsContract.getTreeDocumentId(grant.uri) }.getOrNull()
-                ?: return@mapNotNull null
             StorageGrantSnapshot(grant.uri.toString(), grant.uri.authority, treeId, grant.isReadPermission, grant.isWritePermission)
         }
     }
@@ -74,8 +73,13 @@ class SafStorageGateway(context: Context) {
     fun persistPickerGrant(uri: Uri, returnedFlags: Int) {
         val persistable = returnedFlags and
             (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-        require(persistable != 0) { "Android kalıcı dosya izni vermedi." }
+        require(persistable and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0) {
+            "Android kalıcı okuma izni vermedi."
+        }
         resolver.takePersistableUriPermission(uri, persistable)
+        require(StorageUriGrantPolicy.hasUriGrant(uri.toString(), grantSnapshotReader(), requireWrite = false)) {
+            "Android seçilen dosya veya klasör için kalıcı okuma izni kaydetmedi."
+        }
     }
 
     fun listChildren(treeUri: Uri, parentDocumentId: String): List<Entry> {
@@ -201,6 +205,7 @@ class SafStorageGateway(context: Context) {
     private fun requireAccess(uri: Uri, requireWrite: Boolean) {
         val uriTreeId = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull()
         val allowed = StorageUriGrantPolicy.allows(
+            uriText = uri.toString(),
             uriAuthority = uri.authority,
             uriTreeDocumentId = uriTreeId,
             actualGrants = grantSnapshotReader(),

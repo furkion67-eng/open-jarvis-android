@@ -60,7 +60,6 @@ class AndroidSmsSender(context: Context) : SmsTransport {
         val finished = AtomicBoolean(false)
         val registered = AtomicBoolean(false)
         val handler = Handler(Looper.getMainLooper())
-        val requestId = REQUEST_IDS.incrementAndGet()
         val journalId = UUID.randomUUID().toString()
         try {
             attemptJournal.begin(journalId, parts.size)

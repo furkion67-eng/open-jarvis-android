@@ -33,12 +33,16 @@ object StorageUriGrantPolicy {
         savedUris.filter { hasUriGrant(it, actualGrants, requireWrite = false) }.toSet()
 
     fun allows(
+        uriText: String,
         uriAuthority: String?,
         uriTreeDocumentId: String?,
         actualGrants: List<StorageGrantSnapshot>,
         requireWrite: Boolean
     ): Boolean = actualGrants.any { grant ->
-        StorageScopePolicy.isWithinGrantedTree(
+        val exactDocumentGrant = grant.uri == uriText &&
+            grant.hasReadPermission &&
+            (!requireWrite || grant.hasWritePermission)
+        exactDocumentGrant || StorageScopePolicy.isWithinGrantedTree(
             uriAuthority = uriAuthority,
             uriTreeDocumentId = uriTreeDocumentId,
             grantAuthority = grant.authority,
@@ -107,7 +111,6 @@ class StorageUriGrantRegistry(context: Context) {
     private fun persistedGrantSnapshots(): List<StorageGrantSnapshot> =
         resolver.persistedUriPermissions.mapNotNull { grant ->
             val treeId = runCatching { DocumentsContract.getTreeDocumentId(grant.uri) }.getOrNull()
-                ?: return@mapNotNull null
             StorageGrantSnapshot(
                 uri = grant.uri.toString(),
                 authority = grant.uri.authority,
