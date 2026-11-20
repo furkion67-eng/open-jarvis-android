@@ -30,6 +30,7 @@ class VideoArtifactMetadataCodecInstrumentedTest {
         )
         val metadata = VideoArtifactMetadata(
             durationMs = 54_583L,
+            audioDurationMs = 53_900L,
             width = 360,
             height = 640,
             frameRate = 24,
