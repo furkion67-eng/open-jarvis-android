@@ -7,31 +7,56 @@ import org.junit.Test
 class VideoStoryPlanTest {
 
     @Test
-    fun istanbulConquestCreatesFiveScenesAndFortyFiveSecondShortsDraft() {
+    fun istanbulConquestCreatesFiveSourceBackedScenesAndFortyFiveSecondDraft() {
         val plan = VideoStoryPlanBuilder.build("İstanbul'un Fethi")
         assertEquals(5, plan.scenes.size)
         assertEquals(45, plan.renderSpec.durationSeconds)
-        assertEquals(5, plan.captions.size)
+        assertEquals(720, plan.renderSpec.width)
+        assertEquals(1_280, plan.renderSpec.height)
+        assertEquals(1_500_000, plan.renderSpec.bitRate)
+        assertEquals(6, plan.captions.size)
         assertEquals(0L, plan.captions.first().startMs)
+        assertEquals(2_000L, plan.captions.first().endMs)
+        assertEquals(plan.hookText, plan.captions.first().text)
+        assertEquals(plan.hookText, plan.scenes.first().heading)
+        assertTrue(plan.narrationText.startsWith(plan.hookText))
+        assertEquals(plan.scenes.first().caption, plan.captions[1].text)
         assertEquals(45_000L, plan.captions.last().endMs)
         assertTrue(plan.narrationText.contains("29 Mayıs 1453"))
-        plan.renderSpec.validate()
+        assertEquals(5, plan.claimSources.size)
+        assertTrue(plan.claimSources.all { it.sourceUrl.startsWith("https://") })
+        plan.renderSpec.copy(requireLicensedVisualAssets = false).validate()
     }
 
     @Test
-    fun istanbulScenesUseDistinctLocalProceduralVisuals() {
+    fun everySceneHasDistinctSourceBackedVisualAndClaim() {
+        val plan = VideoStoryPlanBuilder.build("1453")
+        assertEquals(5, plan.scenes.map { it.visualAssetId }.distinct().size)
+        assertEquals(5, plan.scenes.map { it.sceneId }.distinct().size)
+        assertTrue(plan.scenes.all { it.visualAssetId != null && it.claimIds.isNotEmpty() })
+        assertTrue(plan.scenes.any { it.caption.contains("farklılaşıyor") })
+        assertTrue(plan.sourceLabel.contains("Wikimedia Commons"))
+    }
+
+    @Test
+    fun productionRenderSpecFailsClosedUntilEverySceneHasAResolvedLicensedImage() {
+        val unresolved = VideoStoryPlanBuilder.build("İstanbul'un Fethi").renderSpec
+        assertTrue(runCatching { unresolved.validate() }.isFailure)
+    }
+
+    @Test
+    fun firstHookIsShortAndMustFitTheTwoSecondWindow() {
         val plan = VideoStoryPlanBuilder.build("İstanbul'un Fethi")
-        assertEquals(
-            listOf(
-                VideoVisualStyle.CITY_WALLS,
-                VideoVisualStyle.CANNON_SIEGE,
-                VideoVisualStyle.SHIPS,
-                VideoVisualStyle.SUNRISE,
-                VideoVisualStyle.CITY_MAP
-            ),
-            plan.scenes.map { it.visualStyle }
-        )
-        assertTrue(plan.sourceLabel.contains("prosedürel çizimler"))
+        assertTrue(plan.hookText.split(Regex("\\s+")).size <= 4)
+        VideoStoryQualityPolicy.validateHookDuration(1_850L)
+        assertTrue(runCatching { VideoStoryQualityPolicy.validateHookDuration(2_001L) }.isFailure)
+    }
+
+    @Test
+    fun unsupportedTopicFailsClosedInsteadOfUsingGenericFiller() {
+        val error = runCatching { VideoStoryPlanBuilder.build("Kedilerin bakımı") }.exceptionOrNull()
+        assertTrue(error is IllegalArgumentException)
+        assertTrue(error?.message?.contains("lisanslı") == true)
     }
 
     @Test
@@ -41,20 +66,10 @@ class VideoStoryPlanTest {
             assertEquals(left.endMs, right.startMs)
         }
         val srt = plan.toSrt()
-        assertTrue(srt.contains("00:00:00,000 --> 00:00:09,000"))
-        assertTrue(srt.contains("Fatih Sultan Mehmet"))
-        assertTrue(srt.contains("00:00:36,000 --> 00:00:45,000"))
+        assertTrue(srt.contains("00:00:00,000 --> 00:00:02,000"))
+        assertTrue(srt.contains("Gemiler karadan Haliç'e!"))
+        assertTrue(srt.contains("29 Mayıs 1453"))
     }
-
-    @Test
-    fun genericTopicUsesStructureWithoutInventingSpecificFacts() {
-        val plan = VideoStoryPlanBuilder.build("Kedilerin bakımı")
-        assertTrue(plan.sourceLabel.startsWith("Genel yerel şablon"))
-        assertTrue(plan.scenes.first().caption.contains("Kedilerin bakımı"))
-        assertTrue(plan.scenes.none { it.caption.contains("1453") })
-        assertTrue(plan.scenes.all { it.visualStyle == VideoVisualStyle.GENERIC })
-    }
-
 
     @Test
     fun speechFrameBoundariesSelectTheMatchingVisualScene() {
@@ -68,7 +83,6 @@ class VideoStoryPlanTest {
             framesPerSecond = 24,
             sceneFrameDurations = listOf(164, 135, 180)
         )
-
         assertEquals(479, spec.frameCount)
         assertEquals(20, spec.durationSeconds)
         assertEquals(0, spec.sceneIndexForFrame(163))
