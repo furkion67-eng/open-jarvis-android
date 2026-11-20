@@ -50,7 +50,13 @@ class VideoStoryPipelineInstrumentedTest {
             assertTrue("Timed SRT is missing", evidenceCaptions.isFile && evidenceCaptions.length() > 0L)
             assertTrue("Expected five storyboard scenes", result.sceneCount == 5)
             assertTrue("Expected Turkish narration duration", result.audioDurationMs > 0L)
-            assertTrue("Expected procedural local visuals", result.sourceLabel.contains("prosedürel çizimler"))
+            assertTrue("Expected complete licensed visual attribution", result.attributionManifestComplete)
+            assertEquals("One unique licensed visual per scene", result.sceneCount, result.attributionManifest.size)
+            assertTrue("Every visual attribution must validate", result.attributionManifest.all { it.isValid() })
+            assertTrue("Narration locale must be Turkish", result.narrationLocale == "tr-TR")
+            assertTrue("Caption locale must be Turkish", result.captionLocale == "tr-TR")
+            assertTrue("Expected exported cover image", result.thumbnailUri != null && result.thumbnailAltText.isNotBlank())
+            assertTrue("Expected research-backed sources", result.claimSources.isNotEmpty() && result.researchCredits.isNotBlank())
             assertTrue("Expected Istanbul narration text", result.narrationText.contains("29 Mayıs 1453"))
 
             val exportedVideoBytes = context.contentResolver.openInputStream(result.exportedUri)?.use { it.readBytes() }
