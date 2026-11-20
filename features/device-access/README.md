@@ -1,28 +1,23 @@
-# JARVIS Device Access — shared storage
+# JARVIS Device Access — shared storage and capability status
 
-This first slice implements shared-storage operations through Android's Storage Access Framework (SAF).
+## Shared storage
 
-## Security model
+- Access is limited to document/tree URIs explicitly selected by the user through Android's system document picker.
+- The picker result's actual read/write flags are captured and only those returned grants are passed to takePersistableUriPermission.
+- StorageUriGrantRegistry stores the selected URI and checks ContentResolver.persistedUriPermissions again after process recreation. A revoked/missing grant is removed from the local registry and is never treated as active.
+- The Compose panel restores the last still-readable tree, lists/searches the current folder, opens files with an installed handler, shares through Android's chooser, creates folders and confirms deletion against the exact unchanged filename.
+- SafStorageGateway checks every tree/document URI against a currently persisted read grant for the same provider authority and tree document ID; write operations additionally require a persisted write grant. Read/write/rename/copy/move/delete cannot be invoked against arbitrary content URIs outside a granted tree. Provider failures are surfaced; they are not reported as success.
+- The gateway cannot enumerate all storage or read another app's private sandbox.
 
-- JARVIS receives access only to files/folders the user explicitly selects in Android's system picker.
-- The picker-returned read/write flags are persisted with `takePersistableUriPermission`; no permission is fabricated.
-- The gateway cannot read another app's private sandbox and does not enumerate all device storage.
-- Providers may reject copy/move/rename or expose read-only documents. Such failures are surfaced instead of being reported as success.
-- Deletion requires a confirmation object bound to the exact URI and exact current display name. The UI must show the target and ask the user to type its name before calling `confirmDeletion` and `delete`.
-- URI grants can be revoked by the user in Android settings; every operation may therefore fail with a security/provider error and the UI must offer re-selection.
+## Capability status
 
-## Implemented API
+DeviceCapabilityStatusPanel is a read-only status view for Contacts, SMS, camera, microphone, notifications, media, user-selected storage, overlay, accessibility and battery/background limits. It distinguishes never-requested, denied and previously-granted-but-now-revoked runtime permissions using local permission history. It does not request permissions automatically.
 
-`SafStorageGateway` supports:
-- Persisting a picker grant.
-- Listing children of a granted tree.
-- Creating files and folders.
-- Reading and writing bytes.
-- Renaming, copying and moving where the selected document provider supports those operations.
-- Confirmed deletion bound to the exact selected URI.
+Accessibility is reported unavailable unless an enabled service from this package is actually present. Opening Android settings is a user action; JARVIS cannot silently grant overlay, accessibility or battery exemptions.
 
 ## Integration still required
 
-The main app must launch `ACTION_OPEN_DOCUMENT_TREE` / `ACTION_OPEN_DOCUMENT`, pass the returned URI and result flags to this gateway, retain selected URI references in app storage, and expose a Turkish capability screen showing granted/revoked access. The app's manifest, Gradle module wiring, UI, and device tests are not present in the currently accessible repository source tree, so this commit does not claim a working APK or complete phone control.
-
-Android 13+ media permissions and MediaStore should be added only for use cases that need broad media-library access; SAF remains the safer general file/folder path. Camera, microphone, contacts, SMS, notifications, app launching and accessibility are separate permission-gated integrations.
+- Wire StorageAccessPanel and DeviceCapabilityStatusPanel into the host app navigation.
+- Expose rename/copy/move controls in the final UI; the gateway operations exist but this first panel currently exposes browse/open/share/create-folder/delete/search.
+- The repository snapshot has no root Gradle wrapper/build scripts or host app manifest, so app wiring, compilation, Android instrumentation and physical TECNO acceptance cannot be claimed from this source-only feature tree.
+- Use SAF for user-selected general files. Use MediaStore and Android 13+ granular media permissions only when a feature genuinely needs library-wide media access. Never request MANAGE_EXTERNAL_STORAGE as a shortcut.

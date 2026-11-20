@@ -41,6 +41,8 @@ class SafStorageGateway(context: Context) {
     }
 
     fun listChildren(treeUri: Uri, parentDocumentId: String): List<Entry> {
+        val parentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentDocumentId)
+        requireAccess(parentUri, requireWrite = false)
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocumentId)
         val projection = arrayOf(
             DocumentsContract.Document.COLUMN_DOCUMENT_ID,
@@ -81,15 +83,19 @@ class SafStorageGateway(context: Context) {
 
     private fun create(parent: Uri, mimeType: String, name: String): Uri {
         require(name.isNotBlank()) { "Dosya veya klasör adı boş olamaz." }
+        requireAccess(parent, requireWrite = true)
         return DocumentsContract.createDocument(resolver, parent, mimeType, name)
             ?: throw IOException("Dosya sağlayıcısı yeni öğeyi oluşturamadı.")
     }
 
-    fun read(uri: Uri): ByteArray =
-        resolver.openInputStream(uri)?.use { it.readBytes() }
+    fun read(uri: Uri): ByteArray {
+        requireAccess(uri, requireWrite = false)
+        return resolver.openInputStream(uri)?.use { it.readBytes() }
             ?: throw IOException("Dosya okunamadı veya erişim izni kaldırılmış.")
+    }
 
     fun write(uri: Uri, bytes: ByteArray) {
+        requireAccess(uri, requireWrite = true)
         resolver.openOutputStream(uri, "wt")?.use {
             it.write(bytes)
             it.flush()
@@ -98,17 +104,25 @@ class SafStorageGateway(context: Context) {
 
     fun rename(uri: Uri, newDisplayName: String): Uri {
         require(newDisplayName.isNotBlank()) { "Yeni ad boş olamaz." }
+        requireAccess(uri, requireWrite = true)
         return DocumentsContract.renameDocument(resolver, uri, newDisplayName)
             ?: throw IOException("Dosya yeniden adlandırılamadı.")
     }
 
-    fun copy(source: Uri, targetParent: Uri): Uri =
-        DocumentsContract.copyDocument(resolver, source, targetParent)
+    fun copy(source: Uri, targetParent: Uri): Uri {
+        requireAccess(source, requireWrite = false)
+        requireAccess(targetParent, requireWrite = true)
+        return DocumentsContract.copyDocument(resolver, source, targetParent)
             ?: throw IOException("Dosya kopyalanamadı; sağlayıcı bu işlemi desteklemiyor.")
+    }
 
-    fun move(source: Uri, sourceParent: Uri, targetParent: Uri): Uri =
-        DocumentsContract.moveDocument(resolver, source, sourceParent, targetParent)
+    fun move(source: Uri, sourceParent: Uri, targetParent: Uri): Uri {
+        requireAccess(source, requireWrite = true)
+        requireAccess(sourceParent, requireWrite = true)
+        requireAccess(targetParent, requireWrite = true)
+        return DocumentsContract.moveDocument(resolver, source, sourceParent, targetParent)
             ?: throw IOException("Dosya taşınamadı; sağlayıcı bu işlemi desteklemiyor.")
+    }
 
     /** UI must display the exact target and ask the user to confirm its current name. */
     fun confirmDeletion(uri: Uri, userTypedExactName: String): DeleteConfirmation {
@@ -120,6 +134,7 @@ class SafStorageGateway(context: Context) {
     }
 
     fun delete(uri: Uri, confirmation: DeleteConfirmation) {
+        requireAccess(uri, requireWrite = true)
         require(StorageDeletionPolicy.isConfirmed(
             confirmation.target.toString(),
             confirmation.exactDisplayName,
@@ -131,7 +146,27 @@ class SafStorageGateway(context: Context) {
         }
     }
 
+    private fun requireAccess(uri: Uri, requireWrite: Boolean) {
+        val uriTreeId = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull()
+        val allowed = resolver.persistedUriPermissions.any { grant ->
+            val grantTreeId = runCatching { DocumentsContract.getTreeDocumentId(grant.uri) }.getOrNull()
+            StorageScopePolicy.isWithinGrantedTree(
+                uriAuthority = uri.authority,
+                uriTreeDocumentId = uriTreeId,
+                grantAuthority = grant.uri.authority,
+                grantTreeDocumentId = grantTreeId,
+                hasReadPermission = grant.isReadPermission,
+                hasWritePermission = grant.isWritePermission,
+                requireWrite = requireWrite
+            )
+        }
+        if (!allowed) {
+            throw SecurityException("JARVIS yalnızca seçilmiş ve halen izinli klasörlerin içindeki dosyalara erişebilir.")
+        }
+    }
+
     private fun queryDisplayName(uri: Uri): String {
+        requireAccess(uri, requireWrite = false)
         resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
             if (cursor.moveToFirst()) {
                 return cursor.getString(
