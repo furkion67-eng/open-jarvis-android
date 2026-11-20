@@ -33,7 +33,13 @@ data class JarvisTaskEntity(
     val estimatedCostMicros: Long = 0L,
     val actualCostMicros: Long = 0L,
     /** Null until the user explicitly accepts the current plan preview. */
-    val planAcceptedAt: Long? = null
+    val planAcceptedAt: Long? = null,
+    /** Verified MediaStore content URI; null until the renderer result is durably accepted. */
+    val videoUri: String? = null,
+    /** Verified captions content URI paired with videoUri. */
+    val captionsUri: String? = null,
+    /** Typed renderer metadata JSON; attribution completeness is explicit, never inferred. */
+    val videoArtifactMetadataJson: String? = null
 )
 
 object JarvisTaskCheckpoint {
