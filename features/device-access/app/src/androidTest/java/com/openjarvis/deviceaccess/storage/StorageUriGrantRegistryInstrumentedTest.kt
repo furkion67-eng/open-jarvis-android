@@ -50,7 +50,9 @@ class StorageUriGrantRegistryInstrumentedTest {
     fun revokedPersistedGrantIsRemovedAfterRegistryReopen() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val preferences = context.getSharedPreferences("jarvis_storage_uri_grants", 0)
+        val history = context.getSharedPreferences("jarvis_capability_history", 0)
         preferences.edit().clear().commit()
+        history.edit().clear().commit()
         val access = FakeStorageUriGrantAccess()
         val uri = Uri.parse("content://jarvis.fake.documents/tree/revoked")
         val registry = StorageUriGrantRegistry(context, access)
@@ -61,7 +63,10 @@ class StorageUriGrantRegistryInstrumentedTest {
         assertNull(reopened.lastGrantedTreeUri())
         assertTrue(reopened.grantedTreeUris().isEmpty())
         assertFalse(preferences.getStringSet("uris", emptySet()).orEmpty().contains(uri.toString()))
+        assertTrue(history.getBoolean("grantedBefore.shared-storage-read", false))
+        assertTrue(history.getBoolean("grantedBefore.shared-storage-write", false))
         preferences.edit().clear().commit()
+        history.edit().clear().commit()
     }
 
     @Test
@@ -88,6 +93,7 @@ class StorageUriGrantRegistryInstrumentedTest {
     @Test
     fun pickerResultWithoutReadPermissionIsRejectedBeforePersisting() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.getSharedPreferences("jarvis_capability_history", 0).edit().clear().commit()
         val access = FakeStorageUriGrantAccess()
         val uri = Uri.parse("content://jarvis.fake.documents/tree/no-read")
         val error = runCatching {
@@ -95,13 +101,16 @@ class StorageUriGrantRegistryInstrumentedTest {
         }.exceptionOrNull()
         assertTrue(error is IllegalArgumentException)
         assertNull(access.lastTakenFlags)
+        context.getSharedPreferences("jarvis_capability_history", 0).edit().clear().commit()
     }
 
     @Test
     fun nonPersistablePickerResultIsRejectedBeforeTakingAnyGrant() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val preferences = context.getSharedPreferences("jarvis_storage_uri_grants", 0)
+        val history = context.getSharedPreferences("jarvis_capability_history", 0)
         preferences.edit().clear().commit()
+        history.edit().clear().commit()
         val access = FakeStorageUriGrantAccess()
         val uri = Uri.parse("content://jarvis.fake.documents/tree/not-persistable")
         val error = runCatching {
@@ -113,6 +122,7 @@ class StorageUriGrantRegistryInstrumentedTest {
         assertTrue(error is IllegalArgumentException)
         assertNull(access.lastTakenFlags)
         preferences.edit().clear().commit()
+        history.edit().clear().commit()
     }
 
     private class FakeStorageUriGrantAccess : StorageUriGrantAccess {
