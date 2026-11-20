@@ -224,8 +224,14 @@ class JarvisTaskOrchestrator(
             val result = executor.execute(claimedTask, claimedTask.idempotencyKey)
             val references = result.artifactReferences.ifEmpty { listOf(result.evidenceReference) }
             val videoArtifact = result.videoArtifact
-            val videoArtifactValid = videoArtifact == null ||
-                (videoArtifact.artifactId == taskId && videoArtifact.isValid())
+            val videoTaskRequiresArtifact =
+                claimedTask.ownerAgent == VIDEO_TASK_EXECUTION_MODE ||
+                    claimedTask.executionMode == VIDEO_TASK_EXECUTION_MODE
+            val videoArtifactValid = if (videoTaskRequiresArtifact) {
+                videoArtifact != null && videoArtifact.artifactId == taskId && videoArtifact.isValid()
+            } else {
+                videoArtifact == null || (videoArtifact.artifactId == taskId && videoArtifact.isValid())
+            }
             val verified = result.verified &&
                 result.evidenceReference.isNotBlank() &&
                 references.isNotEmpty() &&
