@@ -38,7 +38,9 @@ data class JarvisTaskExecutionResult(
     val evidenceReference: String,
     val verified: Boolean,
     /** All user-visible artifacts; empty keeps compatibility with single-evidence executors. */
-    val artifactReferences: List<String> = emptyList()
+    val artifactReferences: List<String> = emptyList(),
+    /** Non-null only for a fully verified local video + captions pair. */
+    val videoArtifact: PersistedVideoArtifact? = null
 )
 
 internal fun encodeArtifactReferences(references: List<String>): String {
@@ -221,10 +223,14 @@ class JarvisTaskOrchestrator(
         try {
             val result = executor.execute(claimedTask, claimedTask.idempotencyKey)
             val references = result.artifactReferences.ifEmpty { listOf(result.evidenceReference) }
+            val videoArtifact = result.videoArtifact
+            val videoArtifactValid = videoArtifact == null ||
+                (videoArtifact.artifactId == taskId && videoArtifact.isValid())
             val verified = result.verified &&
                 result.evidenceReference.isNotBlank() &&
                 references.isNotEmpty() &&
-                references.all { it.isNotBlank() }
+                references.all { it.isNotBlank() } &&
+                videoArtifactValid
             val next = if (verified) JarvisTaskStatus.SUCCEEDED else JarvisTaskStatus.FAILED
             dao.finishExecutionIfRunning(
                 id = taskId,
@@ -234,6 +240,9 @@ class JarvisTaskOrchestrator(
                 progressPercent = next.defaultProgress,
                 outputSummary = result.outputSummary,
                 artifactRefs = if (verified) encodeArtifactReferences(references) else claimedTask.artifactRefs,
+                videoUri = if (verified) videoArtifact?.exportedUri else null,
+                captionsUri = if (verified) videoArtifact?.captionsUri else null,
+                videoArtifactMetadataJson = if (verified) videoArtifact?.let { VideoArtifactMetadataCodec.encode(it.metadata) } else null,
                 errorCode = if (verified) null else "UNVERIFIED_RESULT",
                 errorMessage = if (verified) null else "Yürütücü tamamlandı dedi ancak doğrulanabilir kanıt sunmadı.",
                 updatedAt = System.currentTimeMillis()
@@ -248,6 +257,9 @@ class JarvisTaskOrchestrator(
                 progressPercent = JarvisTaskStatus.FAILED.defaultProgress,
                 outputSummary = claimedTask.outputSummary,
                 artifactRefs = claimedTask.artifactRefs,
+                videoUri = null,
+                captionsUri = null,
+                videoArtifactMetadataJson = null,
                 errorCode = "EXECUTION_FAILED",
                 errorMessage = error.message ?: "Yetenek çalıştırılamadı.",
                 updatedAt = System.currentTimeMillis()
