@@ -3754,24 +3754,24 @@ if host_test_manifest.is_file():
     host_test_manifest_text = host_test_manifest.read_text(encoding="utf-8")
 else:
     host_test_manifest_text = (
-        '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\\n'
-        '    <application>\\n'
-        '    </application>\\n'
-        '</manifest>\\n'
+        '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
+        '    <application>\n'
+        '    </application>\n'
+        '</manifest>\n'
     )
 
 activity_pattern = re.compile(
-    r'<activity\\b(?=[^>]*android:name=[\\\"\\\']'
+    r"<activity\b(?=[^>]*android:name\s*=\s*['\"])"
     + re.escape(player_test_activity)
-    + r'[\\\"\\\'])[^>]*/?>',
+    + r"['\"])[^>]*/?>",
     re.DOTALL
 )
 if not activity_pattern.search(host_test_manifest_text):
     activity_declaration = (
         '        <activity android:name="' + player_test_activity
-        + '" android:exported="false" />\\n'
+        + '" android:exported="false" />\n'
     )
-    application_close = re.search(r'</application\\s*>', host_test_manifest_text)
+    application_close = re.search(r"</application\s*>", host_test_manifest_text)
     if application_close:
         host_test_manifest_text = (
             host_test_manifest_text[:application_close.start()]
@@ -3779,12 +3779,12 @@ if not activity_pattern.search(host_test_manifest_text):
             + host_test_manifest_text[application_close.start():]
         )
     else:
-        manifest_close = re.search(r'</manifest\\s*>', host_test_manifest_text)
+        manifest_close = re.search(r"</manifest\s*>", host_test_manifest_text)
         if not manifest_close:
             raise SystemExit("Host androidTest manifest has no closing manifest element")
         application_block = (
-            '    <application>\\n' + activity_declaration
-            + '    </application>\\n'
+            '    <application>\n' + activity_declaration
+            + '    </application>\n'
         )
         host_test_manifest_text = (
             host_test_manifest_text[:manifest_close.start()]
