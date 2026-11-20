@@ -1,6 +1,5 @@
 package com.openjarvis.ui.player
 
-import android.net.Uri
 import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
@@ -21,9 +20,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.UUID
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(AndroidJUnit4::class)
 class VideoArtifactPlayerInstrumentedTest {
@@ -104,34 +100,19 @@ class VideoArtifactPlayerInstrumentedTest {
             val restoredPlayer = awaitDashboardPlayer(scenario, rendered.exportedUri.toString())
             assertEquals(rendered.exportedUri.toString(), restoredPlayer.tag)
 
-            val prepared = CountDownLatch(1)
-            val playbackError = AtomicReference<String?>(null)
+            // Start the exact VideoView created by VideoArtifactPlayerPanel. Do not construct
+            // another player or reset its URI: the Dashboard must restore the persisted task URI.
             scenario.onActivity {
                 val player = findVideoView(it.window.decorView)
                     ?: throw AssertionError("The embedded dashboard VideoView must exist.")
-                player.setOnPreparedListener {
-                    player.start()
-                    prepared.countDown()
-                }
-                player.setOnErrorListener { _, what, extra ->
-                    playbackError.set("what=" + what + ", extra=" + extra)
-                    prepared.countDown()
-                    true
-                }
-                player.setVideoURI(Uri.parse(rendered.exportedUri.toString()))
+                assertEquals(rendered.exportedUri.toString(), player.tag)
+                player.start()
             }
-
-            assertTrue("The production embedded player must prepare the persisted content URI", prepared.await(30, TimeUnit.SECONDS))
-            assertTrue("Embedded playback error: " + playbackError.get(), playbackError.get() == null)
-            SystemClock.sleep(700)
-            scenario.onActivity {
-                val activePlayer = findVideoView(it.window.decorView)
-                    ?: throw AssertionError("The embedded dashboard VideoView disappeared.")
-                assertTrue(
-                    "The dashboard's real embedded player must advance playback",
-                    activePlayer.isPlaying || activePlayer.currentPosition > 0
-                )
-            }
+            val playbackProgressMs = awaitPlaybackProgress(scenario)
+            assertTrue(
+                "The production dashboard player must advance the restored MediaStore URI",
+                playbackProgressMs > 0
+            )
         } finally {
             scenario?.close()
             JarvisTaskDatabase.closeInstanceForTesting()
@@ -159,6 +140,23 @@ class VideoArtifactPlayerInstrumentedTest {
             SystemClock.sleep(100)
         }
         throw AssertionError("Production DashboardScreen did not restore the embedded VideoArtifactPlayerPanel for the persisted URI.")
+    }
+
+    private fun awaitPlaybackProgress(scenario: ActivityScenario<MainActivity>): Int {
+        val deadline = SystemClock.elapsedRealtime() + 30_000L
+        while (SystemClock.elapsedRealtime() < deadline) {
+            var progressMs = 0
+            scenario.onActivity { activity ->
+                val player = findVideoView(activity.window.decorView)
+                    ?: throw AssertionError("The production embedded VideoView disappeared.")
+                if (player.isPlaying || player.currentPosition > 0) {
+                    progressMs = player.currentPosition.coerceAtLeast(1)
+                }
+            }
+            if (progressMs > 0) return progressMs
+            SystemClock.sleep(100)
+        }
+        throw AssertionError("The production embedded player did not begin playback after the user play action.")
     }
 
     private fun findVideoView(view: View): VideoView? {
