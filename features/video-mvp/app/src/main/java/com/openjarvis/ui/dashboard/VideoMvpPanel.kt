@@ -23,11 +23,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.openjarvis.tasks.JarvisTaskEntity
 import com.openjarvis.tasks.JarvisTaskRepository
 import com.openjarvis.tasks.JarvisTaskStatus
 import com.openjarvis.tasks.JarvisTaskCheckpoint
 import kotlinx.coroutines.launch
 import java.util.UUID
+
+/** A missing executor is configuration, not a retryable video execution. */
+internal fun shouldOfferVideoTaskRetry(task: JarvisTaskEntity): Boolean {
+    val status = JarvisTaskStatus.fromStorage(task.status)
+    if (status == JarvisTaskStatus.NOT_EXECUTED ||
+        (status == JarvisTaskStatus.WAITING_FOR_NETWORK && task.errorCode == "EXECUTOR_NOT_CONFIGURED")
+    ) return false
+    return status == JarvisTaskStatus.WAITING_FOR_NETWORK ||
+        status == JarvisTaskStatus.INTERRUPTED ||
+        status == JarvisTaskStatus.FAILED
+}
 
 /** Video creation is always a durable plan -> explicit acceptance -> verified local executor flow. */
 @Composable
@@ -139,15 +151,17 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
                             task.errorMessage ?: task.currentStep ?: status.turkishLabel,
                             color = MaterialTheme.colorScheme.error
                         )
-                        Button(
-                            onClick = {
-                                scope.launch {
-                                    message = "Yalnızca açık yeniden deneme isteği gönderiliyor; otomatik tekrar yapılmıyor."
-                                    repository.retry(task.id)
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Görevi elle yeniden dene") }
+                        if (shouldOfferVideoTaskRetry(task)) {
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        message = "Yalnızca açık yeniden deneme isteği gönderiliyor; otomatik tekrar yapılmıyor."
+                                        repository.retry(task.id)
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("Görevi elle yeniden dene") }
+                        }
                     }
                     JarvisTaskStatus.QUEUED,
                     JarvisTaskStatus.PLANNING -> {
