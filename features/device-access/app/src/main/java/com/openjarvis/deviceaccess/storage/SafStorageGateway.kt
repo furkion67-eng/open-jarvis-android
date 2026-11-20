@@ -165,6 +165,8 @@ class SafStorageGateway(context: Context) {
         }
     }
 
+    fun displayName(uri: Uri): String = queryDisplayName(uri)
+
     private fun queryDisplayName(uri: Uri): String {
         requireAccess(uri, requireWrite = false)
         resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
