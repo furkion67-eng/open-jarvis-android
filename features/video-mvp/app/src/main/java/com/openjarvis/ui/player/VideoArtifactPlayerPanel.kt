@@ -20,6 +20,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -182,7 +183,8 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
                             "\${metadata.width}×\${metadata.height} · \${metadata.durationMs / 1_000L} sn · \${metadata.narrationLocale}",
                             style = MaterialTheme.typography.bodySmall
                         )
-                        AndroidView(
+                        key(retryKey, state.uri) {
+                            AndroidView(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(9f / 16f),
@@ -207,7 +209,8 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
                                 }
                                 player = view
                             }
-                        )
+                            )
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(onClick = { player?.start() }, enabled = player != null) { Text("Oynat") }
                             TextButton(
