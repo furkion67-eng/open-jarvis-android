@@ -35,7 +35,7 @@ import com.openjarvis.tasks.VideoArtifactMetadataCodec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private sealed interface PlaybackAvailability {
+internal sealed interface PlaybackAvailability {
     data object Empty : PlaybackAvailability
     data object Loading : PlaybackAvailability
     data class Ready(val uri: Uri, val metadata: VideoArtifactMetadata) : PlaybackAvailability
