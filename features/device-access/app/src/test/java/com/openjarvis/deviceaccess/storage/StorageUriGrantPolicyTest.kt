@@ -23,4 +23,23 @@ class StorageUriGrantPolicyTest {
         assertFalse(StorageUriGrantPolicy.isStillReadable("content://tree/1", "content://tree/2", true))
         assertFalse(StorageUriGrantPolicy.isStillReadable(null, "content://tree/1", true))
     }
+
+    @Test
+    fun savedTreeIsRestoredOnlyWhileMatchingLiveGrantRemains() {
+        val treeUri = "content://provider/tree/root"
+        val live = listOf(
+            StorageGrantSnapshot(treeUri, "provider", "root", true, true)
+        )
+        assertEquals(setOf(treeUri), StorageUriGrantPolicy.activeSavedUris(setOf(treeUri), live))
+        assertTrue(StorageUriGrantPolicy.activeSavedUris(setOf(treeUri), emptyList()).isEmpty())
+    }
+
+    @Test
+    fun readOnlyGrantAllowsReadButNeverMutation() {
+        val treeUri = "content://provider/tree/root"
+        val readOnly = listOf(StorageGrantSnapshot(treeUri, "provider", "root", true, false))
+        assertTrue(StorageUriGrantPolicy.hasUriGrant(treeUri, readOnly, requireWrite = false))
+        assertFalse(StorageUriGrantPolicy.hasUriGrant(treeUri, readOnly, requireWrite = true))
+        assertFalse(StorageUriGrantPolicy.allows("provider", "root", readOnly, requireWrite = true))
+    }
 }

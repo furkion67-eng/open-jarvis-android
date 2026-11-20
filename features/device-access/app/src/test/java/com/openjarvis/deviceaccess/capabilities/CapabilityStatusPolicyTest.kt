@@ -27,6 +27,14 @@ class CapabilityStatusPolicyTest {
     }
 
     @Test
+    fun accessibilityRequiresSettingsOnlyWhenServiceIsActuallyDeclared() {
+        assertEquals(CapabilityState.NOT_AVAILABLE, CapabilityStatusPolicy.accessibilityService(false, false))
+        assertEquals(CapabilityState.REQUIRES_SETTINGS, CapabilityStatusPolicy.accessibilityService(true, false))
+        assertEquals(CapabilityState.ENABLED, CapabilityStatusPolicy.accessibilityService(true, true))
+        assertEquals(CapabilityState.NOT_AVAILABLE, CapabilityStatusPolicy.accessibilityService(false, true))
+    }
+
+    @Test
     fun persistedUriMustStillHaveReadGrant() {
         assertTrue(CapabilityStatusPolicy.persistedReadGrant("content://tree/1", "content://tree/1", true))
         assertFalse(CapabilityStatusPolicy.persistedReadGrant("content://tree/1", "content://tree/1", false))

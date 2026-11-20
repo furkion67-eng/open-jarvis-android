@@ -7,6 +7,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SmsActionContractTest {
+    private class InMemorySmsAttemptStore : SmsAttemptStore {
+        private val records = linkedMapOf<String, SmsAttemptRecord>()
+        override fun all(): List<SmsAttemptRecord> = records.values.toList()
+        override fun get(requestId: String): SmsAttemptRecord? = records[requestId]
+        override fun put(record: SmsAttemptRecord) { records[record.requestId] = record }
+        override fun remove(requestId: String) { records.remove(requestId) }
+    }
     @Test
     fun messageCannotBeConsumedBeforeExplicitConfirmation() {
         val gate = SmsConfirmationGate()
@@ -57,6 +64,61 @@ class SmsActionContractTest {
         val tracker = SmsSendTracker(2)
         assertEquals(SmsSendState.PENDING, tracker.recordPart(0, SmsPartResult.SENT))
         assertEquals(SmsSendState.SENT, tracker.recordPart(1, SmsPartResult.SENT))
+    }
+
+    @Test
+    fun androidPlatformResultCodesMapOnlyResultOkToSentForEveryPart() {
+        val tracker = SmsSendTracker(3)
+        assertEquals(SmsSendState.PENDING, tracker.recordPlatformResult(0, -1, -1))
+        assertEquals(SmsSendState.PENDING, tracker.recordPlatformResult(1, -1, -1))
+        assertEquals(SmsSendState.SENT, tracker.recordPlatformResult(2, -1, -1))
+    }
+
+    @Test
+    fun anyNonOkPlatformPartFailsAndLatePartsCannotPromoteToSent() {
+        val tracker = SmsSendTracker(2)
+        assertEquals(SmsSendState.PENDING, tracker.recordPlatformResult(0, -1, -1))
+        assertEquals(SmsSendState.FAILED, tracker.recordPlatformResult(1, 0, -1))
+        assertEquals(SmsSendState.FAILED, tracker.recordPlatformResult(1, -1, -1))
+    }
+
+    @Test
+    fun callbackAfterProcessLossUnknownCannotBecomeSent() {
+        val tracker = SmsSendTracker(1)
+        assertEquals(SmsSendState.UNKNOWN, tracker.markUnknown())
+        assertEquals(SmsSendState.UNKNOWN, tracker.recordPlatformResult(0, -1, -1))
+    }
+
+    @Test
+    fun changingNameQueryOrResolvedRecipientInvalidatesOldSelection() {
+        assertTrue(SmsSelectionInvalidationPolicy.queryChanged("Ayşe", "Ali"))
+        assertTrue(SmsSelectionInvalidationPolicy.recipientChanged("Ayşe", "+905551111111", "Ali", "+905552222222"))
+        assertTrue(SmsSelectionInvalidationPolicy.recipientChanged("Ayşe", "+905551111111", "Ayşe", "+905553333333"))
+        assertEquals(false, SmsSelectionInvalidationPolicy.queryChanged("Ayşe", "Ayşe"))
+        assertEquals(false, SmsSelectionInvalidationPolicy.recipientChanged("Ayşe", "+905551111111", "Ayşe", "+905551111111"))
+    }
+
+    @Test
+    fun durableJournalRequiresEveryMultipartCallbackToBeResultOk() {
+        val store = InMemorySmsAttemptStore()
+        val journal = SmsAttemptJournal(store)
+        journal.begin("request-1", 2)
+        assertEquals(SmsSendState.PENDING, journal.recordPlatformResult("request-1", 0, -1, -1))
+        assertEquals(SmsSendState.SENT, journal.recordPlatformResult("request-1", 1, -1, -1))
+        assertEquals(SmsSendState.SENT, store.get("request-1")?.state)
+    }
+
+    @Test
+    fun processReopenTurnsMissingSmsCallbackIntoUnknownWithoutReplay() {
+        val store = InMemorySmsAttemptStore()
+        val beforeRestart = SmsAttemptJournal(store)
+        beforeRestart.begin("request-restart", 2)
+        beforeRestart.recordPlatformResult("request-restart", 0, -1, -1)
+
+        val afterRestart = SmsAttemptJournal(store)
+        assertEquals(1, afterRestart.recoverPendingAsUnknown().size)
+        assertEquals(SmsSendState.UNKNOWN, store.get("request-restart")?.state)
+        assertEquals(SmsSendState.UNKNOWN, afterRestart.recordPlatformResult("request-restart", 1, -1, -1))
     }
 
     @Test

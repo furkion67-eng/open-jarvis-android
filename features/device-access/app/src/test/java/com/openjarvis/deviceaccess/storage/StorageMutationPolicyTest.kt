@@ -94,6 +94,15 @@ class StorageMutationPolicyTest {
     }
 
     @Test
+    fun deletionRequiresTheSameUriAndExactCurrentDisplayName() {
+        val uri = "content://provider/tree/root/document/root%3Areport.pdf"
+        assertTrue(StorageDeletionPolicy.isConfirmed(uri, "report.pdf", uri, "report.pdf"))
+        assertFalse(StorageDeletionPolicy.isConfirmed(uri, "report.pdf", uri, "renamed.pdf"))
+        assertFalse(StorageDeletionPolicy.isConfirmed(uri, "report.pdf", "content://provider/tree/other", "report.pdf"))
+        assertFalse(StorageDeletionPolicy.isConfirmed(uri, " ", uri, "report.pdf"))
+    }
+
+    @Test
     fun transferCannotTargetTheSourceDocumentItself() {
         val source = "content://provider/tree/root/document/root%3Afile.txt"
         val preview = StorageTransferPreview(

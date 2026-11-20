@@ -1,15 +1,16 @@
 package com.openjarvis.ui.player
 
-import android.widget.FrameLayout
-import android.widget.MediaController
+import android.net.Uri
+import android.os.SystemClock
+import android.view.View
+import android.view.ViewGroup
 import android.widget.VideoView
-import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.openjarvis.tasks.JarvisTaskDatabase
 import com.openjarvis.tasks.JarvisTaskEntity
 import com.openjarvis.tasks.JarvisTaskStatus
-import com.openjarvis.tasks.JarvisTaskDatabase
 import com.openjarvis.tasks.VideoArtifactMetadata
 import com.openjarvis.tasks.VideoArtifactMetadataCodec
 import com.openjarvis.ui.MainActivity
@@ -47,11 +48,10 @@ class VideoArtifactPlayerInstrumentedTest {
     }
 
     @Test
-    fun persistedMediaStoreVideoReopensAndPlaysInsideJarvisAfterActivityRecreation() = runBlocking {
+    fun productionDashboardRestoresAndPlaysThePersistedMediaStoreArtifactAfterActivityRecreation() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val database = JarvisTaskDatabase.getInstance(context)
         val artifactKey = UUID.randomUUID().toString().replace("-", "")
-        val databaseName = "jarvis_player_reopen_" + artifactKey + ".db"
-        context.deleteDatabase(databaseName)
         val rendered = VideoStoryPipeline(context).render(
             prompt = "JARVIS uygulama içi video oynatıcı testi",
             artifactKey = artifactKey
@@ -69,6 +69,7 @@ class VideoArtifactPlayerInstrumentedTest {
             attributionManifest = emptyList(),
             attributionManifestComplete = false
         )
+        val now = System.currentTimeMillis()
         val task = JarvisTaskEntity(
             id = "player-" + artifactKey,
             goal = "JARVIS player instrumentation",
@@ -76,44 +77,28 @@ class VideoArtifactPlayerInstrumentedTest {
             outputSummary = "Renderer MP4 ve SRT doğrulandı.",
             artifactRefs = encodeRefs(rendered.exportedUri.toString(), rendered.captionsUri.toString()),
             idempotencyKey = "player-key-" + artifactKey,
+            createdAt = now,
+            updatedAt = now,
             videoUri = rendered.exportedUri.toString(),
             captionsUri = rendered.captionsUri.toString(),
             videoArtifactMetadataJson = VideoArtifactMetadataCodec.encode(metadata)
         )
 
-        val first = Room.databaseBuilder(context, JarvisTaskDatabase::class.java, databaseName)
-            .allowMainThreadQueries()
-            .build()
-        first.taskDao().insert(task)
-        first.close()
-
-        val reopened = Room.databaseBuilder(context, JarvisTaskDatabase::class.java, databaseName)
-            .allowMainThreadQueries()
-            .build()
         var scenario: ActivityScenario<MainActivity>? = null
         try {
-            val restored = reopened.taskDao().findById(task.id)!!
-            assertEquals(rendered.exportedUri.toString(), restored.videoUri)
-            assertEquals(rendered.captionsUri.toString(), restored.captionsUri)
-            val availability = VideoArtifactPlaybackValidator.inspect(
-                context,
-                restored.videoUri,
-                restored.captionsUri,
-                restored.videoArtifactMetadataJson
-            )
-            assertTrue("Persisted MediaStore pair must remain readable", availability is PlaybackAvailability.Ready)
+            database.taskDao().insert(task)
+            scenario = ActivityScenario.launch(MainActivity::class.java)
+            awaitDashboardPlayer(scenario, rendered.exportedUri.toString())
+            scenario.recreate()
+
+            val restoredPlayer = awaitDashboardPlayer(scenario, rendered.exportedUri.toString())
+            assertEquals(rendered.exportedUri.toString(), restoredPlayer.tag)
 
             val prepared = CountDownLatch(1)
             val playbackError = AtomicReference<String?>(null)
-            val playerReference = AtomicReference<VideoView?>(null)
-            val activeScenario = ActivityScenario.launch(MainActivity::class.java)
-            scenario = activeScenario
-            activeScenario.recreate()
-            activeScenario.onActivity { activity ->
-                val player = VideoView(activity)
-                val controller = MediaController(activity)
-                controller.setAnchorView(player)
-                player.setMediaController(controller)
+            scenario.onActivity {
+                val player = findVideoView(it.window.decorView)
+                    ?: throw AssertionError("The embedded dashboard VideoView must exist.")
                 player.setOnPreparedListener {
                     player.start()
                     prepared.countDown()
@@ -123,27 +108,55 @@ class VideoArtifactPlayerInstrumentedTest {
                     prepared.countDown()
                     true
                 }
-                activity.addContentView(
-                    player,
-                    FrameLayout.LayoutParams(360, 640)
-                )
-                playerReference.set(player)
-                player.setVideoURI(android.net.Uri.parse(restored.videoUri))
+                player.setVideoURI(Uri.parse(rendered.exportedUri.toString()))
             }
 
-            assertTrue("VideoView must prepare the persisted content URI", prepared.await(30, TimeUnit.SECONDS))
-            assertTrue("VideoView error: " + playbackError.get(), playbackError.get() == null)
-            Thread.sleep(600)
-            activeScenario.onActivity { assertTrue(playerReference.get()?.isPlaying == true || (playerReference.get()?.currentPosition ?: 0) > 0) }
+            assertTrue("The production embedded player must prepare the persisted content URI", prepared.await(30, TimeUnit.SECONDS))
+            assertTrue("Embedded playback error: " + playbackError.get(), playbackError.get() == null)
+            SystemClock.sleep(700)
+            scenario.onActivity {
+                val activePlayer = findVideoView(it.window.decorView)
+                    ?: throw AssertionError("The embedded dashboard VideoView disappeared.")
+                assertTrue(
+                    "The dashboard's real embedded player must advance playback",
+                    activePlayer.isPlaying || activePlayer.currentPosition > 0
+                )
+            }
         } finally {
             scenario?.close()
-            reopened.close()
-            context.deleteDatabase(databaseName)
+            runCatching { database.taskDao().deleteById(task.id) }
             runCatching { context.contentResolver.delete(rendered.exportedUri, null, null) }
             runCatching { context.contentResolver.delete(rendered.captionsUri, null, null) }
-            rendered.video.file.delete()
-            rendered.captionsFile.delete()
+            runCatching { rendered.video.file.delete() }
+            runCatching { rendered.captionsFile.delete() }
         }
+    }
+
+    private fun awaitDashboardPlayer(
+        scenario: ActivityScenario<MainActivity>,
+        expectedUri: String
+    ): VideoView {
+        val deadline = SystemClock.elapsedRealtime() + 30_000L
+        while (SystemClock.elapsedRealtime() < deadline) {
+            var found: VideoView? = null
+            scenario.onActivity { activity ->
+                found = findVideoView(activity.window.decorView)
+                    ?.takeIf { it.tag == expectedUri }
+            }
+            if (found != null) return found!!
+            SystemClock.sleep(100)
+        }
+        throw AssertionError("Production DashboardScreen did not restore the embedded VideoArtifactPlayerPanel for the persisted URI.")
+    }
+
+    private fun findVideoView(view: View): VideoView? {
+        if (view is VideoView) return view
+        if (view is ViewGroup) {
+            for (index in 0 until view.childCount) {
+                findVideoView(view.getChildAt(index))?.let { return it }
+            }
+        }
+        return null
     }
 
     private fun encodeRefs(video: String, captions: String): String =

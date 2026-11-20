@@ -1,7 +1,10 @@
 package com.openjarvis.deviceaccess.capabilities
 
 import android.Manifest
+import android.accessibilityservice.AccessibilityService
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.PowerManager
@@ -31,14 +34,7 @@ class AndroidCapabilityStatusReader(context: Context) {
         add(overlayStatus())
         add(accessibilityStatus())
         add(batteryStatus())
-        add(
-            CapabilityStatusItem(
-                "app-launch",
-                "Uygulama açma",
-                CapabilityState.ENABLED,
-                "Yalnızca Android tarafından görünür kılınan veya açıkça bilinen uygulamalar açılabilir."
-            )
-        )
+        add(appLaunchStatus())
     }
 
     private fun runtime(id: String, title: String, permission: String): CapabilityStatusItem {
@@ -128,21 +124,58 @@ class AndroidCapabilityStatusReader(context: Context) {
     }
 
     private fun accessibilityStatus(): CapabilityStatusItem {
-        val enabledServices = Settings.Secure.getString(
+        val declaredServices = runCatching {
+            @Suppress("DEPRECATION")
+            appContext.packageManager.queryIntentServices(
+                Intent(AccessibilityService.SERVICE_INTERFACE).setPackage(appContext.packageName),
+                PackageManager.GET_META_DATA
+            ).mapNotNull { it.serviceInfo }.filter {
+                it.packageName == appContext.packageName &&
+                    it.permission == Manifest.permission.BIND_ACCESSIBILITY_SERVICE
+            }
+        }.getOrDefault(emptyList())
+        val enabledComponents = Settings.Secure.getString(
             appContext.contentResolver,
             Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ).orEmpty()
-        val enabled = enabledServices.split(':').any {
-            it.substringBefore('/') == appContext.packageName
+        ).orEmpty().split(':').mapNotNull { ComponentName.unflattenFromString(it) }
+        val declared = declaredServices.isNotEmpty()
+        val enabled = declaredServices.any { service ->
+            ComponentName(service.packageName, service.name) in enabledComponents
+        }
+        val state = CapabilityStatusPolicy.accessibilityService(declared, enabled)
+        val detail = when (state) {
+            CapabilityState.ENABLED ->
+                "JARVIS erişilebilirlik servisi Android ayarlarında kullanıcı tarafından etkinleştirilmiş."
+            CapabilityState.REQUIRES_SETTINGS ->
+                "JARVIS erişilebilirlik servisi uygulamada tanımlı; kullanmak için Android Erişilebilirlik ayarlarında kendin etkinleştirmelisin."
+            else ->
+                "Son host manifestinde JARVIS erişilebilirlik servisi tanımlı değil."
         }
         return CapabilityStatusItem(
             "accessibility",
             "Erişilebilirlik ile ekranda işlem",
-            if (enabled) CapabilityState.ENABLED else CapabilityState.NOT_AVAILABLE,
-            if (enabled) {
-                "Bu uygulamaya ait bir erişilebilirlik servisi etkin görünüyor."
+            state,
+            detail
+        )
+    }
+
+    private fun appLaunchStatus(): CapabilityStatusItem {
+        val visibleLaunchableApps = runCatching {
+            @Suppress("DEPRECATION")
+            appContext.packageManager.queryIntentActivities(
+                Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER),
+                PackageManager.MATCH_DEFAULT_ONLY
+            ).filter { it.activityInfo?.packageName != appContext.packageName }
+        }.getOrDefault(emptyList())
+        return CapabilityStatusItem(
+            "app-launch",
+            "Uygulama açma",
+            if (visibleLaunchableApps.isNotEmpty()) CapabilityState.ENABLED else CapabilityState.NOT_AVAILABLE,
+            if (visibleLaunchableApps.isNotEmpty()) {
+                visibleLaunchableApps.size.toString() +
+                    " Android tarafından görünür başlatılabilir uygulama bulundu; diğer paketler görünür olmayabilir."
             } else {
-                "Bu kaynak ağacında JARVIS erişilebilirlik servisi tanımlı değil; yalnızca ayarı açmak tek başına yeterli değildir."
+                "Android bu uygulama için başka başlatılabilir uygulama göstermiyor; paket görünürlüğü veya launcher etkinliği mevcut değil."
             }
         )
     }

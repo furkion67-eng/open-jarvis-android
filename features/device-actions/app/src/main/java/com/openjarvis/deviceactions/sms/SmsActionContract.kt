@@ -74,6 +74,22 @@ class SmsConfirmationGate {
 enum class SmsPartResult { PENDING, SENT, FAILED }
 enum class SmsSendState { PENDING, SENT, FAILED, UNKNOWN }
 
+internal object SmsPlatformResultMapper {
+    fun toPartResult(resultCode: Int, resultOk: Int): SmsPartResult =
+        if (resultCode == resultOk) SmsPartResult.SENT else SmsPartResult.FAILED
+}
+
+internal object SmsSelectionInvalidationPolicy {
+    fun queryChanged(previous: String, next: String): Boolean = previous != next
+
+    fun recipientChanged(
+        previousName: String?,
+        previousNumber: String?,
+        nextName: String?,
+        nextNumber: String?
+    ): Boolean = previousName != nextName || previousNumber != nextNumber
+}
+
 class SmsSendTracker(partCount: Int) {
     private val parts: MutableList<SmsPartResult>
     private var terminalState: SmsSendState? = null
@@ -92,6 +108,10 @@ class SmsSendTracker(partCount: Int) {
     }
 
     @Synchronized
+    fun recordPlatformResult(index: Int, resultCode: Int, resultOk: Int): SmsSendState =
+        recordPart(index, SmsPlatformResultMapper.toPartResult(resultCode, resultOk))
+
+    @Synchronized
     fun markUnknown(): SmsSendState {
         if (state() == SmsSendState.PENDING) terminalState = SmsSendState.UNKNOWN
         return state()
@@ -103,6 +123,74 @@ class SmsSendTracker(partCount: Int) {
         parts.all { it == SmsPartResult.SENT } -> SmsSendState.SENT
         else -> SmsSendState.PENDING
     }
+}
+
+data class SmsAttemptRecord(
+    val requestId: String,
+    val parts: List<SmsPartResult>,
+    val state: SmsSendState,
+    val updatedAtMillis: Long = System.currentTimeMillis()
+)
+
+internal interface SmsAttemptStore {
+    fun all(): List<SmsAttemptRecord>
+    fun get(requestId: String): SmsAttemptRecord?
+    fun put(record: SmsAttemptRecord)
+    fun remove(requestId: String)
+}
+
+/** Durable callback journal. It stores no phone number, contact name or message body. */
+internal class SmsAttemptJournal(private val store: SmsAttemptStore) {
+    fun begin(requestId: String, partCount: Int) {
+        require(requestId.isNotBlank() && partCount > 0)
+        store.put(SmsAttemptRecord(requestId, List(partCount) { SmsPartResult.PENDING }, SmsSendState.PENDING))
+        pruneTerminalHistory()
+    }
+
+    fun recordPlatformResult(requestId: String, partIndex: Int, resultCode: Int, resultOk: Int): SmsSendState {
+        val current = store.get(requestId) ?: return SmsSendState.UNKNOWN
+        if (current.state != SmsSendState.PENDING || partIndex !in current.parts.indices ||
+            current.parts[partIndex] != SmsPartResult.PENDING
+        ) return current.state
+        val parts = current.parts.toMutableList()
+        parts[partIndex] = SmsPlatformResultMapper.toPartResult(resultCode, resultOk)
+        val state = when {
+            parts.any { it == SmsPartResult.FAILED } -> SmsSendState.FAILED
+            parts.all { it == SmsPartResult.SENT } -> SmsSendState.SENT
+            else -> SmsSendState.PENDING
+        }
+        store.put(current.copy(parts = parts, state = state, updatedAtMillis = System.currentTimeMillis()))
+        pruneTerminalHistory()
+        return state
+    }
+
+    fun markUnknown(requestId: String): SmsSendState = transitionPending(requestId, SmsSendState.UNKNOWN)
+    fun markFailed(requestId: String): SmsSendState = transitionPending(requestId, SmsSendState.FAILED)
+
+    /** Called once when the SMS integration is first opened in a new app process. */
+    fun recoverPendingAsUnknown(): List<SmsAttemptRecord> {
+        val pending = store.all().filter { it.state == SmsSendState.PENDING }
+        pending.forEach { store.put(it.copy(state = SmsSendState.UNKNOWN, updatedAtMillis = System.currentTimeMillis())) }
+        pruneTerminalHistory()
+        return pending.map { it.copy(state = SmsSendState.UNKNOWN) }
+    }
+
+    private fun transitionPending(requestId: String, target: SmsSendState): SmsSendState {
+        val current = store.get(requestId) ?: return SmsSendState.UNKNOWN
+        if (current.state != SmsSendState.PENDING) return current.state
+        store.put(current.copy(state = target, updatedAtMillis = System.currentTimeMillis()))
+        pruneTerminalHistory()
+        return target
+    }
+
+    private fun pruneTerminalHistory() {
+        store.all().filter { it.state != SmsSendState.PENDING }
+            .sortedByDescending { it.updatedAtMillis }
+            .drop(MAX_TERMINAL_HISTORY)
+            .forEach { store.remove(it.requestId) }
+    }
+
+    private companion object { const val MAX_TERMINAL_HISTORY = 32 }
 }
 
 sealed interface SmsSendOutcome {

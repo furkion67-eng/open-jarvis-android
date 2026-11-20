@@ -7,7 +7,9 @@ root = Path(sys.argv[1])
 def edit(rel, fn):
     p = root / rel
     s = p.read_text()
-    p.write_text(fn(s))
+    updated = fn(s)
+    if updated != s:
+        p.write_text(updated)
 
 def agent(s):
     marker = "\n    suspend fun testConnection(): Result<Long> {"
@@ -16,9 +18,15 @@ def agent(s):
     # executeTask() opens scope.launch { taskMutex.withLock { ... } }.
     # The packaged file closes those two lambdas but omits executeTask() itself.
     before = s.split(marker, 1)[0]
-    trailing = before.rstrip().splitlines()[-2:]
-    indents = [len(line) - len(line.lstrip()) for line in trailing]
-    if indents != [4, 4]:
+    last_nonblank = next(
+        (line for line in reversed(before.splitlines()) if line.strip()),
+        ""
+    )
+    last_indent = len(last_nonblank) - len(last_nonblank.lstrip())
+    # executeTask is a class member, so its own closing brace is indented four spaces.
+    # Looking at only the final nonblank line avoids inserting another brace when the
+    # previous two lines have different nesting levels.
+    if last_indent != 4:
         s = s.replace(marker, "\n    }\n\n    suspend fun testConnection(): Result<Long> {", 1)
     return s
 def mcp(s):

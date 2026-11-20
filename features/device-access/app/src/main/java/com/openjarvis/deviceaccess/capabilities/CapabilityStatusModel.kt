@@ -30,4 +30,10 @@ object CapabilityStatusPolicy {
 
     fun persistedReadGrant(savedUri: String?, actualUri: String?, hasReadPermission: Boolean): Boolean =
         !savedUri.isNullOrBlank() && savedUri == actualUri && hasReadPermission
+
+    fun accessibilityService(declared: Boolean, enabled: Boolean): CapabilityState = when {
+        enabled && declared -> CapabilityState.ENABLED
+        declared -> CapabilityState.REQUIRES_SETTINGS
+        else -> CapabilityState.NOT_AVAILABLE
+    }
 }
