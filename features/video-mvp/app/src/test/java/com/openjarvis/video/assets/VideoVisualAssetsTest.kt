@@ -30,6 +30,9 @@ class VideoVisualAssetsTest {
         val missingCreator = descriptor().copy(creator = "")
         val missingSource = descriptor().copy(sourceUrl = "https://commons.wikimedia.org/wiki/File:Example.jpg")
         val missingShareAlike = descriptor().copy(requiredOutputLicense = null)
+        val missingLicenseVersion = descriptor().copy(
+            attributionText = descriptor().attributionText.replace("CC BY-SA 4.0", "CC BY-SA")
+        )
 
         val wrongSourceHost = descriptor().copy(
             sourceUrl = "https://commons.wikimedia.org.evil.example/w/index.php?title=File:Example.jpg&oldid=123456"
@@ -38,7 +41,7 @@ class VideoVisualAssetsTest {
         listOf(wrongSourceHost, wrongDownloadHost).forEach { candidate ->
             assertTrue(runCatching { VideoAssetLicensePolicy.validate(candidate) }.isFailure)
         }
-        listOf(missingCreator, missingSource, missingShareAlike).forEach { candidate ->
+        listOf(missingCreator, missingSource, missingShareAlike, missingLicenseVersion).forEach { candidate ->
             assertTrue(runCatching { VideoAssetLicensePolicy.validate(candidate) }.isFailure)
         }
     }
@@ -172,6 +175,76 @@ class VideoVisualAssetsTest {
         } finally {
             root.deleteRecursively()
         }
+    }
+
+    @Test
+    fun pinnedCommonsRevisionMustBeNumericUniqueAndOnTheExpectedFilePage() {
+        val source = descriptor().sourceUrl
+        val invalidSources = listOf(
+            source.replace("oldid=123456", "oldid="),
+            source.replace("oldid=123456", "oldid=not-a-revision"),
+            source + "&oldid=654321",
+            source + "#fragment",
+            source.replace("https://", "http://"),
+            source.replace("/w/index.php?", "/wiki/File:Example.jpg?")
+        )
+        invalidSources.forEach { invalid ->
+            assertTrue(runCatching {
+                VideoAssetLicensePolicy.validate(descriptor().copy(sourceUrl = invalid))
+            }.isFailure)
+        }
+
+        val invalidDownloads = listOf(
+            "http://upload.wikimedia.org/wikipedia/commons/a/ab/example.jpg",
+            "https://upload.wikimedia.org:444/wikipedia/commons/a/ab/example.jpg",
+            "https://user@upload.wikimedia.org/wikipedia/commons/a/ab/example.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/a/ab/example.jpg#fragment"
+        )
+        invalidDownloads.forEach { invalid ->
+            assertTrue(runCatching {
+                VideoAssetLicensePolicy.validate(descriptor().copy(downloadUrl = invalid))
+            }.isFailure)
+        }
+    }
+
+    @Test
+    fun resolvedAttributionRejectsMissingCreatorLicenseSourceAndCacheEvidence() {
+        val attribution = VideoVisualAssetResolver(
+            MemoryCache(),
+            FakeDownloader(jpeg),
+            clock = { now }
+        ).resolveAll(listOf(descriptor())).single().attribution
+        assertTrue(attribution.isValid())
+
+        assertFalse(attribution.copy(
+            attributionText = attribution.attributionText.replace("Example Creator", "Unknown")
+        ).isValid())
+        assertFalse(attribution.copy(
+            attributionText = attribution.attributionText.replace("CC BY-SA 4.0", "CC BY-SA")
+        ).isValid())
+        assertFalse(attribution.copy(
+            attributionText = attribution.attributionText.replace(attribution.sourceUrl, "")
+        ).isValid())
+        assertFalse(attribution.copy(
+            sourceUrl = attribution.sourceUrl.replace("https://", "http://")
+        ).isValid())
+        assertFalse(attribution.copy(
+            cacheMetadata = "provider=Unverified;mime=image/jpeg;bytes=8;expiresAt=${now + 10_000L}"
+        ).isValid())
+        assertFalse(attribution.copy(
+            cacheMetadata = "provider=WikimediaCommons;mime=image/jpeg;bytes=8;expiresAt=$now"
+        ).isValid())
+        assertFalse(attribution.copy(
+            cacheMetadata = "provider=WikimediaCommons;mime=image/jpeg;bytes=8;expiresAt=${now + VideoVisualAssetResolver.DEFAULT_CACHE_TTL_MS + 1L}"
+        ).isValid())
+        assertTrue(runCatching {
+            VideoVisualAssetResolver(
+                MemoryCache(),
+                FakeDownloader(jpeg),
+                clock = { now },
+                cacheTtlMs = VideoVisualAssetResolver.DEFAULT_CACHE_TTL_MS + 1L
+            )
+        }.isFailure)
     }
 
     private fun descriptor(): VideoVisualAssetDescriptor {
