@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
+import com.openjarvis.deviceaccess.capabilities.AndroidCapabilityStatusReader
 import java.util.LinkedHashSet
 
 data class StorageGrantSnapshot(
@@ -91,33 +92,48 @@ class StorageUriGrantRegistry internal constructor(
 ) {
     constructor(context: Context) : this(context.applicationContext, AndroidStorageUriGrantAccess(context))
 
-    private val preferences = context.applicationContext.getSharedPreferences(
+    private val appContext = context.applicationContext
+    private val preferences = appContext.getSharedPreferences(
         "jarvis_storage_uri_grants",
         Context.MODE_PRIVATE
     )
 
     fun persistPickerResult(uri: Uri, returnedFlags: Int, makeLast: Boolean = true) {
-        require(StorageUriGrantPolicy.hasPersistableGrant(returnedFlags, Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)) {
-            "Android dosya seçicisi kalıcı URI izni vermedi."
-        }
-        val flags = StorageUriGrantPolicy.persistableFlags(
-            returnedFlags,
-            Intent.FLAG_GRANT_READ_URI_PERMISSION,
-            Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-        )
-        require(flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0) {
-            "Android dosya seçicisi kalıcı okuma izni vermedi."
-        }
-        grantAccess.takePersistableUriPermission(uri, flags)
-        require(StorageUriGrantPolicy.hasUriGrant(uri.toString(), grantAccess.snapshots(), requireWrite = false)) {
-            "Android seçilen dosya veya klasör için kalıcı okuma izni kaydetmedi."
-        }
+        try {
+            require(StorageUriGrantPolicy.hasPersistableGrant(returnedFlags, Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)) {
+                "Android dosya seçicisi kalıcı URI izni vermedi."
+            }
+            val flags = StorageUriGrantPolicy.persistableFlags(
+                returnedFlags,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+            require(flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0) {
+                "Android dosya seçicisi kalıcı okuma izni vermedi."
+            }
+            grantAccess.takePersistableUriPermission(uri, flags)
+            val actualGrant = grantAccess.snapshots().firstOrNull { it.uri == uri.toString() }
+            AndroidCapabilityStatusReader(appContext).recordStoragePickerResult(
+                readGranted = actualGrant?.hasReadPermission == true,
+                writeGranted = actualGrant?.hasWritePermission == true
+            )
+            require(StorageUriGrantPolicy.hasUriGrant(uri.toString(), grantAccess.snapshots(), requireWrite = false)) {
+                "Android seçilen dosya veya klasör için kalıcı okuma izni kaydetmedi."
+            }
 
-        val saved = LinkedHashSet(preferences.getStringSet(KEY_URIS, emptySet()).orEmpty())
-        saved += uri.toString()
-        val editor = preferences.edit().putStringSet(KEY_URIS, saved)
-        if (makeLast) editor.putString(KEY_LAST_URI, uri.toString())
-        check(editor.commit()) { "Seçilen dosya/klasör URI kaydı kalıcılaştırılamadı." }
+            val saved = LinkedHashSet(preferences.getStringSet(KEY_URIS, emptySet()).orEmpty())
+            saved += uri.toString()
+            val editor = preferences.edit().putStringSet(KEY_URIS, saved)
+            if (makeLast) editor.putString(KEY_LAST_URI, uri.toString())
+            check(editor.commit()) { "Seçilen dosya/klasör URI kaydı kalıcılaştırılamadı." }
+        } catch (error: Exception) {
+            val actualGrant = grantAccess.snapshots().firstOrNull { it.uri == uri.toString() }
+            AndroidCapabilityStatusReader(appContext).recordStoragePickerResult(
+                readGranted = actualGrant?.hasReadPermission == true,
+                writeGranted = actualGrant?.hasWritePermission == true
+            )
+            throw error
+        }
     }
 
     fun lastGrantedTreeUri(): Uri? {
