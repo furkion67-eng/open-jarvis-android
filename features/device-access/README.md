@@ -6,7 +6,7 @@
 - The picker result's actual read/write flags are captured and only those returned grants are passed to takePersistableUriPermission.
 - StorageUriGrantRegistry stores the selected URI and checks ContentResolver.persistedUriPermissions again after process recreation. A revoked/missing grant is removed from the local registry and is never treated as active.
 - The Compose panel restores the last still-readable tree, lists/searches the current folder, opens files with an installed handler, shares through Android's chooser, creates folders and confirms deletion against the exact unchanged filename.
-- SafStorageGateway also exposes read/write/rename/copy/move operations where the selected document provider supports them. Provider failures are surfaced; they are not reported as success.
+- SafStorageGateway checks every tree/document URI against a currently persisted read grant for the same provider authority and tree document ID; write operations additionally require a persisted write grant. Read/write/rename/copy/move/delete cannot be invoked against arbitrary content URIs outside a granted tree. Provider failures are surfaced; they are not reported as success.
 - The gateway cannot enumerate all storage or read another app's private sandbox.
 
 ## Capability status
