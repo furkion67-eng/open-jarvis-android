@@ -265,7 +265,7 @@ required = {
     ("com.openjarvis.tasks.JarvisTaskPersistenceInstrumentedTest", "interruptedRunningTaskResetsStaleProgressAndIsNotAutoReplayed"),
     ("com.openjarvis.tasks.JarvisTaskPersistenceInstrumentedTest", "retryWithoutBackendDoesNotClaimProgress"),
     ("com.openjarvis.tasks.JarvisTaskPersistenceInstrumentedTest", "planReviewDoesNotGrantActionApproval"),
-    ("com.openjarvis.tasks.JarvisTaskPersistenceInstrumentedTest", "smsOutcomeIsDurablyJournaledWithoutContactOrMessageData"),
+    ("com.openjarvis.tasks.JarvisTaskPersistenceInstrumentedTest", "outcomeJournalReturnsOnlyAfterPrivacySafeRoomCommit"),
     ("com.openjarvis.video.VideoStoryPipelineInstrumentedTest", "rendersTurkishNarratedPortraitMp4OrFailsClosedWithoutTurkishVoice"),
     ("com.openjarvis.tasks.MainActivityLaunchInstrumentedTest", "launcherActivityStartsAndRemainsVisible"),
     ("com.openjarvis.voice.TurkishTtsEngineInstrumentedTest", "engineNeverReportsReadyWithANonTurkishVoiceAndCompletesHandoff"),
