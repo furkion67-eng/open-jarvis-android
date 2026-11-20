@@ -183,27 +183,38 @@ class JarvisTaskPersistenceInstrumentedTest {
     }
 
     @Test
-    fun smsOutcomeIsDurablyJournaledWithoutContactOrMessageData() = runBlocking {
-        val eventId = repository.recordDeviceActionOutcome(
-            actionType = "sms",
-            outcomeCode = "SENT",
-            safeSummary = "Tüm SMS_SENT callback'leri RESULT_OK döndü; teslimat doğrulanmadı."
+    fun outcomeJournalReturnsOnlyAfterPrivacySafeRoomCommit() = runBlocking {
+        val eventId = DeviceActionOutcomeJournal.record(
+            repository,
+            DeviceActionType.SMS,
+            DeviceActionOutcomeCode.SENT
         )
 
-        val event = dao.findDeviceActionEventById(eventId)!!
-        assertEquals("sms", event.actionType)
+        // The row must already be queryable when the awaitable API returns.
+        val event = dao.findDeviceActionEventById(eventId)
+        assertNotNull(event)
+        assertEquals("sms", event!!.actionType)
         assertEquals("SENT", event.outcomeCode)
-        assertTrue(event.safeSummary.contains("RESULT_OK"))
+        assertEquals(DeviceActionOutcomeCode.SENT.safeSummary, event.safeSummary)
         assertFalse(event.safeSummary.contains("+905551112233"))
         assertFalse(event.safeSummary.contains("Özel mesaj metni"))
         assertEquals(eventId, dao.observeRecentDeviceActionEvents(10).first().single().id)
 
-        val draftId = repository.recordDeviceActionOutcome(
-            actionType = "sms",
-            outcomeCode = "DRAFT",
-            safeSummary = "ACTION_SENDTO taslağı açıldı; JARVIS mesajı göndermedi."
+        val draftId = DeviceActionOutcomeJournal.record(
+            repository,
+            DeviceActionType.SMS,
+            DeviceActionOutcomeCode.DRAFT
         )
-        assertEquals("DRAFT", dao.findDeviceActionEventById(draftId)?.outcomeCode)
+        val draft = dao.findDeviceActionEventById(draftId)!!
+        assertEquals("DRAFT", draft.outcomeCode)
+        assertEquals(DeviceActionOutcomeCode.DRAFT.safeSummary, draft.safeSummary)
+
+        val unknownId = DeviceActionOutcomeJournal.record(
+            repository,
+            DeviceActionType.SMS,
+            DeviceActionOutcomeCode.UNKNOWN
+        )
+        assertEquals("UNKNOWN", dao.findDeviceActionEventById(unknownId)?.outcomeCode)
     }
 
     @Test
