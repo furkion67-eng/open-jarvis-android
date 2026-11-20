@@ -133,7 +133,7 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
     var availability by remember(latest?.id, latest?.videoUri) {
         mutableStateOf<PlaybackAvailability>(PlaybackAvailability.Empty)
     }
-    var player by remember(latest?.videoUri) { mutableStateOf<VideoView?>(null) }
+    var player by remember(latest?.videoUri, retryKey) { mutableStateOf<VideoView?>(null) }
     var playbackError by remember(latest?.id, latest?.videoUri) { mutableStateOf<String?>(null) }
     var playerPreparing by remember(latest?.id, latest?.videoUri, retryKey) { mutableStateOf(false) }
 
@@ -316,7 +316,7 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
                                     player?.seekTo(0)
                                     player?.start()
                                 },
-                                enabled = player != null
+                                enabled = player != null && !playerPreparing
                             ) { Text("Baştan oynat") }
                             TextButton(onClick = { retryKey++ }) { Text("Yeniden denetle") }
                         }
