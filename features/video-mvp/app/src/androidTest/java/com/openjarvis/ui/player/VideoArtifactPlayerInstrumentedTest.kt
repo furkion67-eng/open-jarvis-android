@@ -1,5 +1,6 @@
 package com.openjarvis.ui.player
 
+import android.content.Intent
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
@@ -11,7 +12,6 @@ import android.widget.VideoView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
-import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.openjarvis.tasks.JarvisTaskDatabase
@@ -60,7 +60,7 @@ class VideoArtifactPlayerInstrumentedTest {
         var videoUri: Uri? = null
         var captionsUri: Uri? = null
         var thumbnailUri: Uri? = null
-        var scenario: ActivityScenario<DashboardPlayerTestActivity>? = null
+        var playerActivity: DashboardPlayerTestActivity? = null
 
         try {
             // Use the production repository and its registered VideoStoryTaskExecutor. The plan
@@ -181,16 +181,20 @@ class VideoArtifactPlayerInstrumentedTest {
             // Render the production player in an isolated test host. MainActivity's explicit
             // Accessibility/Overlay gate is validated separately by the launcher test; this
             // test must not bypass or auto-grant those production capabilities.
-            scenario = ActivityScenario.launch(DashboardPlayerTestActivity::class.java)
-            awaitDashboardPlayer(scenario!!, persistedVideoUri.toString())
-            scenario!!.recreate()
-            val recreatedPlayer = awaitDashboardPlayer(scenario!!, persistedVideoUri.toString())
+            playerActivity = launchDashboardPlayerHost()
+            awaitDashboardPlayer(playerActivity!!, persistedVideoUri.toString())
+            val firstPlayerActivity = playerActivity!!
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                firstPlayerActivity.recreate()
+            }
+            playerActivity = awaitDashboardPlayerHost(previous = firstPlayerActivity)
+            val recreatedPlayer = awaitDashboardPlayer(playerActivity!!, persistedVideoUri.toString())
             assertEquals(persistedVideoUri.toString(), recreatedPlayer.tag)
 
             // Simulate process loss: close the Activity and production Room singleton, then
             // reopen the same on-disk database before launching a fresh host Activity.
-            scenario!!.close()
-            scenario = null
+            closeDashboardPlayerHost(playerActivity)
+            playerActivity = null
             JarvisTaskDatabase.closeInstanceForTesting()
             val reopenedDatabase = JarvisTaskDatabase.getInstance(context)
             val restoredTask = reopenedDatabase.taskDao().findById(createdTaskId)
@@ -223,25 +227,25 @@ class VideoArtifactPlayerInstrumentedTest {
             )
             assertTrue("The restored URI pair must remain playable after Room reopen.", reopenedAvailability is PlaybackAvailability.Ready)
 
-            scenario = ActivityScenario.launch(DashboardPlayerTestActivity::class.java)
-            val restoredPlayer = awaitDashboardPlayer(scenario!!, persistedVideoUri.toString())
+            playerActivity = launchDashboardPlayerHost()
+            val restoredPlayer = awaitDashboardPlayer(playerActivity!!, persistedVideoUri.toString())
             assertEquals(videoUri.toString(), restoredPlayer.tag)
 
             // Start the exact VideoView created by VideoArtifactPlayerPanel. Do not construct
             // another player or reset its URI: the Dashboard must play the persisted task URI.
-            scenario!!.onActivity {
-                val player = findVideoView(it.window.decorView)
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                val player = findVideoView(playerActivity!!.window.decorView)
                     ?: throw AssertionError("The embedded dashboard VideoView must exist.")
                 assertEquals(persistedVideoUri.toString(), player.tag)
                 player.start()
             }
-            val playbackProgressMs = awaitPlaybackProgress(scenario!!)
+            val playbackProgressMs = awaitPlaybackProgress(playerActivity!!)
             assertTrue(
                 "The production Dashboard player must advance the same executor-produced MediaStore URI after Room reopen.",
                 playbackProgressMs > 0
             )
         } finally {
-            scenario?.close()
+            closeDashboardPlayerHost(playerActivity)
             JarvisTaskDatabase.closeInstanceForTesting()
             runCatching {
                 val cleanupDatabase = JarvisTaskDatabase.getInstance(context)
@@ -254,16 +258,68 @@ class VideoArtifactPlayerInstrumentedTest {
         }
     }
 
+    /**
+     * Launch the androidTest-only Activity from the instrumentation APK's own context.
+     *
+     * ActivityScenario launches through the target application context. That is the wrong
+     * package for this androidTest-only component and fails on Android 13/14 with
+     * "Intent in process com.openjarvis resolved to different process com.openjarvis.test".
+     * Starting from instrumentation.context keeps the test host in its owning test process;
+     * no app-op, permission grant, or production gate is bypassed.
+     */
+    private fun launchDashboardPlayerHost(): DashboardPlayerTestActivity {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val testContext = instrumentation.context
+        val intent = Intent(testContext, DashboardPlayerTestActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        testContext.startActivity(intent)
+        return awaitDashboardPlayerHost()
+    }
+
+    private fun awaitDashboardPlayerHost(
+        previous: DashboardPlayerTestActivity? = null
+    ): DashboardPlayerTestActivity {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val deadline = SystemClock.elapsedRealtime() + 15_000L
+        while (SystemClock.elapsedRealtime() < deadline) {
+            var current: DashboardPlayerTestActivity? = null
+            instrumentation.runOnMainSync {
+                current = DashboardPlayerTestActivity.current
+                    ?.takeIf { it !== previous && !it.isFinishing }
+            }
+            if (current != null) return current!!
+            SystemClock.sleep(50)
+        }
+        throw AssertionError("The instrumentation-owned embedded-player host did not start.")
+    }
+
+    private fun closeDashboardPlayerHost(activity: DashboardPlayerTestActivity?) {
+        if (activity == null) return
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync {
+            if (!activity.isFinishing) activity.finish()
+        }
+        val deadline = SystemClock.elapsedRealtime() + 10_000L
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (DashboardPlayerTestActivity.current !== activity) return
+            SystemClock.sleep(50)
+        }
+        throw AssertionError("The embedded-player test host did not finish cleanly.")
+    }
+
     private fun awaitDashboardPlayer(
-        scenario: ActivityScenario<DashboardPlayerTestActivity>,
+        activity: DashboardPlayerTestActivity,
         expectedUri: String
     ): VideoView {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
         val deadline = SystemClock.elapsedRealtime() + 30_000L
         while (SystemClock.elapsedRealtime() < deadline) {
             var found: VideoView? = null
-            scenario.onActivity { activity ->
-                found = findVideoView(activity.window.decorView)
-                    ?.takeIf { it.tag == expectedUri }
+            instrumentation.runOnMainSync {
+                if (!activity.isFinishing && DashboardPlayerTestActivity.current === activity) {
+                    found = findVideoView(activity.window.decorView)
+                        ?.takeIf { it.tag == expectedUri }
+                }
             }
             if (found != null) return found!!
             SystemClock.sleep(100)
@@ -271,11 +327,12 @@ class VideoArtifactPlayerInstrumentedTest {
         throw AssertionError("Production VideoArtifactPlayerPanel did not restore the persisted URI in the test host.")
     }
 
-    private fun awaitPlaybackProgress(scenario: ActivityScenario<DashboardPlayerTestActivity>): Int {
+    private fun awaitPlaybackProgress(activity: DashboardPlayerTestActivity): Int {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
         val deadline = SystemClock.elapsedRealtime() + 30_000L
         while (SystemClock.elapsedRealtime() < deadline) {
             var progressMs = 0
-            scenario.onActivity { activity ->
+            instrumentation.runOnMainSync {
                 val player = findVideoView(activity.window.decorView)
                     ?: throw AssertionError("The production embedded VideoView disappeared.")
                 if (player.isPlaying || player.currentPosition > 0) {
@@ -307,12 +364,24 @@ class VideoArtifactPlayerInstrumentedTest {
  * bypass those user-controlled capabilities just to render a video.
  */
 class DashboardPlayerTestActivity : ComponentActivity() {
+    companion object {
+        @Volatile
+        var current: DashboardPlayerTestActivity? = null
+            private set
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        current = this
         setContent {
             MaterialTheme {
                 VideoArtifactPlayerPanel()
             }
         }
+    }
+
+    override fun onDestroy() {
+        if (current === this) current = null
+        super.onDestroy()
     }
 }
