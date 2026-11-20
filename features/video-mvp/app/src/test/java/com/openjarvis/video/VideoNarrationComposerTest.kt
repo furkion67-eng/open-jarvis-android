@@ -2,6 +2,7 @@ package com.openjarvis.video
 
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -126,6 +127,13 @@ class VideoNarrationComposerTest {
                 1_000L
             )
         }.isFailure)
+    }
+
+    @Test
+    fun actualTtsVoiceMustBePresentAndExactlyTurkishAfterSelection() {
+        assertTrue(!isActualVoiceExactTurkish(null))
+        assertTrue(!isActualVoiceExactTurkish(Locale.forLanguageTag("en-US")))
+        assertTrue(isActualVoiceExactTurkish(Locale.forLanguageTag("tr-TR")))
     }
 
     private fun wavFile(
