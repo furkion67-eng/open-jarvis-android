@@ -18,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -116,6 +117,10 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
     }
     var player by remember(latest?.videoUri) { mutableStateOf<VideoView?>(null) }
     var playbackError by remember(latest?.id, latest?.videoUri) { mutableStateOf<String?>(null) }
+
+    DisposableEffect(player) {
+        onDispose { player?.stopPlayback() }
+    }
 
     LaunchedEffect(
         latest?.id,
