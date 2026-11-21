@@ -3,9 +3,9 @@ name: Build Open Jarvis APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, "feature/approval-toggle", "feature/repair-overlay-input-digest-2026-11-21" ]
+    branches: [ main, "feature/approval-toggle", "feature/repair-overlay-input-digest-2026-11-21", "infra/ci-saf-streaming-stack-20261121" ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, "feature/dashboard-launch-assertion-open-jarvis-20261121", "feature/sms-architecture-test-map-types-20261121", "feature/saf-streaming-and-grant-revoke-ux-20261121" ]
 
 permissions:
   contents: read
