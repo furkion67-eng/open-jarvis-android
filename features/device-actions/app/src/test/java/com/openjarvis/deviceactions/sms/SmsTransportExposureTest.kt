@@ -61,7 +61,7 @@ class SmsTransportExposureTest {
         assertTrue(coordinatorSource.contains("private suspend fun requestSmsConfirmation("))
         assertTrue(coordinatorSource.contains("smsConfirmationGate.prepare(labelOf(contactName, number), number, body)"))
         assertTrue(coordinatorSource.contains("AgentState.AwaitingConfirmation("))
-        assertTrue(coordinatorSource.contains("detail = \"Alıcı: ${review.recipientName} (${review.phoneNumber})\\nMesaj: ${review.exactMessage}\""))
+        assertTrue(coordinatorSource.contains("detail = \"Alıcı: \${review.recipientName} (\${review.phoneNumber})\\nMesaj: \${review.exactMessage}\""))
         assertTrue(coordinatorSource.contains("private suspend fun confirmSms(review: SmsReview"))
         assertTrue(coordinatorSource.contains("smsConfirmationGate.confirm(review.reviewId)"))
         assertTrue(coordinatorSource.contains("executor.dispatchConfirmedSms(confirmation, smsConfirmationGate)"))
