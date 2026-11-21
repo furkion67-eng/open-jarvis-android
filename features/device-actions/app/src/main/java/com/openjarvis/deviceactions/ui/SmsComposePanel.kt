@@ -39,6 +39,7 @@ import com.openjarvis.deviceactions.sms.createAndroidSmsDispatcher
 import com.openjarvis.deviceactions.sms.SmsSendOutcome
 import com.openjarvis.deviceactions.sms.SmsSelectionInvalidationPolicy
 import com.openjarvis.deviceactions.sms.toDeviceActionOutcomeCode
+import com.openjarvis.tasks.DeviceActionOutcomeCode
 import com.openjarvis.tasks.DeviceActionOutcomeJournal
 import com.openjarvis.tasks.DeviceActionType
 

@@ -10,6 +10,7 @@ import androidx.core.content.ContextCompat
 import com.openjarvis.deviceactions.contacts.AndroidContactsResolver
 import com.openjarvis.deviceactions.contacts.ContactCandidate
 import com.openjarvis.deviceactions.contacts.ContactLookupResult
+import com.openjarvis.deviceactions.sms.ConfirmedSmsAction
 import com.openjarvis.deviceactions.sms.SmsConfirmationGate
 import com.openjarvis.deviceactions.sms.SmsSendOutcome
 import com.openjarvis.deviceactions.sms.createAndroidSmsDispatcher
@@ -111,20 +112,17 @@ class AndroidActionExecutor(private val context: Context) {
      * The dispatcher rechecks SEND_SMS immediately before transport and maps missing callbacks
      * to UNKNOWN in the durable opaque attempt journal; no retry is scheduled.
      */
-    fun sendSms(number: String, body: String, onResult: (Result<Unit>) -> Unit) {
-        val gate = SmsConfirmationGate()
-        val review = try {
-            gate.prepare(number, number, body)
-        } catch (error: Exception) {
-            onResult(Result.failure<Unit>(error))
-            return
-        }
-        val confirmation = gate.confirm(review.reviewId)
-        if (confirmation == null) {
-            onResult(Result.failure<Unit>(IllegalStateException("SMS için tek kullanımlık onay oluşturulamadı.")))
-            return
-        }
-
+    /**
+     * Dispatches only an opaque token minted by the coordinator after its visible
+     * AwaitingConfirmation state was explicitly accepted. The gate is the same private
+     * coordinator-owned instance that created the displayed SmsReview; this executor never
+     * prepares or confirms a review itself.
+     */
+    internal fun dispatchConfirmedSms(
+        confirmation: ConfirmedSmsAction,
+        gate: SmsConfirmationGate,
+        onResult: (Result<Unit>) -> Unit
+    ) {
         val dispatcher = createAndroidSmsDispatcher(context, gate)
         outcomeScope.launch {
             // A process-reopened pending attempt is UNKNOWN, never replayed as a new send.
