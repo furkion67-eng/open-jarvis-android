@@ -1,33 +1,60 @@
 package com.openjarvis.tasks
 
-import android.content.Intent
+import android.content.ComponentName
+import android.provider.Settings
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performScrollTo
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.openjarvis.accessibility.JarvisAccessibilityService
+import com.openjarvis.ui.MainActivity
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.runner.RunWith
 
-/** Confirms the launcher Activity reaches a visible window, not merely a live process. */
+/**
+ * Product acceptance: optional Accessibility and Overlay capabilities must not gate normal
+ * Dashboard/video-archive launch. The emulator is intentionally left with both disabled.
+ */
+@RunWith(AndroidJUnit4::class)
 class MainActivityLaunchInstrumentedTest {
+    @get:Rule
+    val composeRule = createAndroidComposeRule<MainActivity>()
+
     @Test
-    fun launcherActivityStartsAndRemainsVisible() {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val monitor = instrumentation.addMonitor("com.openjarvis.ui.MainActivity", null, false)
-        try {
-            val intent = Intent(Intent.ACTION_MAIN)
-                .setClassName("com.openjarvis", "com.openjarvis.ui.MainActivity")
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-            instrumentation.startActivitySync(intent)
-            val activity = instrumentation.waitForMonitorWithTimeout(monitor, 10_000)
-            assertNotNull("MainActivity did not start", activity)
-            instrumentation.waitForIdleSync()
-            assertFalse("MainActivity is finishing", activity!!.isFinishing)
-            assertTrue("MainActivity window is not visible", activity.window.decorView.isShown)
-            Thread.sleep(2_000)
-            assertFalse("MainActivity exited shortly after launch", activity.isFinishing)
-            activity.finish()
-        } finally {
-            instrumentation.removeMonitor(monitor)
+    fun dashboardAndVideoArchiveRemainVisibleWithoutAccessibilityOrOverlay() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val enabledServices = Settings.Secure.getString(
+            context.contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ).orEmpty()
+        val accessibilityComponent = ComponentName(
+            context,
+            JarvisAccessibilityService::class.java
+        ).flattenToString()
+        val accessibilityEnabled = enabledServices.split(':').any {
+            it.equals(accessibilityComponent, ignoreCase = true)
         }
+
+        assertFalse(
+            "Acceptance emulator must keep JARVIS Accessibility disabled",
+            accessibilityEnabled
+        )
+        assertFalse(
+            "Acceptance emulator must keep Overlay permission denied",
+            Settings.canDrawOverlays(context)
+        )
+
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("JARVIS").assertIsDisplayed()
+        composeRule.onNodeWithText("Türkçe sesli video üretimi")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("JARVIS video arşivi")
+            .performScrollTo()
+            .assertIsDisplayed()
     }
 }

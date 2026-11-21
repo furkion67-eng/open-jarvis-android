@@ -3921,5 +3921,129 @@ if legacy_test_manifest.is_file():
 
 print("Registered the embedded-player test host in the extracted host's debug-only manifest; production and test-APK manifests remain unchanged")
 
+
+
+# Architect-approved 21 Nov 2026: Accessibility and Overlay are optional device
+# capabilities, not prerequisites for opening normal chat, Dashboard or video archive.
+def remove_global_accessibility_overlay_gate(source):
+    gate_start = "                val accessibilityEnabled = isAccessibilityServiceEnabled()"
+    if gate_start in source:
+        start = source.index(gate_start)
+        closing = re.search(
+            r"(?m)^                }\n(?=            }\n        }\n    })",
+            source[start:]
+        )
+        if not closing:
+            raise SystemExit("MainActivity.kt: global permission gate closing anchor not found")
+        end = start + closing.end()
+        dashboard = """                // Accessibility and overlay are optional capabilities, not launch prerequisites.
+                DashboardScreen(
+                    onStartOverlay = { startActivity(Intent(this, VoiceCommandActivity::class.java)) },
+                    onOpenSettings = { openSettings() },
+                    graphifyRepo = graphifyRepo,
+                    modifier = Modifier.fillMaxSize()
+                )
+"""
+        source = source[:start] + dashboard + source[end:]
+    elif "if (!accessibilityEnabled || !overlayEnabled)" in source:
+        raise SystemExit("MainActivity.kt: global permission gate remains but its start anchor changed")
+
+    helper_start = source.find("\n    private fun isAccessibilityServiceEnabled(): Boolean {")
+    if helper_start >= 0:
+        helper_end = source.find("\n    private fun startOverlayService() {", helper_start)
+        if helper_end < 0:
+            raise SystemExit("MainActivity.kt: optional capability helper end anchor not found")
+        source = source[:helper_start] + source[helper_end:]
+    elif "private fun isAccessibilityServiceEnabled()" in source:
+        raise SystemExit("MainActivity.kt: unexpected accessibility helper shape")
+
+    screen_start = source.find("\n@Composable\nfun PermissionScreen(")
+    if screen_start >= 0:
+        source = source[:screen_start].rstrip() + "\n"
+    elif "PermissionScreen(" in source:
+        raise SystemExit("MainActivity.kt: unexpected PermissionScreen reference remains")
+
+    for import_line in (
+        "import android.content.ComponentName\n",
+        "import android.provider.Settings\n",
+        "import com.openjarvis.accessibility.JarvisAccessibilityService\n",
+        "import com.openjarvis.agent.AgentState\n",
+        "import androidx.compose.ui.platform.LocalContext\n",
+    ):
+        source = source.replace(import_line, "")
+    source = source.replace("                val context = LocalContext.current\n", "")
+
+    if "isAccessibilityServiceEnabled" in source or "PermissionScreen(" in source:
+        raise SystemExit("MainActivity.kt: obsolete global permission gate references remain")
+    if "DashboardScreen(" not in source:
+        raise SystemExit("MainActivity.kt: permission-independent Dashboard call is missing")
+    return source
+
+
+def _dashboard_permission_gate_regression_test():
+    fixture = """package com.openjarvis.ui
+import android.content.ComponentName
+import android.content.Intent
+import android.provider.Settings
+import com.openjarvis.accessibility.JarvisAccessibilityService
+import com.openjarvis.agent.AgentState
+import androidx.compose.ui.platform.LocalContext
+
+class MainActivity {
+    fun content() {
+        setContent {
+            OpenJarvisTheme {
+                val context = LocalContext.current
+                val accessibilityEnabled = isAccessibilityServiceEnabled()
+                val overlayEnabled = Settings.canDrawOverlays(this)
+
+                val agentState by agentCore.state.collectAsState()
+
+                if (!accessibilityEnabled || !overlayEnabled) {
+                    PermissionScreen(
+                        accessibilityEnabled = accessibilityEnabled,
+                        overlayEnabled = overlayEnabled,
+                        onEnableAccessibility = { startAccessibilitySettings() },
+                        onEnableOverlay = { startOverlaySettings() }
+                    )
+                } else {
+                    DashboardScreen(
+                        onStartOverlay = { startActivity(Intent(this, VoiceCommandActivity::class.java)) },
+                        onOpenSettings = { openSettings() },
+                        graphifyRepo = graphifyRepo,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+        }
+    }
+
+    private fun isAccessibilityServiceEnabled(): Boolean { return false }
+    private fun startAccessibilitySettings() {}
+    private fun startOverlaySettings() {}
+    private fun startOverlayService() {}
+}
+
+@Composable
+fun PermissionScreen() {}
+"""
+    once = remove_global_accessibility_overlay_gate(fixture)
+    twice = remove_global_accessibility_overlay_gate(once)
+    if once != twice:
+        raise SystemExit("MainActivity.kt: permission-independent Dashboard repair is not idempotent")
+    if (
+        once.count("DashboardScreen(") != 1
+        or "PermissionScreen(" in once
+        or "isAccessibilityServiceEnabled" in once
+        or "Settings.canDrawOverlays(this)" in once
+        or "onStartOverlay = { startActivity(Intent(this, VoiceCommandActivity::class.java)) }" not in once
+    ):
+        raise SystemExit("MainActivity.kt: permission-independent Dashboard regression failed")
+
+
+_dashboard_permission_gate_regression_test()
+edit("app/src/main/java/com/openjarvis/ui/MainActivity.kt", remove_global_accessibility_overlay_gate)
+print("Removed only the global Accessibility/Overlay launcher gate; optional capability actions remain user-controlled")
+
 repair_marker.write_text(repair_digest + "\n", encoding="utf-8")
 print("OPEN_JARVIS_REPAIR_IDEMPOTENT_MARKER_WRITTEN")
