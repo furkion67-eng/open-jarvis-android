@@ -34,10 +34,8 @@ import com.openjarvis.deviceactions.contacts.AndroidContactsResolver
 import com.openjarvis.deviceactions.contacts.ContactCandidate
 import com.openjarvis.deviceactions.contacts.ContactLookupResult
 import com.openjarvis.deviceactions.contacts.ContactPhoneOption
-import com.openjarvis.deviceactions.sms.AndroidSmsSender
-import com.openjarvis.deviceactions.sms.ConfirmedSmsDispatcher
 import com.openjarvis.deviceactions.sms.SmsConfirmationGate
-import com.openjarvis.deviceactions.sms.SmsPermission
+import com.openjarvis.deviceactions.sms.createAndroidSmsDispatcher
 import com.openjarvis.deviceactions.sms.SmsSendOutcome
 import com.openjarvis.deviceactions.sms.SmsSelectionInvalidationPolicy
 import com.openjarvis.tasks.DeviceActionOutcomeCode
@@ -63,17 +61,9 @@ fun SmsComposePanel(
     val coroutineScope = rememberCoroutineScope()
     val contacts = remember(context) { AndroidContactsResolver(context) }
     val capabilityStatus = remember(context) { AndroidCapabilityStatusReader(context) }
-    val sender = remember(context) { AndroidSmsSender(context) }
     val gate = remember { SmsConfirmationGate() }
-    val dispatcher = remember(context, gate, sender) {
-        ConfirmedSmsDispatcher(
-            permission = SmsPermission {
-                context.checkSelfPermission(Manifest.permission.SEND_SMS) ==
-                    PackageManager.PERMISSION_GRANTED
-            },
-            gate = gate,
-            transport = sender
-        )
+    val dispatcher = remember(context, gate) {
+        createAndroidSmsDispatcher(context, gate)
     }
 
     var nameQuery by remember { mutableStateOf("") }
@@ -105,8 +95,8 @@ fun SmsComposePanel(
         }
     }
 
-    LaunchedEffect(sender) {
-        if (sender.recoveredUnknownCount > 0) {
+    LaunchedEffect(dispatcher) {
+        if (dispatcher.recoveredUnknownCount > 0) {
             status = "Önceki SMS gönderiminin sonucu uygulama yeniden açıldığında doğrulanamadı (UNKNOWN). JARVIS mesajı otomatik tekrar göndermedi."
             persistSmsOutcome(
                 SmsSendOutcome.Unknown("Önceki süreçte SMS gönderim callback'i alınamadı; otomatik tekrar yapılmadı.")
