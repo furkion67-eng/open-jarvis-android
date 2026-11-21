@@ -22,10 +22,22 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
 
       - name: Assert exact pushed commit
         if: github.event_name == 'push'
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Assert exact pull-request head and base
+        if: github.event_name == 'pull_request'
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_BASE"
 
       - name: Extract source and locate project
         id: source
