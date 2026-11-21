@@ -29,13 +29,15 @@ internal fun createAndroidSmsDispatcher(
     gate: SmsConfirmationGate
 ): ConfirmedSmsDispatcher {
     val appContext = context.applicationContext
+    val sender = AndroidSmsSender(appContext)
     return ConfirmedSmsDispatcher(
         permission = SmsPermission {
             appContext.checkSelfPermission(Manifest.permission.SEND_SMS) ==
                 PackageManager.PERMISSION_GRANTED
         },
         gate = gate,
-        transport = AndroidSmsSender(appContext)
+        transport = sender,
+        recoveredUnknownCount = sender.recoveredUnknownCount
     )
 }
 
