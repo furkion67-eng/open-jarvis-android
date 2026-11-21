@@ -9,6 +9,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.IOException
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 
 @RunWith(AndroidJUnit4::class)
 class SafStorageGatewayInstrumentedTest {
@@ -154,6 +156,73 @@ class SafStorageGatewayInstrumentedTest {
         val error = runCatching { gateway.delete(source, confirmation) }.exceptionOrNull()
         assertTrue(error is IllegalArgumentException)
         assertEquals(0, operations.deleteCalls)
+    }
+
+    @Test
+    fun streamToCopiesLargeDocumentsUsingBoundedMultipleChunks() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val tree = Uri.parse("content://jarvis.fake.documents/tree/root")
+        val source = DocumentsContract.buildDocumentUriUsingTree(tree, "root:large.bin")
+        val grants = listOf(snapshot(tree, read = true, write = false))
+        val bytes = ByteArray(64 * 1024 + 37) { index -> (index % 251).toByte() }
+        val input = object : ByteArrayInputStream(bytes) {
+            var largestRequestedChunk = 0
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                largestRequestedChunk = maxOf(largestRequestedChunk, length)
+                return super.read(buffer, offset, minOf(length, 4096))
+            }
+        }
+        val gateway = SafStorageGateway(
+            context,
+            { grants },
+            FakeSafDocumentOperations(),
+            { input }
+        )
+        val output = ByteArrayOutputStream()
+
+        val copied = gateway.streamTo(
+            uri = source,
+            output = output,
+            maxBytes = bytes.size.toLong(),
+            chunkSizeBytes = 4096
+        )
+
+        assertEquals(bytes.size.toLong(), copied)
+        org.junit.Assert.assertArrayEquals(bytes, output.toByteArray())
+        assertEquals(4096, input.largestRequestedChunk)
+    }
+
+    @Test
+    fun streamToStopsBeforeNextChunkWhenPersistedGrantIsRevoked() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val tree = Uri.parse("content://jarvis.fake.documents/tree/root")
+        val source = DocumentsContract.buildDocumentUriUsingTree(tree, "root:revoked-during-read.bin")
+        var currentGrants = listOf(snapshot(tree, read = true, write = false))
+        val input = object : ByteArrayInputStream(ByteArray(32) { it.toByte() }) {
+            var revokedAfterFirstChunk = false
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                val count = super.read(buffer, offset, minOf(length, 4))
+                if (!revokedAfterFirstChunk && count > 0) {
+                    revokedAfterFirstChunk = true
+                    currentGrants = emptyList()
+                }
+                return count
+            }
+        }
+        val gateway = SafStorageGateway(
+            context,
+            { currentGrants },
+            FakeSafDocumentOperations(),
+            { input }
+        )
+        val output = ByteArrayOutputStream()
+
+        val error = runCatching {
+            gateway.streamTo(source, output, maxBytes = 32, chunkSizeBytes = 4)
+        }.exceptionOrNull()
+
+        assertTrue("A revoked grant must stop the next read chunk", error is SecurityException)
+        assertEquals("Only the first authorized chunk may be copied", 4, output.size())
     }
 
     private fun snapshot(tree: Uri, read: Boolean, write: Boolean) = StorageGrantSnapshot(
