@@ -319,6 +319,10 @@ class VideoVisualAssetResolver(
         }
 
         if (cached.mimeType != descriptor.expectedMimeType ||
+            cached.retrievedAtEpochMs <= 0L ||
+            cached.retrievedAtEpochMs > now ||
+            cached.expiresAtEpochMs <= cached.retrievedAtEpochMs ||
+            cached.expiresAtEpochMs - cached.retrievedAtEpochMs > VideoAssetLicensePolicy.MAX_CACHE_TTL_MS ||
             !cached.file.isFile ||
             cached.file.length() != cached.byteSize ||
             sha256(cached.file) != cached.sha256 ||
@@ -417,7 +421,10 @@ class FileVideoVisualAssetCache(
         val expiresAt = properties.getProperty("expiresAtEpochMs")?.toLongOrNull()
         val byteSize = properties.getProperty("byteSize")?.toLongOrNull()
         if (expectedHash.isNullOrBlank() || mimeType == null || retrievedAt == null ||
-            expiresAt == null || byteSize == null || expiresAt <= nowEpochMs ||
+            expiresAt == null || byteSize == null ||
+            retrievedAt <= 0L || retrievedAt > nowEpochMs ||
+            expiresAt <= retrievedAt || expiresAt <= nowEpochMs ||
+            expiresAt - retrievedAt > VideoAssetLicensePolicy.MAX_CACHE_TTL_MS ||
             byteSize <= 0L || dataFile.length() != byteSize ||
             mimeType !in VideoAssetLicensePolicy.ALLOWED_IMAGE_MIME_TYPES ||
             sha256(dataFile) != expectedHash
@@ -440,7 +447,11 @@ class FileVideoVisualAssetCache(
         require(cacheKey.matches(Regex("[a-f0-9]{64}")))
         require(bytes.isNotEmpty() && mimeType in VideoAssetLicensePolicy.ALLOWED_IMAGE_MIME_TYPES)
         require(contentSha256.matches(Regex("[a-f0-9]{64}")) && sha256(bytes) == contentSha256)
-        require(expiresAtEpochMs > retrievedAtEpochMs)
+        require(
+            retrievedAtEpochMs > 0L &&
+                expiresAtEpochMs > retrievedAtEpochMs &&
+                expiresAtEpochMs - retrievedAtEpochMs <= VideoAssetLicensePolicy.MAX_CACHE_TTL_MS
+        ) { "Görsel önbellek süresi geçersiz veya 30 günü aşıyor." }
         val dataFile = File(root, "$cacheKey.bin")
         val metadataFile = File(root, "$cacheKey.properties")
         val dataTemp = File(root, "$cacheKey.bin.tmp")
@@ -483,12 +494,17 @@ class FileVideoVisualAssetCache(
         files.forEach { file ->
             val key = file.nameWithoutExtension
             val metadata = File(root, "$key.properties")
-            val expiresAt = runCatching {
+            val metadataValid = runCatching {
                 val properties = Properties()
                 FileInputStream(metadata).use { properties.load(it) }
-                properties.getProperty("expiresAtEpochMs")?.toLongOrNull()
-            }.getOrNull()
-            if (!metadata.isFile || expiresAt == null || expiresAt <= nowEpochMs) {
+                val retrievedAt = properties.getProperty("retrievedAtEpochMs")?.toLongOrNull()
+                val expiresAt = properties.getProperty("expiresAtEpochMs")?.toLongOrNull()
+                retrievedAt != null && expiresAt != null &&
+                    retrievedAt > 0L && retrievedAt <= nowEpochMs &&
+                    expiresAt > nowEpochMs && expiresAt > retrievedAt &&
+                    expiresAt - retrievedAt <= VideoAssetLicensePolicy.MAX_CACHE_TTL_MS
+            }.getOrDefault(false)
+            if (!metadata.isFile || !metadataValid) {
                 file.delete()
                 metadata.delete()
             } else {
