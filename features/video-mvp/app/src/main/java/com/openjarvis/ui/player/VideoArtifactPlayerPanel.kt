@@ -140,6 +140,13 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
         mutableStateOf(VideoPlayerPreparationState.preparing(playerAttemptId))
     }
 
+    // The same callback bridge is used by VideoView listeners and its focused JVM regression test.
+    val playerCallbackBridge = remember(playerAttemptId) {
+        VideoPlayerCallbackBridge(playerAttemptId) { nextState ->
+            playerPreparation = nextState
+        }
+    }
+
     DisposableEffect(player) {
         onDispose { player?.stopPlayback() }
     }
@@ -276,30 +283,30 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
                                     controller.setAnchorView(this)
                                     setMediaController(controller)
                                     setOnPreparedListener {
-                                        playerPreparation = playerPreparation.onPrepared(playerAttemptId)
+                                        playerCallbackBridge.onPrepared(playerAttemptId)
                                     }
                                     setOnInfoListener { _, what, _ ->
                                         when (what) {
-                                            MediaPlayer.MEDIA_INFO_BUFFERING_START -> playerPreparation = playerPreparation.onBufferingStarted(playerAttemptId)
-                                            MediaPlayer.MEDIA_INFO_BUFFERING_END -> playerPreparation = playerPreparation.onBufferingEnded(playerAttemptId)
+                                            MediaPlayer.MEDIA_INFO_BUFFERING_START -> playerCallbackBridge.onBufferingStarted(playerAttemptId)
+                                            MediaPlayer.MEDIA_INFO_BUFFERING_END -> playerCallbackBridge.onBufferingEnded(playerAttemptId)
                                         }
                                         false
                                     }
                                     setOnErrorListener { _, _, _ ->
-                                        playerPreparation = playerPreparation.onError(
+                                        playerCallbackBridge.onError(
                                             "Video JARVIS içinde oynatılamadı. Yeniden denetleyebilir veya tekrar deneyebilirsin.",
                                             playerAttemptId
                                         )
                                         true
                                     }
                                     tag = state.uri.toString()
-                                    playerPreparation = playerPreparation.onRetry(playerAttemptId)
+                                    playerCallbackBridge.beginAttempt(playerAttemptId)
                                     setVideoURI(state.uri)
                                 }
                             },
                             update = { view ->
                                 if (view.tag != state.uri.toString()) {
-                                    playerPreparation = playerPreparation.onRetry(playerAttemptId)
+                                    playerCallbackBridge.beginAttempt(playerAttemptId)
                                     view.tag = state.uri.toString()
                                     view.setVideoURI(state.uri)
                                 }
