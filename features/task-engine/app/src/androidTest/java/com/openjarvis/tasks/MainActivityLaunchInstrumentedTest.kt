@@ -49,7 +49,7 @@ class MainActivityLaunchInstrumentedTest {
         )
 
         composeRule.waitForIdle()
-        composeRule.onNodeWithText("JARVIS").assertIsDisplayed()
+        composeRule.onNodeWithText("OPEN JARVIS").assertIsDisplayed()
         composeRule.onNodeWithText("Türkçe sesli video üretimi")
             .performScrollTo()
             .assertIsDisplayed()
