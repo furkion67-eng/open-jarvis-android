@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Assert exact pushed commit
         if: github.event_name == 'push'
@@ -37,7 +37,7 @@ jobs:
           EXPECTED_BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-          test "$(git rev-parse HEAD^)" = "$EXPECTED_BASE"
+          test "$(git merge-base HEAD "$EXPECTED_BASE")" = "$EXPECTED_BASE"
 
       - name: Extract source and locate project
         id: source
