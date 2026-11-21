@@ -56,6 +56,7 @@ class AndroidActionExecutor(private val context: Context) {
         data class Ambiguous(val candidates: List<ContactMatcher.Match>) : ContactResolution()
         object NotFound : ContactResolution()
         object PermissionMissing : ContactResolution()
+        data class Unavailable(val reason: String) : ContactResolution()
     }
 
     fun canSendSmsDirectly(): Boolean = hasPermission(Manifest.permission.SEND_SMS)
@@ -81,6 +82,8 @@ class AndroidActionExecutor(private val context: Context) {
                 ambiguousNumbers(result.candidates)
             ContactLookupResult.PermissionDenied ->
                 ContactResolution.PermissionMissing
+            is ContactLookupResult.Unavailable ->
+                ContactResolution.Unavailable(result.reason)
             else ->
                 ContactResolution.NotFound
         }

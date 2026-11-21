@@ -45,6 +45,16 @@ class ContactResolutionTest {
     }
 
     @Test
+    fun providerFailureIsUnavailableRatherThanReportedAsNoMatch() {
+        val useCase = ContactLookupUseCase(
+            hasReadContactsPermission = { true },
+            loadPhoneRows = { throw IllegalStateException("provider unavailable") }
+        )
+        val result = useCase.resolve("İpek")
+        assertTrue(result is ContactLookupResult.Unavailable)
+    }
+
+    @Test
     fun deniedPermissionNeverQueriesProvider() {
         var queried = false
         val useCase = ContactLookupUseCase(

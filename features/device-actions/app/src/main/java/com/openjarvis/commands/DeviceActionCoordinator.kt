@@ -161,11 +161,7 @@ class DeviceActionCoordinator(
     }
     private suspend fun handleSms(routed: RoutedCommand.SendSms, command: String, setState: (AgentState) -> Unit) {
         setState(AgentState.Running("Alıcı çözümleniyor..."))
-        val recipient = when {
-            routed.phoneNumber != null -> ResolvedRecipient(routed.contactName ?: routed.phoneNumber, routed.phoneNumber)
-            routed.contactName != null -> resolveContactNumber(routed.contactName, routed, command, setState) ?: return
-            else -> null
-        }
+        val recipient = resolveRecipient(routed.contactName, routed.phoneNumber, routed, command, setState)
         if (recipient == null) {
             setState(AgentState.Error("Alıcı belirsiz; hem kişi hem numara bulunamadı."))
             logFailure(command, "sms: no recipient")
@@ -185,11 +181,7 @@ class DeviceActionCoordinator(
     }
     private suspend fun handleCall(routed: RoutedCommand.MakeCall, command: String, setState: (AgentState) -> Unit) {
         setState(AgentState.Running("Alıcı çözümleniyor..."))
-        val recipient = when {
-            routed.phoneNumber != null -> ResolvedRecipient(routed.contactName ?: routed.phoneNumber, routed.phoneNumber)
-            routed.contactName != null -> resolveContactNumber(routed.contactName, routed, command, setState) ?: return
-            else -> null
-        }
+        val recipient = resolveRecipient(routed.contactName, routed.phoneNumber, routed, command, setState)
         if (recipient == null) {
             setState(AgentState.Error("Aranacak numara bulunamadı."))
             logFailure(command, "call: no recipient")
@@ -208,11 +200,7 @@ class DeviceActionCoordinator(
     }
     private suspend fun handleWhatsApp(routed: RoutedCommand.WhatsAppMessage, command: String, setState: (AgentState) -> Unit) {
         setState(AgentState.Running("Alıcı çözümleniyor..."))
-        val recipient = when {
-            routed.phoneNumber != null -> ResolvedRecipient(routed.contactName ?: routed.phoneNumber, routed.phoneNumber)
-            routed.contactName != null -> resolveContactNumber(routed.contactName, routed, command, setState) ?: return
-            else -> null
-        }
+        val recipient = resolveRecipient(routed.contactName, routed.phoneNumber, routed, command, setState)
         if (recipient == null) {
             setState(AgentState.Error("WhatsApp alıcısı bulunamadı."))
             logFailure(command, "whatsapp: no recipient")
@@ -234,6 +222,20 @@ class DeviceActionCoordinator(
             )
         )
     }
+    private suspend fun resolveRecipient(
+        contactName: String?,
+        phoneNumber: String?,
+        routed: RoutedCommand,
+        command: String,
+        setState: (AgentState) -> Unit
+    ): ResolvedRecipient? = when (val source = RecipientSourcePolicy.choose(contactName, phoneNumber)) {
+        is RecipientSource.ContactName ->
+            resolveContactNumber(source.value, routed, command, setState)
+        is RecipientSource.ExplicitNumber ->
+            ResolvedRecipient(source.value, source.value)
+        RecipientSource.Missing -> null
+    }
+
     private suspend fun resolveContactNumber(
         name: String,
         routed: RoutedCommand,
@@ -281,6 +283,11 @@ class DeviceActionCoordinator(
             AndroidActionExecutor.ContactResolution.PermissionMissing -> {
                 setState(AgentState.Error("Rehber okuma izni verilmedi. Android uygulama ayarlarından Kişiler iznini açıp tekrar deneyin."))
                 logFailure(command, "contacts permission missing")
+                null
+            }
+            is AndroidActionExecutor.ContactResolution.Unavailable -> {
+                setState(AgentState.Error("Android Rehberi okunamadı: ${resolution.reason}"))
+                logFailure(command, "contacts provider unavailable")
                 null
             }
         }
