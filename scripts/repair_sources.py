@@ -4240,7 +4240,6 @@ fun RetainedStatusPanel() {
 
 _dashboard_permission_gate_regression_test()
 edit("app/src/main/java/com/openjarvis/ui/MainActivity.kt", remove_global_accessibility_overlay_gate)
-edit("app/src/main/java/com/openjarvis/ui/MainActivity.kt", remove_global_accessibility_overlay_gate)
 print("Removed only the global Accessibility/Overlay launcher gate; optional capability actions remain user-controlled")
 
 repair_marker.write_text(repair_digest + "\n", encoding="utf-8")
