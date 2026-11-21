@@ -146,6 +146,37 @@ class JarvisTaskExecutionSafetyInstrumentedTest {
         assertEquals(listOf(stableKey, stableKey), executor.idempotencyKeys.toList())
     }
 
+    @Test
+    fun recoveryDoesNotReplayInterruptedWorkUntilExplicitRetry() = runBlocking {
+        val executor = RecordingExecutor()
+        val registry = JarvisTaskCapabilityRegistry(
+            capabilities = listOf(LocalPlanPreviewCapability()),
+            executors = listOf(executor)
+        )
+        val repository = JarvisTaskRepository(dao, JarvisTaskOrchestrator(dao, registry))
+        val task = task(
+            id = "interrupted-recovery",
+            status = JarvisTaskStatus.RUNNING,
+            checkpoint = JarvisTaskCheckpoint.PLAN_REVIEWED,
+            planAcceptedAt = System.currentTimeMillis()
+        )
+        dao.insert(task)
+
+        repository.recoverInterruptedTasks()
+
+        val paused = dao.findById(task.id)!!
+        assertEquals(JarvisTaskStatus.INTERRUPTED.storageValue, paused.status)
+        assertEquals(0, paused.progressPercent)
+        assertEquals(0, executor.calls)
+
+        // The only subsequent execution is the explicit user retry path.
+        repository.retry(task.id)
+
+        val completed = dao.findById(task.id)!!
+        assertEquals(1, executor.calls)
+        assertEquals(JarvisTaskStatus.SUCCEEDED.storageValue, completed.status)
+    }
+
     private fun orchestrator(executor: RecordingExecutor): JarvisTaskOrchestrator {
         val registry = JarvisTaskCapabilityRegistry(
             capabilities = listOf(LocalPlanPreviewCapability()),

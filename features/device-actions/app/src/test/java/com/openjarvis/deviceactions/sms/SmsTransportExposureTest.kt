@@ -65,7 +65,21 @@ class SmsTransportExposureTest {
         assertTrue(coordinatorSource.contains("private suspend fun confirmSms(review: SmsReview"))
         assertTrue(coordinatorSource.contains("smsConfirmationGate.confirm(review.reviewId)"))
         assertTrue(coordinatorSource.contains("executor.dispatchConfirmedSms(confirmation, smsConfirmationGate)"))
+        assertTrue(coordinatorSource.contains("executor.dispatchConfirmedSms(confirmation, smsConfirmationGate) { result ->\n            scope.launch {"))
+        assertFalse(coordinatorSource.contains("scope.launch(Dispatchers.IO)"))
         assertTrue(coordinatorSource.contains("ResolvedRecipient(resolution.displayName, resolution.number)"))
+        assertTrue(coordinatorSource.contains("RecipientSourcePolicy.choose(contactName, phoneNumber)"))
+        assertEquals(
+            3,
+            coordinatorSource.split("resolveRecipient(routed.contactName, routed.phoneNumber, routed, command, setState)").size - 1
+        )
+        assertEquals(
+            3,
+            coordinatorSource.split("RecipientResolution.Handled -> return").size - 1
+        )
+        assertFalse(coordinatorSource.contains("routed.phoneNumber != null -> ResolvedRecipient"))
+        assertTrue(executorSource.contains("is ContactLookupResult.Unavailable -> ContactResolution.Unavailable(result.reason)"))
+        assertTrue(coordinatorSource.contains("is AndroidActionExecutor.ContactResolution.Unavailable ->"))
         assertTrue(coordinatorSource.contains("Android gönderim callback'i başarılı;"))
         assertFalse(executorSource.contains("SmsManager"))
         assertFalse(executorSource.contains("sendTextMessage"))
@@ -222,7 +236,7 @@ class SmsTransportExposureTest {
 
     @Test
     fun scannerIgnoresCommentsButPreservesLiteralAndExecutableTokens() {
-        val source = "val note = \"SmsManager\" // SmsManager\\n/* SmsManager */ SmsManager.getDefault()"
+        val source = "val note = \"SmsManager\" // SmsManager\n/* SmsManager */ SmsManager.getDefault()"
         val scanned = kotlinCode(source)
         assertTrue(scanned.contains("\"SmsManager\""))
         assertFalse(scanned.contains("// SmsManager"))
