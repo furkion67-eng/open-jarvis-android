@@ -19,8 +19,28 @@ import java.util.concurrent.atomic.AtomicInteger
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Sends only after a one-time explicit confirmation has been consumed. */
-class AndroidSmsSender(context: Context) : SmsTransport {
+/**
+ * The only app-facing construction path for the platform SMS transport.
+ * The concrete SmsManager sender is private to this file and is reachable only through
+ * ConfirmedSmsDispatcher, which consumes the one-time user confirmation before transport.
+ */
+internal fun createAndroidSmsDispatcher(
+    context: Context,
+    gate: SmsConfirmationGate
+): ConfirmedSmsDispatcher {
+    val appContext = context.applicationContext
+    return ConfirmedSmsDispatcher(
+        permission = SmsPermission {
+            appContext.checkSelfPermission(Manifest.permission.SEND_SMS) ==
+                PackageManager.PERMISSION_GRANTED
+        },
+        gate = gate,
+        transport = AndroidSmsSender(appContext)
+    )
+}
+
+/** Private platform transport; application callers cannot invoke SmsManager directly. */
+private class AndroidSmsSender(context: Context) : SmsTransport {
     private val appContext = context.applicationContext
     private val attemptJournal = SmsAttemptJournal(SharedPreferencesSmsAttemptStore(appContext))
     val recoveredUnknownCount: Int = if (PROCESS_RECOVERY.compareAndSet(false, true)) {
