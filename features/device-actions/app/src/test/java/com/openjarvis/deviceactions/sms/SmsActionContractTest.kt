@@ -60,6 +60,32 @@ class SmsActionContractTest {
     }
 
     @Test
+    fun dispatcherConsumesConfirmationBeforeTransportAndRejectsReplay() {
+        val gate = SmsConfirmationGate()
+        val review = gate.prepare("İpek Yılmaz", "+905321112233", "Tam ve kesin mesaj")
+        val confirmation = gate.confirm(review.reviewId)!!
+        val sentDrafts = mutableListOf<SmsDraft>()
+        val outcomes = mutableListOf<SmsSendOutcome>()
+        val dispatcher = ConfirmedSmsDispatcher(
+            permission = SmsPermission { true },
+            gate = gate,
+            transport = SmsTransport { draft, callback ->
+                sentDrafts += draft
+                callback(SmsSendOutcome.Sent)
+            }
+        )
+
+        dispatcher.dispatch(confirmation) { outcomes += it }
+        dispatcher.dispatch(confirmation) { outcomes += it }
+
+        assertEquals(1, sentDrafts.size)
+        assertEquals(review.recipientName, sentDrafts.single().recipientName)
+        assertEquals(review.phoneNumber, sentDrafts.single().phoneNumber)
+        assertEquals(review.exactMessage, sentDrafts.single().exactMessage)
+        assertEquals(listOf(SmsSendOutcome.Sent, SmsSendOutcome.Rejected), outcomes)
+    }
+
+    @Test
     fun sentRequiresSuccessfulCallbackForEveryPart() {
         val tracker = SmsSendTracker(2)
         assertEquals(SmsSendState.PENDING, tracker.recordPart(0, SmsPartResult.SENT))
