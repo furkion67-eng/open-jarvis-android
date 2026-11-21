@@ -50,7 +50,7 @@ class SmsTransportExposureTest {
         assertFalse(panelSource.contains("AndroidSmsSender"))
 
         // Voice and compose must share a one-time token created from the exact visible review.
-        assertFalse(Regex("""\\bfun\\s+sendSms\\s*\\(""").containsMatchIn(executorSource))
+        assertFalse(Regex("""\bfun\s+sendSms\s*\(""").containsMatchIn(executorSource))
         assertFalse(executorSource.contains("SmsConfirmationGate()"))
         assertFalse(executorSource.contains("gate.prepare("))
         assertFalse(executorSource.contains("gate.confirm("))
@@ -101,15 +101,15 @@ class SmsTransportExposureTest {
         assertEquals(setOf(senderPath), concreteSenderConstructionSites)
 
         val confirmedDispatchCallSites = sourceByPath.filterValues { source: String ->
-            Regex("""\\bexecutor\\s*\\.\\s*dispatchConfirmedSms\\s*\\(""").containsMatchIn(source)
+            Regex("""\bexecutor\s*\.\s*dispatchConfirmedSms\s*\(""").containsMatchIn(source)
         }.keys
         assertEquals("Only the coordinator's explicit confirmation handler may dispatch", setOf(coordinatorPath), confirmedDispatchCallSites)
 
         val rawSendSmsCallSites = sourceByPath.filterValues { source: String ->
-            Regex("""\\bexecutor\\s*\\.\\s*sendSms\\s*\\(""").containsMatchIn(source)
+            Regex("""\bexecutor\s*\.\s*sendSms\s*\(""").containsMatchIn(source)
         }.keys
         assertTrue("Raw number/body SMS entry points are forbidden", rawSendSmsCallSites.isEmpty())
-        assertEquals(1, Regex("""smsConfirmationGate\\.confirm\\(""").findAll(coordinatorSource).count())
+        assertEquals(1, Regex("""smsConfirmationGate\.confirm\(""").findAll(coordinatorSource).count())
 
         val directSenderCalls = sourceByPath.filterValues { source: String ->
             Regex("""\b(?:sender|smsSender)\s*\.\s*send\s*\(""")
