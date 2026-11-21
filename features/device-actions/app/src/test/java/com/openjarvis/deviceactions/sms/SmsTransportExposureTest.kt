@@ -49,16 +49,24 @@ class SmsTransportExposureTest {
         assertTrue(panelSource.contains("dispatcher.dispatch(confirmation)"))
         assertFalse(panelSource.contains("AndroidSmsSender"))
 
-        // Voice and compose must share the same confirmation-gated platform transport.
-        assertTrue(executorSource.contains("val gate = SmsConfirmationGate()"))
-        assertTrue(executorSource.contains("gate.prepare(number, number, body)"))
-        assertTrue(executorSource.contains("gate.confirm(review.reviewId)"))
+        // Voice and compose must share a one-time token created from the exact visible review.
+        assertFalse(Regex("""\\bfun\\s+sendSms\\s*\\(""").containsMatchIn(executorSource))
+        assertFalse(executorSource.contains("SmsConfirmationGate()"))
+        assertFalse(executorSource.contains("gate.prepare("))
+        assertFalse(executorSource.contains("gate.confirm("))
+        assertTrue(executorSource.contains("internal fun dispatchConfirmedSms("))
         assertTrue(executorSource.contains("createAndroidSmsDispatcher(context, gate)"))
         assertTrue(executorSource.contains("dispatcher.dispatch(confirmation)"))
+        assertTrue(coordinatorSource.contains("private val smsConfirmationGate = SmsConfirmationGate()"))
         assertTrue(coordinatorSource.contains("private suspend fun requestSmsConfirmation("))
+        assertTrue(coordinatorSource.contains("smsConfirmationGate.prepare(labelOf(contactName, number), number, body)"))
         assertTrue(coordinatorSource.contains("AgentState.AwaitingConfirmation("))
-        assertTrue(coordinatorSource.contains("private suspend fun confirmSms("))
-        assertTrue(coordinatorSource.contains("executor.sendSms(action.number, action.body)"))
+        assertTrue(coordinatorSource.contains("detail = \\"Alıcı: ${review.recipientName} (${review.phoneNumber})\\nMesaj: ${review.exactMessage}\\""))
+        assertTrue(coordinatorSource.contains("private suspend fun confirmSms(review: SmsReview"))
+        assertTrue(coordinatorSource.contains("smsConfirmationGate.confirm(review.reviewId)"))
+        assertTrue(coordinatorSource.contains("executor.dispatchConfirmedSms(confirmation, smsConfirmationGate)"))
+        assertTrue(coordinatorSource.contains("ResolvedRecipient(resolution.displayName, resolution.number)"))
+        assertTrue(coordinatorSource.contains("Android gönderim callback'i başarılı;"))
         assertFalse(executorSource.contains("SmsManager"))
         assertFalse(executorSource.contains("sendTextMessage"))
         assertFalse(executorSource.contains("sendMultipartTextMessage"))
@@ -91,6 +99,17 @@ class SmsTransportExposureTest {
             it.contains("AndroidSmsSender(appContext)")
         }.keys
         assertEquals(setOf(senderPath), concreteSenderConstructionSites)
+
+        val confirmedDispatchCallSites = sourceByPath.filterValues { source: String ->
+            Regex("""\\bexecutor\\s*\\.\\s*dispatchConfirmedSms\\s*\\(""").containsMatchIn(source)
+        }.keys
+        assertEquals("Only the coordinator's explicit confirmation handler may dispatch", setOf(coordinatorPath), confirmedDispatchCallSites)
+
+        val rawSendSmsCallSites = sourceByPath.filterValues { source: String ->
+            Regex("""\\bexecutor\\s*\\.\\s*sendSms\\s*\\(""").containsMatchIn(source)
+        }.keys
+        assertTrue("Raw number/body SMS entry points are forbidden", rawSendSmsCallSites.isEmpty())
+        assertEquals(1, Regex("""smsConfirmationGate\\.confirm\\(""").findAll(coordinatorSource).count())
 
         val directSenderCalls = sourceByPath.filterValues { source: String ->
             Regex("""\b(?:sender|smsSender)\s*\.\s*send\s*\(""")
