@@ -25,7 +25,7 @@ import kotlinx.coroutines.launch
 /**
  * Permission-aware execution of local Android actions.
  *
- * SMS transport is deliberately absent from this class: every direct send is delegated to the
+ * Direct platform SMS transport is deliberately absent from this class: every direct send is delegated to the
  * feature-owned ConfirmedSmsDispatcher and its private AndroidSmsSender. The voice coordinator
  * calls sendSms only after its AwaitingConfirmation has been explicitly accepted. The Compose
  * panel uses the same dispatcher factory, one-time confirmation gate and persisted attempt journal.
@@ -133,19 +133,19 @@ class AndroidActionExecutor(private val context: Context) {
             }
             dispatcher.dispatch(confirmation) { outcome ->
                 val result = when (outcome) {
-                SmsSendOutcome.Sent -> Result.success(Unit)
-                SmsSendOutcome.PermissionDenied ->
-                    Result.failure<Unit>(SecurityException("SMS izni yok veya gönderim öncesinde geri alındı."))
-                SmsSendOutcome.Unsupported ->
-                    Result.failure<Unit>(UnsupportedOperationException("Bu cihaz SMS gönderimini desteklemiyor."))
-                SmsSendOutcome.Rejected ->
-                    Result.failure<Unit>(IllegalStateException("SMS onayı geçersiz veya daha önce kullanılmış."))
-                is SmsSendOutcome.Failed ->
-                    Result.failure<Unit>(IllegalStateException(outcome.reason))
-                is SmsSendOutcome.Unknown ->
-                    Result.failure<Unit>(IllegalStateException(
-                        "Gönderim sonucu UNKNOWN; Android callback'i doğrulanamadı. Otomatik tekrar yapılmadı."
-                    ))
+                    SmsSendOutcome.Sent -> Result.success(Unit)
+                    SmsSendOutcome.PermissionDenied ->
+                        Result.failure<Unit>(SecurityException("SMS izni yok veya gönderim öncesinde geri alındı."))
+                    SmsSendOutcome.Unsupported ->
+                        Result.failure<Unit>(UnsupportedOperationException("Bu cihaz SMS gönderimini desteklemiyor."))
+                    SmsSendOutcome.Rejected ->
+                        Result.failure<Unit>(IllegalStateException("SMS onayı geçersiz veya daha önce kullanılmış."))
+                    is SmsSendOutcome.Failed ->
+                        Result.failure<Unit>(IllegalStateException(outcome.reason))
+                    is SmsSendOutcome.Unknown ->
+                        Result.failure<Unit>(IllegalStateException(
+                            "Gönderim sonucu UNKNOWN; Android callback'i doğrulanamadı. Otomatik tekrar yapılmadı."
+                        ))
                 }
                 outcomeScope.launch {
                     persistOutcome(outcome.toDeviceActionOutcomeCode())

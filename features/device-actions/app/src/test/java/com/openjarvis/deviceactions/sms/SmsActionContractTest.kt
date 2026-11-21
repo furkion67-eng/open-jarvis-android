@@ -16,14 +16,13 @@ class SmsActionContractTest {
         override fun remove(requestId: String) { records.remove(requestId) }
     }
     @Test
-    fun sharedOutcomeMappingKeepsUnknownAndDraftDistinctFromSent() {
+    fun sharedOutcomeMappingKeepsUnknownDistinctFromSent() {
         assertEquals(DeviceActionOutcomeCode.SENT, SmsSendOutcome.Sent.toDeviceActionOutcomeCode())
         assertEquals(DeviceActionOutcomeCode.UNKNOWN, SmsSendOutcome.Unknown("missing callback").toDeviceActionOutcomeCode())
         assertEquals(DeviceActionOutcomeCode.FAILED, SmsSendOutcome.Failed("platform failure").toDeviceActionOutcomeCode())
         assertEquals(DeviceActionOutcomeCode.NOT_EXECUTED, SmsSendOutcome.PermissionDenied.toDeviceActionOutcomeCode())
         assertEquals(DeviceActionOutcomeCode.NOT_EXECUTED, SmsSendOutcome.Unsupported.toDeviceActionOutcomeCode())
         assertEquals(DeviceActionOutcomeCode.NOT_EXECUTED, SmsSendOutcome.Rejected.toDeviceActionOutcomeCode())
-        assertEquals(DeviceActionOutcomeCode.DRAFT, DeviceActionOutcomeCode.DRAFT)
     }
 
     @Test

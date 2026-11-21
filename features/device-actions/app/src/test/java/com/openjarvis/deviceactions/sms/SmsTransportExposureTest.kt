@@ -68,6 +68,7 @@ class SmsTransportExposureTest {
         assertTrue(executorSource.contains("DeviceActionOutcomeCode.DRAFT"))
         assertTrue(panelSource.contains("DeviceActionOutcomeJournal.record"))
         assertTrue(panelSource.contains("outcome.toDeviceActionOutcomeCode()"))
+        assertTrue(panelSource.contains("DeviceActionOutcomeCode.DRAFT"))
         assertFalse(coordinatorSource.contains("SmsManager"))
 
         val kotlinFiles: List<Path> = Files.walk(sourceRoot).use { stream ->
