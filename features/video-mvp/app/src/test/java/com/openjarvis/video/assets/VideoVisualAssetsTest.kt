@@ -157,6 +157,76 @@ class VideoVisualAssetsTest {
     }
 
     @Test
+    fun fileCacheRejectsFutureRetrievalTimesAndOverlongTtl() {
+        val root = Files.createTempDirectory("jarvis-visual-cache-clock").toFile()
+        try {
+            val cache = FileVideoVisualAssetCache(root)
+            val futureKey = "d".repeat(64)
+            val hash = sha256(jpeg)
+            cache.write(
+                futureKey,
+                jpeg,
+                "image/jpeg",
+                hash,
+                now + 1_000L,
+                now + 2_000L
+            )
+            assertEquals(null, cache.read(futureKey, now))
+
+            assertTrue(runCatching {
+                cache.write(
+                    "e".repeat(64),
+                    jpeg,
+                    "image/jpeg",
+                    hash,
+                    now,
+                    now + VideoAssetLicensePolicy.MAX_CACHE_TTL_MS + 1L
+                )
+            }.isFailure)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun resolverRejectsFutureDatedCacheFromAnyCacheProvider() {
+        val file = File.createTempFile("jarvis-future-cache-", ".jpg")
+        file.writeBytes(jpeg)
+        val cache = object : VideoVisualAssetCache {
+            override fun read(cacheKey: String, nowEpochMs: Long): CachedVisualAsset =
+                CachedVisualAsset(
+                    file = file,
+                    sha256 = sha256(jpeg),
+                    mimeType = "image/jpeg",
+                    retrievedAtEpochMs = now + 1L,
+                    expiresAtEpochMs = now + 10_000L,
+                    byteSize = jpeg.size.toLong()
+                )
+
+            override fun write(
+                cacheKey: String,
+                bytes: ByteArray,
+                mimeType: String,
+                contentSha256: String,
+                retrievedAtEpochMs: Long,
+                expiresAtEpochMs: Long
+            ) = Unit
+
+            override fun cleanup(nowEpochMs: Long) = Unit
+        }
+        val downloader = FakeDownloader(jpeg)
+        try {
+            assertTrue(runCatching {
+                VideoVisualAssetResolver(cache, downloader, clock = { now })
+                    .resolveAll(listOf(descriptor()))
+            }.isFailure)
+            assertEquals(0, downloader.calls)
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
     fun fileCacheExpiresAndEvictsOldestEntriesWithinBounds() {
         val root = Files.createTempDirectory("jarvis-visual-cache").toFile()
         try {
