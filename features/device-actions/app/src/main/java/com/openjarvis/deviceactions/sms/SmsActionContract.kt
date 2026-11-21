@@ -74,6 +74,20 @@ class SmsConfirmationGate {
 enum class SmsPartResult { PENDING, SENT, FAILED }
 enum class SmsSendState { PENDING, SENT, FAILED, UNKNOWN }
 
+/**
+ * A multipart send is terminal only after every SMS_SENT callback has arrived.
+ * An early failed part must remain PENDING while other callbacks are outstanding;
+ * process loss or timeout then correctly resolves the incomplete attempt as UNKNOWN.
+ */
+private fun multipartState(parts: List<SmsPartResult>): SmsSendState {
+    require(parts.isNotEmpty())
+    return when {
+        parts.all { it == SmsPartResult.SENT } -> SmsSendState.SENT
+        parts.all { it != SmsPartResult.PENDING } -> SmsSendState.FAILED
+        else -> SmsSendState.PENDING
+    }
+}
+
 internal object SmsPlatformResultMapper {
     fun toPartResult(resultCode: Int, resultOk: Int): SmsPartResult =
         if (resultCode == resultOk) SmsPartResult.SENT else SmsPartResult.FAILED
@@ -118,11 +132,7 @@ class SmsSendTracker(partCount: Int) {
     }
 
     @Synchronized
-    fun state(): SmsSendState = terminalState ?: when {
-        parts.any { it == SmsPartResult.FAILED } -> SmsSendState.FAILED
-        parts.all { it == SmsPartResult.SENT } -> SmsSendState.SENT
-        else -> SmsSendState.PENDING
-    }
+    fun state(): SmsSendState = terminalState ?: multipartState(parts)
 }
 
 data class SmsAttemptRecord(
@@ -154,11 +164,7 @@ internal class SmsAttemptJournal(private val store: SmsAttemptStore) {
         ) return current.state
         val parts = current.parts.toMutableList()
         parts[partIndex] = SmsPlatformResultMapper.toPartResult(resultCode, resultOk)
-        val state = when {
-            parts.any { it == SmsPartResult.FAILED } -> SmsSendState.FAILED
-            parts.all { it == SmsPartResult.SENT } -> SmsSendState.SENT
-            else -> SmsSendState.PENDING
-        }
+        val state = multipartState(parts)
         store.put(current.copy(parts = parts, state = state, updatedAtMillis = System.currentTimeMillis()))
         pruneTerminalHistory()
         return state

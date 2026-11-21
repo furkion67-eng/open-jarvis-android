@@ -148,9 +148,9 @@ class SmsActionContractTest {
     }
 
     @Test
-    fun failedPartCanNeverBecomeSent() {
+    fun failedPartWaitsForEveryCallbackBeforeBecomingTerminal() {
         val tracker = SmsSendTracker(2)
-        assertEquals(SmsSendState.FAILED, tracker.recordPart(0, SmsPartResult.FAILED))
+        assertEquals(SmsSendState.PENDING, tracker.recordPart(0, SmsPartResult.FAILED))
         assertEquals(SmsSendState.FAILED, tracker.recordPart(1, SmsPartResult.SENT))
     }
 
@@ -188,9 +188,33 @@ class SmsActionContractTest {
         val recorder = SmsPlatformCallbackRecorder("receiver-failed", journal, -1)
 
         assertEquals(SmsSendState.PENDING, recorder.record(0, -1))
-        assertEquals(SmsSendState.FAILED, recorder.record(1, 0))
+        assertEquals(SmsSendState.PENDING, recorder.record(1, 0))
         assertEquals(SmsSendState.FAILED, recorder.record(2, -1))
         assertEquals(SmsSendState.FAILED, store.get("receiver-failed")?.state)
+    }
+
+    @Test
+    fun failedPartWithMissingCallbackRecoversAsUnknownNotFailedOrSent() {
+        val store = InMemorySmsAttemptStore()
+        val beforeRestart = SmsAttemptJournal(store)
+        beforeRestart.begin("partial-failure-restart", 2)
+
+        // One explicit failure does not resolve a multipart send while another callback is absent.
+        assertEquals(
+            SmsSendState.PENDING,
+            beforeRestart.recordPlatformResult("partial-failure-restart", 0, 0, -1)
+        )
+        assertEquals(SmsSendState.PENDING, store.get("partial-failure-restart")?.state)
+
+        val afterRestart = SmsAttemptJournal(store)
+        assertEquals(1, afterRestart.recoverPendingAsUnknown().size)
+        assertEquals(SmsSendState.UNKNOWN, store.get("partial-failure-restart")?.state)
+
+        // A late success callback cannot erase the unresolved process-loss result.
+        assertEquals(
+            SmsSendState.UNKNOWN,
+            afterRestart.recordPlatformResult("partial-failure-restart", 1, -1, -1)
+        )
     }
 
     @Test
