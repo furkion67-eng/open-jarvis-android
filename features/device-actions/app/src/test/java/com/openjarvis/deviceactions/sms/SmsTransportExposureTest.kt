@@ -61,13 +61,13 @@ class SmsTransportExposureTest {
         assertEquals(setOf(senderPath), concreteSenderConstructionSites)
 
         val directSenderCalls = sourceByPath.filterValues {
-            Regex("""\\b(?:sender|smsSender)\\s*\\.\\s*send\\s*\\(""")
+            Regex("""\b(?:sender|smsSender)\s*\.\s*send\s*\(""")
                 .containsMatchIn(it)
         }
         assertTrue("No caller may invoke the concrete sender directly", directSenderCalls.isEmpty())
 
         val transportDispatchSites = sourceByPath.filterValues {
-            Regex("""\\btransport\\s*\\.\\s*send\\s*\\(\\s*draft\\s*,\\s*callback\\s*\\)""")
+            Regex("""\btransport\s*\.\s*send\s*\(\s*draft\s*,\s*callback\s*\)""")
                 .containsMatchIn(it)
         }.keys
         assertEquals(setOf(contractPath), transportDispatchSites)
