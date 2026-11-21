@@ -63,12 +63,20 @@ class VideoPlayerPreparationStateTest {
     }
 
     @Test
-    fun bufferingCallbacksCannotEraseFailureOrEndPreparationEarly() {
+    fun bufferingCallbacksCannotEndPreparationBeforeOnPrepared() {
         val preparing = VideoPlayerPreparationState.preparing()
-        assertEquals(preparing, preparing.onBufferingEnded())
+        val afterBufferStart = preparing.onBufferingStarted()
+        assertEquals(VideoPlayerPreparationState.Phase.PREPARING, afterBufferStart.phase)
+        assertTrue(afterBufferStart.isLoading)
+        assertFalse(afterBufferStart.canPlay)
+        assertEquals(preparing, afterBufferStart.onBufferingEnded())
+    }
 
-        val failed = preparing.onError("failed")
+    @Test
+    fun bufferingCallbacksCannotEraseFailure() {
+        val failed = VideoPlayerPreparationState.preparing().onError("failed")
         assertEquals(failed, failed.onBufferingStarted())
         assertEquals(failed, failed.onBufferingEnded())
+        assertEquals(failed, failed.onPrepared())
     }
 }
