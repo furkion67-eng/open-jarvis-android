@@ -30,6 +30,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -134,8 +135,9 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
         mutableStateOf<PlaybackAvailability>(PlaybackAvailability.Empty)
     }
     var player by remember(latest?.videoUri, retryKey) { mutableStateOf<VideoView?>(null) }
-    var playerPreparation by remember(latest?.id, latest?.videoUri, retryKey) {
-        mutableStateOf(VideoPlayerPreparationState.preparing())
+    val playerAttemptId = "${latest?.id?.toString().orEmpty()}|${latest?.videoUri.orEmpty()}|$retryKey"
+    var playerPreparation by remember(playerAttemptId) {
+        mutableStateOf(VideoPlayerPreparationState.preparing(playerAttemptId))
     }
 
     DisposableEffect(player) {
@@ -263,7 +265,7 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
                                 )
                             }
                         }
-                        key(retryKey, state.uri) {
+                        key(playerAttemptId, state.uri) {
                             AndroidView(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -274,27 +276,30 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
                                     controller.setAnchorView(this)
                                     setMediaController(controller)
                                     setOnPreparedListener {
-                                        playerPreparation = playerPreparation.onPrepared()
+                                        playerPreparation = playerPreparation.onPrepared(playerAttemptId)
                                     }
                                     setOnInfoListener { _, what, _ ->
                                         when (what) {
-                                            MediaPlayer.MEDIA_INFO_BUFFERING_START -> playerPreparation = playerPreparation.onBufferingStarted()
-                                            MediaPlayer.MEDIA_INFO_BUFFERING_END -> playerPreparation = playerPreparation.onBufferingEnded()
+                                            MediaPlayer.MEDIA_INFO_BUFFERING_START -> playerPreparation = playerPreparation.onBufferingStarted(playerAttemptId)
+                                            MediaPlayer.MEDIA_INFO_BUFFERING_END -> playerPreparation = playerPreparation.onBufferingEnded(playerAttemptId)
                                         }
                                         false
                                     }
                                     setOnErrorListener { _, _, _ ->
-                                        playerPreparation = playerPreparation.onError("Video JARVIS içinde oynatılamadı. Yeniden denetleyebilir veya tekrar deneyebilirsin.")
+                                        playerPreparation = playerPreparation.onError(
+                                            "Video JARVIS içinde oynatılamadı. Yeniden denetleyebilir veya tekrar deneyebilirsin.",
+                                            playerAttemptId
+                                        )
                                         true
                                     }
                                     tag = state.uri.toString()
-                                    playerPreparation = playerPreparation.onRetry()
+                                    playerPreparation = playerPreparation.onRetry(playerAttemptId)
                                     setVideoURI(state.uri)
                                 }
                             },
                             update = { view ->
                                 if (view.tag != state.uri.toString()) {
-                                    playerPreparation = playerPreparation.onRetry()
+                                    playerPreparation = playerPreparation.onRetry(playerAttemptId)
                                     view.tag = state.uri.toString()
                                     view.setVideoURI(state.uri)
                                 }
@@ -302,26 +307,15 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
                             }
                             )
                         }
-                        if (playerPreparation.isLoading) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                CircularProgressIndicator()
-                                Text("Video oynatıcı hazırlanıyor veya arabelleğe alınıyor…")
-                            }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { player?.start() }, enabled = player != null && playerPreparation.canPlay) { Text("Oynat") }
-                            TextButton(
-                                onClick = {
-                                    player?.seekTo(0)
-                                    player?.start()
-                                },
-                                enabled = player != null && playerPreparation.canPlay
-                            ) { Text("Baştan oynat") }
-                            TextButton(onClick = { retryKey++ }) { Text("Yeniden denetle") }
-                        }
-                        playerPreparation.errorMessage?.let {
-                            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                        }
+                        VideoPlayerPreparationControls(
+                            state = playerPreparation,
+                            onPlay = { player?.start() },
+                            onReplay = {
+                                player?.seekTo(0)
+                                player?.start()
+                            },
+                            onRetry = { retryKey++ }
+                        )
                         Text("MP4 ve SRT URI'leri görev kaydında saklanır; JARVIS yeniden açıldığında tekrar kontrol edilir.", style = MaterialTheme.typography.bodySmall)
                         if (!metadata.attributionManifestComplete) {
                             Text(
@@ -334,5 +328,52 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
                 }
             }
         }
+    }
+}
+
+
+/**
+ * Shared control surface for production playback and instrumentation verification.
+ * The test tags expose no user data; they let the Android test assert the exact Compose state.
+ */
+@Composable
+internal fun VideoPlayerPreparationControls(
+    state: VideoPlayerPreparationState,
+    onPlay: () -> Unit,
+    onReplay: () -> Unit,
+    onRetry: () -> Unit
+) {
+    if (state.isLoading) {
+        Row(
+            modifier = Modifier.testTag("video-player-loading"),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            CircularProgressIndicator()
+            Text("Video oynatıcı hazırlanıyor veya arabelleğe alınıyor…")
+        }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(
+            onClick = onPlay,
+            enabled = state.canPlay,
+            modifier = Modifier.testTag("video-player-play")
+        ) { Text("Oynat") }
+        TextButton(
+            onClick = onReplay,
+            enabled = state.canPlay,
+            modifier = Modifier.testTag("video-player-replay")
+        ) { Text("Baştan oynat") }
+        TextButton(
+            onClick = onRetry,
+            modifier = Modifier.testTag("video-player-retry")
+        ) { Text("Yeniden denetle") }
+    }
+    state.errorMessage?.let {
+        Text(
+            it,
+            modifier = Modifier.testTag("video-player-error"),
+            color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodySmall
+        )
     }
 }

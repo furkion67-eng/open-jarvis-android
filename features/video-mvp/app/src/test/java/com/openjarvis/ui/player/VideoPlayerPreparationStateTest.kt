@@ -79,4 +79,26 @@ class VideoPlayerPreparationStateTest {
         assertEquals(failed, failed.onBufferingEnded())
         assertEquals(failed, failed.onPrepared())
     }
+
+    @Test
+    fun callbacksFromDisposedPlayerCannotChangeReplacementAttempt() {
+        val firstAttempt = "task-1|content://media/1|retry-0"
+        val secondAttempt = "task-1|content://media/1|retry-1"
+        val firstReady = VideoPlayerPreparationState.preparing(firstAttempt)
+            .onPrepared(firstAttempt)
+        val replacement = firstReady.onRetry(secondAttempt)
+
+        assertEquals(secondAttempt, replacement.attemptId)
+        assertEquals(VideoPlayerPreparationState.Phase.PREPARING, replacement.phase)
+        assertEquals(replacement, replacement.onPrepared(firstAttempt))
+        assertEquals(replacement, replacement.onBufferingStarted(firstAttempt))
+        assertEquals(replacement, replacement.onBufferingEnded(firstAttempt))
+        assertEquals(replacement, replacement.onError("late old-player error", firstAttempt))
+
+        val ready = replacement.onPrepared(secondAttempt)
+        assertEquals(VideoPlayerPreparationState.Phase.READY, ready.phase)
+        assertTrue(ready.canPlay)
+        assertFalse(ready.isLoading)
+    }
+
 }
