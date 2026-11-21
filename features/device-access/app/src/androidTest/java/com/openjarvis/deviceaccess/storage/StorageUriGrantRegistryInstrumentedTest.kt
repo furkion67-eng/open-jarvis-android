@@ -91,6 +91,52 @@ class StorageUriGrantRegistryInstrumentedTest {
     }
 
     @Test
+    fun forgetReleasesAndroidGrantAndRemovesSavedRegistryEntry() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val preferences = context.getSharedPreferences("jarvis_storage_uri_grants", 0)
+        val history = context.getSharedPreferences("jarvis_capability_history", 0)
+        preferences.edit().clear().commit()
+        history.edit().clear().commit()
+        val access = FakeStorageUriGrantAccess()
+        val uri = Uri.parse("content://jarvis.fake.documents/tree/forget-me")
+        val registry = StorageUriGrantRegistry(context, access)
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+            Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+            Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+        registry.persistPickerResult(uri, flags)
+
+        assertTrue(registry.forget(uri))
+        assertTrue(access.snapshots().isEmpty())
+        assertTrue(registry.grantedTreeUris().isEmpty())
+        assertNull(registry.lastGrantedTreeUri())
+        preferences.edit().clear().commit()
+        history.edit().clear().commit()
+    }
+
+    @Test
+    fun failedAndroidGrantReleaseKeepsTheAccessVisibleForRetry() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val preferences = context.getSharedPreferences("jarvis_storage_uri_grants", 0)
+        val history = context.getSharedPreferences("jarvis_capability_history", 0)
+        preferences.edit().clear().commit()
+        history.edit().clear().commit()
+        val access = FakeStorageUriGrantAccess()
+        val uri = Uri.parse("content://jarvis.fake.documents/tree/release-failed")
+        val registry = StorageUriGrantRegistry(context, access)
+        registry.persistPickerResult(
+            uri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+        )
+        access.failRelease = true
+
+        assertFalse(registry.forget(uri))
+        assertEquals(uri, registry.lastGrantedTreeUri())
+        assertEquals(listOf(uri), registry.grantedTreeUris())
+        preferences.edit().clear().commit()
+        history.edit().clear().commit()
+    }
+
+    @Test
     fun pickerResultWithoutReadPermissionIsRejectedBeforePersisting() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         context.getSharedPreferences("jarvis_capability_history", 0).edit().clear().commit()
@@ -129,6 +175,7 @@ class StorageUriGrantRegistryInstrumentedTest {
         private val grants = linkedMapOf<String, StorageGrantSnapshot>()
         var lastTakenFlags: Int? = null
             private set
+        var failRelease: Boolean = false
 
         override fun takePersistableUriPermission(uri: Uri, flags: Int) {
             lastTakenFlags = flags
@@ -141,7 +188,9 @@ class StorageUriGrantRegistryInstrumentedTest {
             )
         }
 
-        override fun releasePersistableUriPermission(uri: Uri, flags: Int) { grants.remove(uri.toString()) }
+        override fun releasePersistableUriPermission(uri: Uri, flags: Int) {
+            if (!failRelease) grants.remove(uri.toString())
+        }
         override fun snapshots(): List<StorageGrantSnapshot> = grants.values.toList()
         fun revoke(uri: Uri) { grants.remove(uri.toString()) }
     }
