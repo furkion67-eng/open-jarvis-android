@@ -3925,6 +3925,156 @@ print("Registered the embedded-player test host in the extracted host's debug-on
 
 # Architect-approved 21 Nov 2026: Accessibility and Overlay are optional device
 # capabilities, not prerequisites for opening normal chat, Dashboard or video archive.
+def _kotlin_matching_delimiter(source, opening_index, opening, closing):
+    if opening_index < 0 or opening_index >= len(source) or source[opening_index] != opening:
+        raise ValueError("Kotlin delimiter opening token not found")
+
+    depth = 0
+    index = opening_index
+    state = "code"
+    block_depth = 0
+    while index < len(source):
+        if state == "code":
+            if source.startswith("//", index):
+                state = "line"
+                index += 2
+            elif source.startswith("/*", index):
+                state = "block"
+                block_depth = 1
+                index += 2
+            elif source.startswith('"""', index):
+                state = "raw"
+                index += 3
+            elif source[index] == '"':
+                state = "string"
+                index += 1
+            elif source[index] == "'":
+                state = "char"
+                index += 1
+            elif source[index] == chr(96):
+                state = "backtick"
+                index += 1
+            elif source[index] == opening:
+                depth += 1
+                index += 1
+            elif source[index] == closing:
+                depth -= 1
+                if depth == 0:
+                    return index
+                if depth < 0:
+                    raise ValueError("unbalanced Kotlin closing delimiter")
+                index += 1
+            else:
+                index += 1
+        elif state == "line":
+            if source[index] == "\n":
+                state = "code"
+            index += 1
+        elif state == "block":
+            if source.startswith("/*", index):
+                block_depth += 1
+                index += 2
+            elif source.startswith("*/", index):
+                block_depth -= 1
+                index += 2
+                if block_depth == 0:
+                    state = "code"
+            else:
+                index += 1
+        elif state in ("string", "char"):
+            quote = '"' if state == "string" else "'"
+            if source[index] == "\\":
+                index += 2
+            elif source[index] == quote:
+                state = "code"
+                index += 1
+            else:
+                index += 1
+        elif state == "raw":
+            if source.startswith('"""', index):
+                state = "code"
+                index += 3
+            else:
+                index += 1
+        elif state == "backtick":
+            if source[index] == chr(96):
+                state = "code"
+            index += 1
+
+    if state in ("block", "string", "char", "raw", "backtick"):
+        raise ValueError("unterminated Kotlin lexical construct")
+    raise ValueError("unterminated Kotlin delimiter")
+
+
+def _kotlin_find_next_code_brace(source, start_index):
+    index = start_index
+    state = "code"
+    block_depth = 0
+    while index < len(source):
+        if state == "code":
+            if source.startswith("//", index):
+                state = "line"
+                index += 2
+            elif source.startswith("/*", index):
+                state = "block"
+                block_depth = 1
+                index += 2
+            elif source.startswith('"""', index):
+                state = "raw"
+                index += 3
+            elif source[index] == '"':
+                state = "string"
+                index += 1
+            elif source[index] == "'":
+                state = "char"
+                index += 1
+            elif source[index] == chr(96):
+                state = "backtick"
+                index += 1
+            elif source[index] == "{":
+                return index
+            else:
+                index += 1
+        elif state == "line":
+            if source[index] == "\n":
+                state = "code"
+            index += 1
+        elif state == "block":
+            if source.startswith("/*", index):
+                block_depth += 1
+                index += 2
+            elif source.startswith("*/", index):
+                block_depth -= 1
+                index += 2
+                if block_depth == 0:
+                    state = "code"
+            else:
+                index += 1
+        elif state in ("string", "char"):
+            quote = '"' if state == "string" else "'"
+            if source[index] == "\\":
+                index += 2
+            elif source[index] == quote:
+                state = "code"
+                index += 1
+            else:
+                index += 1
+        elif state == "raw":
+            if source.startswith('"""', index):
+                state = "code"
+                index += 3
+            else:
+                index += 1
+        elif state == "backtick":
+            if source[index] == chr(96):
+                state = "code"
+            index += 1
+
+    if state in ("block", "string", "char", "raw", "backtick"):
+        raise ValueError("unterminated Kotlin lexical construct")
+    return -1
+
+
 def remove_global_accessibility_overlay_gate(source):
     gate_start = "                val accessibilityEnabled = isAccessibilityServiceEnabled()"
     if gate_start in source:
@@ -3957,9 +4107,34 @@ def remove_global_accessibility_overlay_gate(source):
     elif "private fun isAccessibilityServiceEnabled()" in source:
         raise SystemExit("MainActivity.kt: unexpected accessibility helper shape")
 
-    screen_start = source.find("\n@Composable\nfun PermissionScreen(")
-    if screen_start >= 0:
-        source = source[:screen_start].rstrip() + "\n"
+    screen_pattern = re.compile(r"(?m)^@Composable[ \t]*\nfun[ \t]+PermissionScreen[ \t]*\(")
+    screen_matches = list(screen_pattern.finditer(source))
+    if len(screen_matches) > 1:
+        raise SystemExit("MainActivity.kt: multiple PermissionScreen declarations found")
+    if screen_matches:
+        screen_start = screen_matches[0].start()
+        if _kotlin_brace_balance(source[:screen_start]) != 0:
+            raise SystemExit("MainActivity.kt: PermissionScreen is not a top-level declaration")
+        parameter_open = screen_matches[0].end() - 1
+        try:
+            parameter_close = _kotlin_matching_delimiter(source, parameter_open, "(", ")")
+            body_open = _kotlin_find_next_code_brace(source, parameter_close + 1)
+            if body_open < 0:
+                raise ValueError("PermissionScreen body not found")
+            body_close = _kotlin_matching_delimiter(source, body_open, "{", "}")
+        except ValueError as error:
+            raise SystemExit("MainActivity.kt: refusing unsafe PermissionScreen removal: " + str(error))
+
+        body = source[body_open + 1:body_close]
+        if re.search(
+            r"(?m)^(?:@Composable\b|(?:(?:private|internal|public|protected)[ \t]+)?"
+            r"(?:fun|class|object|interface|typealias)\b)",
+            body
+        ):
+            raise SystemExit(
+                "MainActivity.kt: another top-level declaration appears inside PermissionScreen; refusing to truncate source"
+            )
+        source = source[:screen_start] + source[body_close + 1:]
     elif "PermissionScreen(" in source:
         raise SystemExit("MainActivity.kt: unexpected PermissionScreen reference remains")
 
@@ -4025,7 +4200,16 @@ class MainActivity {
 }
 
 @Composable
-fun PermissionScreen() {}
+fun PermissionScreen() {
+    val literal = "a closing brace } and an opening brace {"
+    // A comment brace must not affect the bounded removal: }
+    if (true) { println("nested } brace") }
+}
+
+@Composable
+fun RetainedStatusPanel() {
+    val literal = "{ trailing declaration must remain }"
+}
 """
     once = remove_global_accessibility_overlay_gate(fixture)
     twice = remove_global_accessibility_overlay_gate(once)
@@ -4037,11 +4221,25 @@ fun PermissionScreen() {}
         or "isAccessibilityServiceEnabled" in once
         or "Settings.canDrawOverlays(this)" in once
         or "onStartOverlay = { startActivity(Intent(this, VoiceCommandActivity::class.java)) }" not in once
+        or "fun RetainedStatusPanel()" not in once
     ):
         raise SystemExit("MainActivity.kt: permission-independent Dashboard regression failed")
 
+    malformed = fixture.replace(
+        "    if (true) { println(\"nested } brace\") }\n}\n\n@Composable\nfun RetainedStatusPanel()",
+        "    if (true) { println(\"nested } brace\") }\n\n@Composable\nfun RetainedStatusPanel()",
+        1
+    )
+    try:
+        remove_global_accessibility_overlay_gate(malformed)
+    except SystemExit:
+        pass
+    else:
+        raise SystemExit("MainActivity.kt: malformed PermissionScreen was not rejected fail-closed")
+
 
 _dashboard_permission_gate_regression_test()
+edit("app/src/main/java/com/openjarvis/ui/MainActivity.kt", remove_global_accessibility_overlay_gate)
 edit("app/src/main/java/com/openjarvis/ui/MainActivity.kt", remove_global_accessibility_overlay_gate)
 print("Removed only the global Accessibility/Overlay launcher gate; optional capability actions remain user-controlled")
 
