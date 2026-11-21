@@ -8,6 +8,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
+import java.net.URLDecoder
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.Properties
@@ -178,6 +179,9 @@ object VideoAssetLicensePolicy {
         require(isAllowedDownloadUrl(descriptor.downloadUrl)) {
             "Görsel indirme adresi güvenilir HTTPS Wikimedia dosya yolunda değil."
         }
+        require(isDownloadForPinnedSource(descriptor.sourceUrl, descriptor.downloadUrl)) {
+            "İndirilen görselin dosya adı sabitlenmiş lisans/kaynak sayfasıyla eşleşmiyor."
+        }
         require(descriptor.expectedMimeType in ALLOWED_IMAGE_MIME_TYPES) {
             "Görsel biçimi desteklenmiyor."
         }
@@ -205,19 +209,58 @@ object VideoAssetLicensePolicy {
         }
     }
 
-    internal fun isPinnedCommonsSource(value: String): Boolean {
-        val uri = runCatching { URI(value) }.getOrNull() ?: return false
+    internal fun isPinnedCommonsSource(value: String): Boolean =
+        pinnedCommonsFileName(value) != null
+
+    /**
+     * A licence page is evidence for one exact Commons file, not for every file on the
+     * Wikimedia upload host. Bind the download (and every redirect) to that same filename.
+     */
+    internal fun isDownloadForPinnedSource(sourceUrl: String, downloadUrl: String): Boolean {
+        val sourceFileName = pinnedCommonsFileName(sourceUrl) ?: return false
+        val downloadFileName = commonsDownloadFileName(downloadUrl) ?: return false
+        return sourceFileName == downloadFileName
+    }
+
+    private fun pinnedCommonsFileName(value: String): String? {
+        val uri = runCatching { URI(value) }.getOrNull() ?: return null
         if (uri.scheme != "https" || uri.host != "commons.wikimedia.org" ||
             uri.rawUserInfo != null || (uri.port != -1 && uri.port != 443) ||
             uri.path != "/w/index.php" || uri.rawFragment != null
-        ) return false
-        val parameters = uri.rawQuery?.split("&") ?: return false
+        ) return null
+        val parameters = uri.rawQuery?.split("&") ?: return null
         val titles = parameters.filter { it.substringBefore('=') == "title" }
         val revisions = parameters.filter { it.substringBefore('=') == "oldid" }
-        return titles.size == 1 &&
-            titles.single().substringAfter('=', "").startsWith("File:") &&
-            revisions.size == 1 &&
-            revisions.single().substringAfter('=', "").matches(Regex("[1-9][0-9]{0,11}"))
+        if (titles.size != 1 || revisions.size != 1 ||
+            !revisions.single().substringAfter('=', "").matches(Regex("[1-9][0-9]{0,11}"))
+        ) return null
+        val title = runCatching {
+            URLDecoder.decode(titles.single().substringAfter('=', ""), "UTF-8")
+        }.getOrNull() ?: return null
+        if (!title.startsWith("File:")) return null
+        val fileName = title.removePrefix("File:")
+        if (fileName.isBlank() || fileName.contains('/') || fileName.contains('\\')) return null
+        return fileName.replace(' ', '_')
+    }
+
+    private fun commonsDownloadFileName(value: String): String? {
+        if (!isAllowedDownloadUrl(value)) return null
+        val uri = runCatching { URI(value) }.getOrNull() ?: return null
+        val relative = uri.rawPath.removePrefix("/wikipedia/commons/")
+        val segments = relative.split('/')
+        val thumbnail = segments.firstOrNull() == "thumb"
+        val expectedSize = if (thumbnail) 5 else 3
+        if (segments.size != expectedSize || segments.any(String::isBlank)) return null
+        val hashOffset = if (thumbnail) 1 else 0
+        if (!segments[hashOffset].matches(Regex("[0-9a-f]")) ||
+            !segments[hashOffset + 1].matches(Regex("[0-9a-f]{2}"))
+        ) return null
+        val rawFileName = if (thumbnail) segments[3] else segments[2]
+        val fileName = runCatching {
+            URLDecoder.decode(rawFileName.replace("+", "%2B"), "UTF-8")
+        }.getOrNull() ?: return null
+        if (fileName.isBlank() || fileName.contains('/') || fileName.contains('\\')) return null
+        return fileName
     }
 
     internal fun isAllowedDownloadUrl(value: String): Boolean {
@@ -359,8 +402,10 @@ class VideoVisualAssetResolver(
         descriptor: VideoVisualAssetDescriptor,
         downloaded: DownloadedVisualAsset
     ) {
-        require(VideoAssetLicensePolicy.isAllowedDownloadUrl(downloaded.finalUrl)) {
-            "Görsel indirme yönlendirmesi güvenilir HTTPS Wikimedia dosya yolunun dışına çıktı."
+        require(VideoAssetLicensePolicy.isAllowedDownloadUrl(downloaded.finalUrl) &&
+            VideoAssetLicensePolicy.isDownloadForPinnedSource(descriptor.sourceUrl, downloaded.finalUrl)
+        ) {
+            "Görsel indirme yönlendirmesi sabitlenmiş kaynak dosyasıyla eşleşmiyor."
         }
         require(downloaded.mimeType == descriptor.expectedMimeType) {
             "Görselin MIME türü kaynak kaydıyla eşleşmiyor."
