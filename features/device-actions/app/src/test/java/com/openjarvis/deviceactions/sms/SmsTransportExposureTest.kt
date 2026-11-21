@@ -78,7 +78,9 @@ class SmsTransportExposureTest {
             coordinatorSource.split("RecipientResolution.Handled -> return").size - 1
         )
         assertFalse(coordinatorSource.contains("routed.phoneNumber != null -> ResolvedRecipient"))
-        assertTrue(executorSource.contains("is ContactLookupResult.Unavailable -> ContactResolution.Unavailable(result.reason)"))
+        // Keep the source contract assertion independent of Kotlin line wrapping.
+        assertTrue(executorSource.contains("is ContactLookupResult.Unavailable ->"))
+        assertTrue(executorSource.contains("ContactResolution.Unavailable(result.reason)"))
         assertTrue(coordinatorSource.contains("is AndroidActionExecutor.ContactResolution.Unavailable ->"))
         assertTrue(coordinatorSource.contains("Android gönderim callback'i başarılı;"))
         assertFalse(executorSource.contains("SmsManager"))
