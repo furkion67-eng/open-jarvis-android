@@ -65,6 +65,8 @@ class SmsTransportExposureTest {
         assertTrue(coordinatorSource.contains("private suspend fun confirmSms(review: SmsReview"))
         assertTrue(coordinatorSource.contains("smsConfirmationGate.confirm(review.reviewId)"))
         assertTrue(coordinatorSource.contains("executor.dispatchConfirmedSms(confirmation, smsConfirmationGate)"))
+        assertTrue(coordinatorSource.contains("executor.dispatchConfirmedSms(confirmation, smsConfirmationGate) { result ->\\n            scope.launch {"))
+        assertFalse(coordinatorSource.contains("scope.launch(Dispatchers.IO)"))
         assertTrue(coordinatorSource.contains("ResolvedRecipient(resolution.displayName, resolution.number)"))
         assertTrue(coordinatorSource.contains("RecipientSourcePolicy.choose(contactName, phoneNumber)"))
         assertEquals(

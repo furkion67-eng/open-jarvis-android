@@ -4,7 +4,6 @@ import com.openjarvis.graphify.GraphifyRepository
 import com.openjarvis.deviceactions.sms.SmsConfirmationGate
 import com.openjarvis.deviceactions.sms.SmsReview
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 class DeviceActionCoordinator(
     private val context: android.content.Context,
@@ -399,7 +398,7 @@ class DeviceActionCoordinator(
         }
         setState(AgentState.Running("Android SMS gönderim callback'i bekleniyor..."))
         executor.dispatchConfirmedSms(confirmation, smsConfirmationGate) { result ->
-            scope.launch(Dispatchers.IO) {
+            scope.launch {
                 result.fold(
                     onSuccess = {
                         setState(AgentState.Done(
