@@ -134,8 +134,9 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
         mutableStateOf<PlaybackAvailability>(PlaybackAvailability.Empty)
     }
     var player by remember(latest?.videoUri, retryKey) { mutableStateOf<VideoView?>(null) }
-    var playbackError by remember(latest?.id, latest?.videoUri) { mutableStateOf<String?>(null) }
-    var playerPreparing by remember(latest?.id, latest?.videoUri, retryKey) { mutableStateOf(false) }
+    var playerPreparation by remember(latest?.id, latest?.videoUri, retryKey) {
+        mutableStateOf(VideoPlayerPreparationState.preparing())
+    }
 
     DisposableEffect(player) {
         onDispose { player?.stopPlayback() }
@@ -148,7 +149,7 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
         latest?.videoArtifactMetadataJson,
         retryKey
     ) {
-        playbackError = null
+        
         val task = latest
         availability = if (task == null) PlaybackAvailability.Empty else PlaybackAvailability.Loading
         if (task != null) {
@@ -273,29 +274,27 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
                                     controller.setAnchorView(this)
                                     setMediaController(controller)
                                     setOnPreparedListener {
-                                        playbackError = null
-                                        playerPreparing = false
+                                        playerPreparation = playerPreparation.onPrepared()
                                     }
                                     setOnInfoListener { _, what, _ ->
                                         when (what) {
-                                            MediaPlayer.MEDIA_INFO_BUFFERING_START -> playerPreparing = true
-                                            MediaPlayer.MEDIA_INFO_BUFFERING_END -> playerPreparing = false
+                                            MediaPlayer.MEDIA_INFO_BUFFERING_START -> playerPreparation = playerPreparation.onBufferingStarted()
+                                            MediaPlayer.MEDIA_INFO_BUFFERING_END -> playerPreparation = playerPreparation.onBufferingEnded()
                                         }
                                         false
                                     }
                                     setOnErrorListener { _, _, _ ->
-                                        playerPreparing = false
-                                        playbackError = "Video JARVIS içinde oynatılamadı. Yeniden denetleyebilir veya tekrar deneyebilirsin."
+                                        playerPreparation = playerPreparation.onError("Video JARVIS içinde oynatılamadı. Yeniden denetleyebilir veya tekrar deneyebilirsin.")
                                         true
                                     }
                                     tag = state.uri.toString()
-                                    playerPreparing = true
+                                    playerPreparation = playerPreparation.onRetry()
                                     setVideoURI(state.uri)
                                 }
                             },
                             update = { view ->
                                 if (view.tag != state.uri.toString()) {
-                                    playerPreparing = true
+                                    playerPreparation = playerPreparation.onRetry()
                                     view.tag = state.uri.toString()
                                     view.setVideoURI(state.uri)
                                 }
@@ -303,24 +302,24 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
                             }
                             )
                         }
-                        if (playerPreparing) {
+                        if (playerPreparation.isLoading) {
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 CircularProgressIndicator()
                                 Text("Video oynatıcı hazırlanıyor veya arabelleğe alınıyor…")
                             }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { player?.start() }, enabled = player != null && !playerPreparing) { Text("Oynat") }
+                            Button(onClick = { player?.start() }, enabled = player != null && playerPreparation.canPlay) { Text("Oynat") }
                             TextButton(
                                 onClick = {
                                     player?.seekTo(0)
                                     player?.start()
                                 },
-                                enabled = player != null && !playerPreparing
+                                enabled = player != null && playerPreparation.canPlay
                             ) { Text("Baştan oynat") }
                             TextButton(onClick = { retryKey++ }) { Text("Yeniden denetle") }
                         }
-                        playbackError?.let {
+                        playerPreparation.errorMessage?.let {
                             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                         }
                         Text("MP4 ve SRT URI'leri görev kaydında saklanır; JARVIS yeniden açıldığında tekrar kontrol edilir.", style = MaterialTheme.typography.bodySmall)
