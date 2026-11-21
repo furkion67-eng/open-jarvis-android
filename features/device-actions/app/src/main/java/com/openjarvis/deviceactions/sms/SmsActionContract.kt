@@ -220,10 +220,10 @@ sealed interface SmsSendOutcome {
     data class Unknown(val reason: String) : SmsSendOutcome
 }
 
-fun interface SmsPermission { fun isGranted(): Boolean }
-fun interface SmsTransport { fun send(draft: SmsDraft, callback: (SmsSendOutcome) -> Unit) }
+internal fun interface SmsPermission { fun isGranted(): Boolean }
+internal fun interface SmsTransport { fun send(draft: SmsDraft, callback: (SmsSendOutcome) -> Unit) }
 
-class ConfirmedSmsDispatcher(
+internal class ConfirmedSmsDispatcher(
     private val permission: SmsPermission,
     private val gate: SmsConfirmationGate,
     private val transport: SmsTransport
