@@ -47,6 +47,12 @@ class VideoVisualAssetsTest {
     }
 
     @Test
+    fun everyCuratedAssetBindsItsDownloadToItsPinnedLicensePage() {
+        assertEquals(5, Wikimedia1453AssetCatalog.assets.size)
+        Wikimedia1453AssetCatalog.assets.forEach(VideoAssetLicensePolicy::validate)
+    }
+
+    @Test
     fun downloadUrlMustMatchTheExactPinnedCommonsFileName() {
         val source = descriptor().sourceUrl
         assertTrue(VideoAssetLicensePolicy.isDownloadForPinnedSource(
@@ -57,8 +63,10 @@ class VideoVisualAssetsTest {
         val otherDownload = descriptor().copy(
             downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/a/ab/Other.jpg"
         )
+        val otherSourceUrl = source.replace("File:Example.jpg", "File:Other.jpg")
         val otherSource = descriptor().copy(
-            sourceUrl = source.replace("File:Example.jpg", "File:Other.jpg")
+            sourceUrl = otherSourceUrl,
+            attributionText = descriptor().attributionText.replace(source, otherSourceUrl)
         )
         assertTrue(runCatching { VideoAssetLicensePolicy.validate(otherDownload) }.isFailure)
         assertTrue(runCatching { VideoAssetLicensePolicy.validate(otherSource) }.isFailure)
