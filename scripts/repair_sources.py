@@ -3,11 +3,69 @@ from pathlib import Path
 import hashlib
 import re
 import sys
+import tempfile
 
 root = Path(sys.argv[1])
-# The host ZIP is freshly extracted for each CI run. Hash the exact repair script so
-# a second invocation against the same extracted project becomes a byte-identical no-op.
-repair_digest = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+
+
+def _repair_input_digest(script_path: Path, features_root: Path) -> str:
+    """
+    Fingerprint the repair program and every feature source/resource it overlays.
+    A script-only marker can incorrectly skip a repair after Kotlin/resources change.
+    """
+    digest = hashlib.sha256()
+    digest.update(script_path.read_bytes())
+    if features_root.is_dir():
+        for source in sorted(features_root.rglob("*"), key=lambda item: item.as_posix()):
+            if not source.is_file():
+                continue
+            relative = source.relative_to(features_root)
+            if source.suffix != ".kt" and "res" not in relative.parts and source.name != "AndroidManifest.xml":
+                continue
+            digest.update(relative.as_posix().encode("utf-8"))
+            digest.update(b"\\0")
+            digest.update(source.read_bytes())
+            digest.update(b"\\0")
+    return digest.hexdigest()
+
+
+def _repair_input_digest_regression_test():
+    # Source-only test: unchanged inputs are stable, while Kotlin/resource changes invalidate
+    # the marker. Documentation-only edits do not force the generated host to be repaired again.
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        temporary_root = Path(temporary_directory)
+        script = temporary_root / "repair_sources.py"
+        script.write_bytes(b"repair-script-v1")
+        features = temporary_root / "features"
+        kotlin = features / "device-actions/app/src/main/java/Example.kt"
+        kotlin.parent.mkdir(parents=True)
+        kotlin.write_bytes(b"feature-source-v1")
+
+        first = _repair_input_digest(script, features)
+        if first != _repair_input_digest(script, features):
+            raise SystemExit("repair input digest is not deterministic")
+
+        kotlin.write_bytes(b"feature-source-v2")
+        second = _repair_input_digest(script, features)
+        if first == second:
+            raise SystemExit("repair input digest ignored a changed Kotlin source")
+
+        readme = features / "device-actions/README.md"
+        readme.write_text("documentation-only change", encoding="utf-8")
+        if second != _repair_input_digest(script, features):
+            raise SystemExit("documentation unexpectedly invalidated the source overlay digest")
+
+        resource = features / "device-access/app/src/main/res/values/strings.xml"
+        resource.parent.mkdir(parents=True)
+        resource.write_text("<resources/>", encoding="utf-8")
+        if second == _repair_input_digest(script, features):
+            raise SystemExit("repair input digest ignored a changed Android resource")
+
+
+_repair_input_digest_regression_test()
+repair_script_path = Path(__file__).resolve()
+feature_sources_root = repair_script_path.parent.parent / "features"
+repair_digest = _repair_input_digest(repair_script_path, feature_sources_root)
 repair_marker = root / ".openjarvis-repair-sources.sha256"
 if repair_marker.is_file() and repair_marker.read_text(encoding="utf-8").strip() == repair_digest:
     print("Open Jarvis source repair already applied for this exact script; skipping duplicate pass")
@@ -4076,27 +4134,55 @@ def _kotlin_find_next_code_brace(source, start_index):
 
 
 def remove_global_accessibility_overlay_gate(source):
-    gate_start = "                val accessibilityEnabled = isAccessibilityServiceEnabled()"
-    if gate_start in source:
-        start = source.index(gate_start)
-        closing = re.search(
-            r"(?m)^                }\n(?=            }\n        }\n    })",
-            source[start:]
-        )
-        if not closing:
-            raise SystemExit("MainActivity.kt: global permission gate closing anchor not found")
-        end = start + closing.end()
-        dashboard = """                // Accessibility and overlay are optional capabilities, not launch prerequisites.
-                DashboardScreen(
-                    onStartOverlay = { startActivity(Intent(this, VoiceCommandActivity::class.java)) },
-                    onOpenSettings = { openSettings() },
-                    graphifyRepo = graphifyRepo,
-                    modifier = Modifier.fillMaxSize()
-                )
-"""
-        source = source[:start] + dashboard + source[end:]
-    elif "if (!accessibilityEnabled || !overlayEnabled)" in source:
-        raise SystemExit("MainActivity.kt: global permission gate remains but its start anchor changed")
+    # Match the actual host gate by its condition, not by the indentation of a preceding
+    # declaration. The immutable source ZIP has inconsistent indentation on that declaration.
+    gate_pattern = re.compile(
+        r"(?m)^(?P<indent>[ \t]*)if[ \t]*\([ \t]*![ \t]*accessibilityEnabled[ \t]*\|\|[ \t]*![ \t]*overlayEnabled[ \t]*\)[ \t]*\{"
+    )
+    gate_matches = list(gate_pattern.finditer(source))
+    if len(gate_matches) > 1:
+        raise SystemExit("MainActivity.kt: multiple global Accessibility/Overlay gates found")
+    if gate_matches:
+        gate_match = gate_matches[0]
+        if_open = gate_match.end() - 1
+        try:
+            if_close = _kotlin_matching_delimiter(source, if_open, "{", "}")
+            else_match = re.match(r"[ \t\r\n]*else[ \t]*\{", source[if_close + 1:])
+            if not else_match:
+                raise ValueError("permission gate else branch not found")
+            else_open = if_close + 1 + else_match.end() - 1
+            else_close = _kotlin_matching_delimiter(source, else_open, "{", "}")
+        except ValueError as error:
+            raise SystemExit("MainActivity.kt: refusing unsafe permission-gate replacement: " + str(error))
+
+        indent = gate_match.group("indent")
+        child = indent + "    "
+        dashboard = "\n".join((
+            indent + "DashboardScreen(",
+            child + "onStartOverlay = { startActivity(Intent(this, VoiceCommandActivity::class.java)) },",
+            child + "onOpenSettings = { openSettings() },",
+            child + "graphifyRepo = graphifyRepo,",
+            child + "modifier = Modifier.fillMaxSize()",
+            indent + ")"
+        ))
+        source = source[:gate_match.start()] + dashboard + source[else_close + 1:]
+    elif re.search(
+        r"if[ \t]*\([ \t]*![ \t]*accessibilityEnabled[ \t]*\|\|[ \t]*![ \t]*overlayEnabled[ \t]*\)",
+        source
+    ):
+        raise SystemExit("MainActivity.kt: unexpected global permission-gate shape")
+
+    # Remove only the obsolete local permission probes after replacing the gate.
+    source = re.sub(
+        r"(?m)^[ \t]*val accessibilityEnabled = isAccessibilityServiceEnabled\(\)[ \t]*\n",
+        "",
+        source
+    )
+    source = re.sub(
+        r"(?m)^[ \t]*val overlayEnabled = Settings\.canDrawOverlays\(this\)[ \t]*\n",
+        "",
+        source
+    )
 
     helper_start = source.find("\n    private fun isAccessibilityServiceEnabled(): Boolean {")
     if helper_start >= 0:
@@ -4138,6 +4224,25 @@ def remove_global_accessibility_overlay_gate(source):
     elif "PermissionScreen(" in source:
         raise SystemExit("MainActivity.kt: unexpected PermissionScreen reference remains")
 
+    # These two settings launchers were only reachable from PermissionScreen, which is removed.
+    # The Dashboard capability panel owns the optional, user-invoked settings entry points.
+    for obsolete_method in ("startAccessibilitySettings", "startOverlaySettings"):
+        declaration = re.compile(
+            r"(?m)^[ \t]*private fun " + re.escape(obsolete_method) + r"[ \t]*\([^)]*\)[ \t]*\{"
+        )
+        matches = list(declaration.finditer(source))
+        if len(matches) > 1:
+            raise SystemExit("MainActivity.kt: duplicate obsolete permission launcher: " + obsolete_method)
+        if matches:
+            method_open = source.find("{", matches[0].start(), matches[0].end())
+            try:
+                method_close = _kotlin_matching_delimiter(source, method_open, "{", "}")
+            except ValueError as error:
+                raise SystemExit("MainActivity.kt: refusing unsafe removal of " + obsolete_method + ": " + str(error))
+            source = source[:matches[0].start()] + source[method_close + 1:]
+        elif re.search(r"\b" + re.escape(obsolete_method) + r"\s*\(", source):
+            raise SystemExit("MainActivity.kt: unexpected reference to obsolete permission launcher: " + obsolete_method)
+
     for import_line in (
         "import android.content.ComponentName\n",
         "import android.provider.Settings\n",
@@ -4148,12 +4253,19 @@ def remove_global_accessibility_overlay_gate(source):
         source = source.replace(import_line, "")
     source = source.replace("                val context = LocalContext.current\n", "")
 
-    if "isAccessibilityServiceEnabled" in source or "PermissionScreen(" in source:
-        raise SystemExit("MainActivity.kt: obsolete global permission gate references remain")
+    if (
+        "isAccessibilityServiceEnabled" in source
+        or "PermissionScreen(" in source
+        or "accessibilityEnabled" in source
+        or "overlayEnabled" in source
+        or "Settings.canDrawOverlays(this)" in source
+        or "startAccessibilitySettings(" in source
+        or "startOverlaySettings(" in source
+    ):
+        raise SystemExit("MainActivity.kt: obsolete global permission-gate references remain")
     if "DashboardScreen(" not in source:
         raise SystemExit("MainActivity.kt: permission-independent Dashboard call is missing")
     return source
-
 
 def _dashboard_permission_gate_regression_test():
     fixture = """package com.openjarvis.ui
@@ -4169,7 +4281,7 @@ class MainActivity {
         setContent {
             OpenJarvisTheme {
                 val context = LocalContext.current
-                val accessibilityEnabled = isAccessibilityServiceEnabled()
+val accessibilityEnabled = isAccessibilityServiceEnabled()
                 val overlayEnabled = Settings.canDrawOverlays(this)
 
                 val agentState by agentCore.state.collectAsState()
@@ -4222,6 +4334,8 @@ fun RetainedStatusPanel() {
         or "Settings.canDrawOverlays(this)" in once
         or "onStartOverlay = { startActivity(Intent(this, VoiceCommandActivity::class.java)) }" not in once
         or "fun RetainedStatusPanel()" not in once
+        or "startAccessibilitySettings(" in once
+        or "startOverlaySettings(" in once
     ):
         raise SystemExit("MainActivity.kt: permission-independent Dashboard regression failed")
 
