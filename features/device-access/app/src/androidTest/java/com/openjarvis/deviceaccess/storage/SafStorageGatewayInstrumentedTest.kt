@@ -5,6 +5,7 @@ import android.provider.DocumentsContract
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -190,6 +191,69 @@ class SafStorageGatewayInstrumentedTest {
         assertEquals(bytes.size.toLong(), copied)
         org.junit.Assert.assertArrayEquals(bytes, output.toByteArray())
         assertEquals(4096, input.largestRequestedChunk)
+    }
+
+    @Test
+    fun streamToNeverWritesPastMaxBytesAndOnlyReadsOneByteBeyondTheLimit() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val tree = Uri.parse("content://jarvis.fake.documents/tree/root")
+        val source = DocumentsContract.buildDocumentUriUsingTree(tree, "root:oversized.bin")
+        val grants = listOf(snapshot(tree, read = true, write = false))
+        val inputBytes = ByteArray(10) { it.toByte() }
+        val requestedLengths = mutableListOf<Int>()
+        val input = object : ByteArrayInputStream(inputBytes) {
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                requestedLengths += length
+                return super.read(buffer, offset, length)
+            }
+        }
+        val gateway = SafStorageGateway(
+            context,
+            { grants },
+            FakeSafDocumentOperations(),
+            { input }
+        )
+        val output = ByteArrayOutputStream()
+
+        val error = runCatching {
+            gateway.streamTo(source, output, maxBytes = 8, chunkSizeBytes = 4)
+        }.exceptionOrNull()
+
+        assertTrue("An oversized source must be rejected", error is IOException)
+        assertEquals("No byte beyond the configured ceiling may be written", 8, output.size())
+        assertEquals("The overflow probe must request only one byte", listOf(4, 4, 1), requestedLengths)
+    }
+
+    @Test
+    fun streamToLeavesCallerOwnedOutputStreamOpenAfterSuccessfulCopy() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val tree = Uri.parse("content://jarvis.fake.documents/tree/root")
+        val source = DocumentsContract.buildDocumentUriUsingTree(tree, "root:caller-owned.bin")
+        val grants = listOf(snapshot(tree, read = true, write = false))
+        val inputBytes = ByteArray(9) { (it + 1).toByte() }
+        val input = ByteArrayInputStream(inputBytes)
+        val gateway = SafStorageGateway(
+            context,
+            { grants },
+            FakeSafDocumentOperations(),
+            { input }
+        )
+        val output = object : ByteArrayOutputStream() {
+            var closedByGateway = false
+                private set
+
+            override fun close() {
+                closedByGateway = true
+                super.close()
+            }
+        }
+
+        val copied = gateway.streamTo(source, output, maxBytes = inputBytes.size.toLong(), chunkSizeBytes = 4)
+
+        assertEquals(inputBytes.size.toLong(), copied)
+        assertFalse("The caller-owned stream must remain open", output.closedByGateway)
+        output.write(0x7f)
+        org.junit.Assert.assertArrayEquals(inputBytes + byteArrayOf(0x7f), output.toByteArray())
     }
 
     @Test
