@@ -1,6 +1,7 @@
 package com.openjarvis.deviceactions.sms
 
 import java.util.UUID
+import com.openjarvis.tasks.DeviceActionOutcomeCode
 
 data class SmsReview(
     val reviewId: String,
@@ -248,4 +249,15 @@ internal class ConfirmedSmsDispatcher(
         }
         transport.send(draft, callback)
     }
+}
+
+
+/** One privacy-safe outcome mapping shared by voice and compose SMS entry points. */
+fun SmsSendOutcome.toDeviceActionOutcomeCode(): DeviceActionOutcomeCode = when (this) {
+    SmsSendOutcome.Sent -> DeviceActionOutcomeCode.SENT
+    SmsSendOutcome.PermissionDenied,
+    SmsSendOutcome.Unsupported,
+    SmsSendOutcome.Rejected -> DeviceActionOutcomeCode.NOT_EXECUTED
+    is SmsSendOutcome.Failed -> DeviceActionOutcomeCode.FAILED
+    is SmsSendOutcome.Unknown -> DeviceActionOutcomeCode.UNKNOWN
 }

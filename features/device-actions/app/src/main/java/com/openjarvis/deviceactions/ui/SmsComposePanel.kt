@@ -38,18 +38,9 @@ import com.openjarvis.deviceactions.sms.SmsConfirmationGate
 import com.openjarvis.deviceactions.sms.createAndroidSmsDispatcher
 import com.openjarvis.deviceactions.sms.SmsSendOutcome
 import com.openjarvis.deviceactions.sms.SmsSelectionInvalidationPolicy
-import com.openjarvis.tasks.DeviceActionOutcomeCode
+import com.openjarvis.deviceactions.sms.toDeviceActionOutcomeCode
 import com.openjarvis.tasks.DeviceActionOutcomeJournal
 import com.openjarvis.tasks.DeviceActionType
-
-private fun SmsSendOutcome.toJournalOutcomeCode(): DeviceActionOutcomeCode = when (this) {
-    SmsSendOutcome.Sent -> DeviceActionOutcomeCode.SENT
-    SmsSendOutcome.PermissionDenied,
-    SmsSendOutcome.Unsupported,
-    SmsSendOutcome.Rejected -> DeviceActionOutcomeCode.NOT_EXECUTED
-    is SmsSendOutcome.Failed -> DeviceActionOutcomeCode.FAILED
-    is SmsSendOutcome.Unknown -> DeviceActionOutcomeCode.UNKNOWN
-}
 
 /** Contact-first SMS flow. No phone-number field is shown for a unique contact match. */
 @Composable
@@ -79,7 +70,7 @@ fun SmsComposePanel(
             DeviceActionOutcomeJournal.record(
                 context,
                 DeviceActionType.SMS,
-                outcome.toJournalOutcomeCode()
+                outcome.toDeviceActionOutcomeCode()
             )
             false
         } catch (cancelled: CancellationException) {

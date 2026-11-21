@@ -1,5 +1,6 @@
 package com.openjarvis.deviceactions.sms
 
+import com.openjarvis.tasks.DeviceActionOutcomeCode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -14,6 +15,16 @@ class SmsActionContractTest {
         override fun put(record: SmsAttemptRecord) { records[record.requestId] = record }
         override fun remove(requestId: String) { records.remove(requestId) }
     }
+    @Test
+    fun sharedOutcomeMappingKeepsUnknownDistinctFromSent() {
+        assertEquals(DeviceActionOutcomeCode.SENT, SmsSendOutcome.Sent.toDeviceActionOutcomeCode())
+        assertEquals(DeviceActionOutcomeCode.UNKNOWN, SmsSendOutcome.Unknown("missing callback").toDeviceActionOutcomeCode())
+        assertEquals(DeviceActionOutcomeCode.FAILED, SmsSendOutcome.Failed("platform failure").toDeviceActionOutcomeCode())
+        assertEquals(DeviceActionOutcomeCode.NOT_EXECUTED, SmsSendOutcome.PermissionDenied.toDeviceActionOutcomeCode())
+        assertEquals(DeviceActionOutcomeCode.NOT_EXECUTED, SmsSendOutcome.Unsupported.toDeviceActionOutcomeCode())
+        assertEquals(DeviceActionOutcomeCode.NOT_EXECUTED, SmsSendOutcome.Rejected.toDeviceActionOutcomeCode())
+    }
+
     @Test
     fun messageCannotBeConsumedBeforeExplicitConfirmation() {
         val gate = SmsConfirmationGate()
@@ -56,6 +67,31 @@ class SmsActionContractTest {
         dispatcher.dispatch(confirmation) { outcome = it }
         assertEquals(SmsSendOutcome.PermissionDenied, outcome)
         assertEquals(false, transportCalled)
+        assertNull(gate.consume(confirmation))
+    }
+
+    @Test
+    fun permissionRevokedAfterFinalConfirmationPreventsTransport() {
+        val gate = SmsConfirmationGate()
+        val review = gate.prepare("İpek Yılmaz", "+905321112233", "Onaydan sonra izin geri alındı")
+        val confirmation = gate.confirm(review.reviewId)!!
+        var granted = true
+        var transportCalls = 0
+        var outcome: SmsSendOutcome? = null
+        val dispatcher = ConfirmedSmsDispatcher(
+            permission = SmsPermission { granted },
+            gate = gate,
+            transport = SmsTransport { _, callback ->
+                transportCalls += 1
+                callback(SmsSendOutcome.Sent)
+            }
+        )
+
+        granted = false
+        dispatcher.dispatch(confirmation) { outcome = it }
+
+        assertEquals(SmsSendOutcome.PermissionDenied, outcome)
+        assertEquals(0, transportCalls)
         assertNull(gate.consume(confirmation))
     }
 
