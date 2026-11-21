@@ -24,10 +24,10 @@ internal data class VideoPlayerPreparationState(
         get() = phase == Phase.READY
 
     fun onPrepared(): VideoPlayerPreparationState =
-        copy(phase = Phase.READY, errorMessage = null)
+        if (phase == Phase.FAILED) this else copy(phase = Phase.READY, errorMessage = null)
 
     fun onBufferingStarted(): VideoPlayerPreparationState =
-        if (phase == Phase.FAILED) this else copy(phase = Phase.BUFFERING, errorMessage = null)
+        if (phase == Phase.READY) copy(phase = Phase.BUFFERING) else this
 
     fun onBufferingEnded(): VideoPlayerPreparationState =
         if (phase == Phase.BUFFERING) copy(phase = Phase.READY) else this
