@@ -4228,7 +4228,7 @@ def remove_global_accessibility_overlay_gate(source):
     # The Dashboard capability panel owns the optional, user-invoked settings entry points.
     for obsolete_method in ("startAccessibilitySettings", "startOverlaySettings"):
         declaration = re.compile(
-            r"(?m)^[ \\t]*private fun " + re.escape(obsolete_method) + r"[ \\t]*\\([^)]*\\)[ \\t]*\\{"
+            r"(?m)^[ \t]*private fun " + re.escape(obsolete_method) + r"[ \t]*\([^)]*\)[ \t]*\{"
         )
         matches = list(declaration.finditer(source))
         if len(matches) > 1:
@@ -4240,11 +4240,11 @@ def remove_global_accessibility_overlay_gate(source):
             except ValueError as error:
                 raise SystemExit("MainActivity.kt: refusing unsafe removal of " + obsolete_method + ": " + str(error))
             source = source[:matches[0].start()] + source[method_close + 1:]
-        elif re.search(r"\\b" + re.escape(obsolete_method) + r"\\s*\\(", source):
+        elif re.search(r"\b" + re.escape(obsolete_method) + r"\s*\(", source):
             raise SystemExit("MainActivity.kt: unexpected reference to obsolete permission launcher: " + obsolete_method)
 
     for import_line in (
-        "import android.content.ComponentName\\n",
+        "import android.content.ComponentName\n",
         "import android.provider.Settings\n",
         "import com.openjarvis.accessibility.JarvisAccessibilityService\n",
         "import com.openjarvis.agent.AgentState\n",
