@@ -4134,27 +4134,55 @@ def _kotlin_find_next_code_brace(source, start_index):
 
 
 def remove_global_accessibility_overlay_gate(source):
-    gate_start = "                val accessibilityEnabled = isAccessibilityServiceEnabled()"
-    if gate_start in source:
-        start = source.index(gate_start)
-        closing = re.search(
-            r"(?m)^                }\n(?=            }\n        }\n    })",
-            source[start:]
-        )
-        if not closing:
-            raise SystemExit("MainActivity.kt: global permission gate closing anchor not found")
-        end = start + closing.end()
-        dashboard = """                // Accessibility and overlay are optional capabilities, not launch prerequisites.
-                DashboardScreen(
-                    onStartOverlay = { startActivity(Intent(this, VoiceCommandActivity::class.java)) },
-                    onOpenSettings = { openSettings() },
-                    graphifyRepo = graphifyRepo,
-                    modifier = Modifier.fillMaxSize()
-                )
-"""
-        source = source[:start] + dashboard + source[end:]
-    elif "if (!accessibilityEnabled || !overlayEnabled)" in source:
-        raise SystemExit("MainActivity.kt: global permission gate remains but its start anchor changed")
+    # Match the actual host gate by its condition, not by the indentation of a preceding
+    # declaration. The immutable source ZIP has inconsistent indentation on that declaration.
+    gate_pattern = re.compile(
+        r"(?m)^(?P<indent>[ \t]*)if[ \t]*\([ \t]*![ \t]*accessibilityEnabled[ \t]*\|\|[ \t]*![ \t]*overlayEnabled[ \t]*\)[ \t]*\{"
+    )
+    gate_matches = list(gate_pattern.finditer(source))
+    if len(gate_matches) > 1:
+        raise SystemExit("MainActivity.kt: multiple global Accessibility/Overlay gates found")
+    if gate_matches:
+        gate_match = gate_matches[0]
+        if_open = gate_match.end() - 1
+        try:
+            if_close = _kotlin_matching_delimiter(source, if_open, "{", "}")
+            else_match = re.match(r"[ \t\r\n]*else[ \t]*\{", source[if_close + 1:])
+            if not else_match:
+                raise ValueError("permission gate else branch not found")
+            else_open = if_close + 1 + else_match.end() - 1
+            else_close = _kotlin_matching_delimiter(source, else_open, "{", "}")
+        except ValueError as error:
+            raise SystemExit("MainActivity.kt: refusing unsafe permission-gate replacement: " + str(error))
+
+        indent = gate_match.group("indent")
+        child = indent + "    "
+        dashboard = "\n".join((
+            indent + "DashboardScreen(",
+            child + "onStartOverlay = { startActivity(Intent(this, VoiceCommandActivity::class.java)) },",
+            child + "onOpenSettings = { openSettings() },",
+            child + "graphifyRepo = graphifyRepo,",
+            child + "modifier = Modifier.fillMaxSize()",
+            indent + ")"
+        ))
+        source = source[:gate_match.start()] + dashboard + source[else_close + 1:]
+    elif re.search(
+        r"if[ \t]*\([ \t]*![ \t]*accessibilityEnabled[ \t]*\|\|[ \t]*![ \t]*overlayEnabled[ \t]*\)",
+        source
+    ):
+        raise SystemExit("MainActivity.kt: unexpected global permission-gate shape")
+
+    # Remove only the obsolete local permission probes after replacing the gate.
+    source = re.sub(
+        r"(?m)^[ \t]*val accessibilityEnabled = isAccessibilityServiceEnabled\(\)[ \t]*\n",
+        "",
+        source
+    )
+    source = re.sub(
+        r"(?m)^[ \t]*val overlayEnabled = Settings\.canDrawOverlays\(this\)[ \t]*\n",
+        "",
+        source
+    )
 
     helper_start = source.find("\n    private fun isAccessibilityServiceEnabled(): Boolean {")
     if helper_start >= 0:
@@ -4206,12 +4234,17 @@ def remove_global_accessibility_overlay_gate(source):
         source = source.replace(import_line, "")
     source = source.replace("                val context = LocalContext.current\n", "")
 
-    if "isAccessibilityServiceEnabled" in source or "PermissionScreen(" in source:
-        raise SystemExit("MainActivity.kt: obsolete global permission gate references remain")
+    if (
+        "isAccessibilityServiceEnabled" in source
+        or "PermissionScreen(" in source
+        or "accessibilityEnabled" in source
+        or "overlayEnabled" in source
+        or "Settings.canDrawOverlays(this)" in source
+    ):
+        raise SystemExit("MainActivity.kt: obsolete global permission-gate references remain")
     if "DashboardScreen(" not in source:
         raise SystemExit("MainActivity.kt: permission-independent Dashboard call is missing")
     return source
-
 
 def _dashboard_permission_gate_regression_test():
     fixture = """package com.openjarvis.ui
@@ -4227,7 +4260,7 @@ class MainActivity {
         setContent {
             OpenJarvisTheme {
                 val context = LocalContext.current
-                val accessibilityEnabled = isAccessibilityServiceEnabled()
+val accessibilityEnabled = isAccessibilityServiceEnabled()
                 val overlayEnabled = Settings.canDrawOverlays(this)
 
                 val agentState by agentCore.state.collectAsState()
