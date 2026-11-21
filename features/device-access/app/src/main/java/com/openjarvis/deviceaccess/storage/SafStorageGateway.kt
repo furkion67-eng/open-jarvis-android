@@ -8,6 +8,8 @@ import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 
 internal interface SafDocumentOperations {
     fun createDocument(parent: Uri, mimeType: String, displayName: String): Uri?
@@ -52,14 +54,17 @@ class SafStorageGateway(context: Context) {
         }
     }
     private var documentOperations: SafDocumentOperations = AndroidSafDocumentOperations(resolver)
+    private var inputStreamOpener: (Uri) -> InputStream? = { uri -> resolver.openInputStream(uri) }
 
     internal constructor(
         context: Context,
         grantSnapshotReader: () -> List<StorageGrantSnapshot>,
-        documentOperations: SafDocumentOperations
+        documentOperations: SafDocumentOperations,
+        inputStreamOpener: ((Uri) -> InputStream?)? = null
     ) : this(context) {
         this.grantSnapshotReader = grantSnapshotReader
         this.documentOperations = documentOperations
+        if (inputStreamOpener != null) this.inputStreamOpener = inputStreamOpener
     }
 
     data class Entry(
@@ -157,6 +162,41 @@ class SafStorageGateway(context: Context) {
                 total += count
             }
             output.toByteArray()
+        }
+    }
+
+    /**
+     * Copies a selected document to a caller-owned output stream using a bounded buffer.
+     * The output stream is not closed by this method. The persisted SAF grant is revalidated
+     * before every input read so a revoked grant stops the next chunk instead of continuing
+     * to consume a previously opened stream.
+     */
+    fun streamTo(
+        uri: Uri,
+        output: OutputStream,
+        maxBytes: Long,
+        chunkSizeBytes: Int = DEFAULT_STREAM_CHUNK_BYTES
+    ): Long {
+        require(maxBytes > 0L) { "Akış için pozitif bir bayt sınırı gerekli." }
+        require(chunkSizeBytes in 1..MAX_STREAM_CHUNK_BYTES) { "Akış parça boyutu geçersiz." }
+        requireAccess(uri, requireWrite = false)
+        val input = inputStreamOpener(uri)
+            ?: throw IOException("Dosya akışı açılamadı veya erişim izni kaldırılmış.")
+        return input.use { stream ->
+            val buffer = ByteArray(chunkSizeBytes)
+            var total = 0L
+            while (true) {
+                requireAccess(uri, requireWrite = false)
+                val count = stream.read(buffer)
+                if (count < 0) break
+                if (count.toLong() > maxBytes - total) {
+                    throw IOException("Dosya belirtilen ${maxBytes} bayt akış sınırını aşıyor.")
+                }
+                output.write(buffer, 0, count)
+                total += count.toLong()
+            }
+            output.flush()
+            total
         }
     }
 
@@ -261,7 +301,11 @@ class SafStorageGateway(context: Context) {
 
     fun displayName(uri: Uri): String = queryDisplayName(uri)
 
-    private companion object { const val MAX_READ_BYTES = 8 * 1024 * 1024 }
+    private companion object {
+        const val MAX_READ_BYTES = 8 * 1024 * 1024
+        const val DEFAULT_STREAM_CHUNK_BYTES = 64 * 1024
+        const val MAX_STREAM_CHUNK_BYTES = 256 * 1024
+    }
 
     private fun queryDisplayName(uri: Uri): String {
         requireAccess(uri, requireWrite = false)
