@@ -95,8 +95,8 @@ fun SmsComposePanel(
         }
     }
 
-    LaunchedEffect(sender) {
-        if (sender.recoveredUnknownCount > 0) {
+    LaunchedEffect(dispatcher) {
+        if (dispatcher.recoveredUnknownCount > 0) {
             status = "Önceki SMS gönderiminin sonucu uygulama yeniden açıldığında doğrulanamadı (UNKNOWN). JARVIS mesajı otomatik tekrar göndermedi."
             persistSmsOutcome(
                 SmsSendOutcome.Unknown("Önceki süreçte SMS gönderim callback'i alınamadı; otomatik tekrar yapılmadı.")
