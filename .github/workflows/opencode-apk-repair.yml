@@ -71,7 +71,7 @@ jobs:
           GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
           GITHUB_TOKEN: ${{ github.token }}
         with:
-          model: opencode/glm-5.3-flash-free
+          model: opencode/deepseek-v4.1-flash-free
           use_github_token: true
           prompt: |
             You are the autonomous software engineering agent for Open Jarvis Android.
