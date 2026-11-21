@@ -65,7 +65,7 @@ class SmsTransportExposureTest {
         assertTrue(coordinatorSource.contains("private suspend fun confirmSms(review: SmsReview"))
         assertTrue(coordinatorSource.contains("smsConfirmationGate.confirm(review.reviewId)"))
         assertTrue(coordinatorSource.contains("executor.dispatchConfirmedSms(confirmation, smsConfirmationGate)"))
-        assertTrue(coordinatorSource.contains("executor.dispatchConfirmedSms(confirmation, smsConfirmationGate) { result ->\\n            scope.launch {"))
+        assertTrue(coordinatorSource.contains("executor.dispatchConfirmedSms(confirmation, smsConfirmationGate) { result ->\n            scope.launch {"))
         assertFalse(coordinatorSource.contains("scope.launch(Dispatchers.IO)"))
         assertTrue(coordinatorSource.contains("ResolvedRecipient(resolution.displayName, resolution.number)"))
         assertTrue(coordinatorSource.contains("RecipientSourcePolicy.choose(contactName, phoneNumber)"))
@@ -236,7 +236,7 @@ class SmsTransportExposureTest {
 
     @Test
     fun scannerIgnoresCommentsButPreservesLiteralAndExecutableTokens() {
-        val source = "val note = \"SmsManager\" // SmsManager\\n/* SmsManager */ SmsManager.getDefault()"
+        val source = "val note = \"SmsManager\" // SmsManager\n/* SmsManager */ SmsManager.getDefault()"
         val scanned = kotlinCode(source)
         assertTrue(scanned.contains("\"SmsManager\""))
         assertFalse(scanned.contains("// SmsManager"))
