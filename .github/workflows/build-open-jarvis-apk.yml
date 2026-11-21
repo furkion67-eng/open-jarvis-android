@@ -3,7 +3,7 @@ name: Build Open Jarvis APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, "feature/approval-toggle", "feature/repair-overlay-input-digest-2026-11-21" ]
+    branches: [ main, "feature/approval-toggle", "feature/repair-overlay-input-digest-2026-11-21", "infra/ci-feature-stack-20261121" ]
   pull_request:
     branches: [ main, "feature/dashboard-launch-assertion-open-jarvis-20261121" ]
 
