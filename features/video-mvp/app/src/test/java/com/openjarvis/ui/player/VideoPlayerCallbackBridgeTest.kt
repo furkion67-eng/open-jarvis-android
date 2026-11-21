@@ -10,7 +10,7 @@ class VideoPlayerCallbackBridgeTest {
     @Test
     fun productionCallbackBridgeDrivesPreparationBufferingAndFailureStates() {
         val emitted = mutableListOf<VideoPlayerPreparationState>()
-        val bridge = VideoPlayerCallbackBridge("attempt-1", emitted::add)
+        val bridge = VideoPlayerCallbackBridge("attempt-1") { next -> emitted.add(next); Unit }
 
         assertEquals(VideoPlayerPreparationState.Phase.PREPARING, bridge.state.phase)
         assertTrue(bridge.state.isLoading)
@@ -37,6 +37,10 @@ class VideoPlayerCallbackBridgeTest {
         assertFalse(bridge.state.isLoading)
         assertFalse(bridge.state.canPlay)
         assertEquals("decoder failed", bridge.state.errorMessage)
+        val emittedAfterFailure = emitted.size
+        bridge.onPrepared("attempt-1")
+        assertEquals(VideoPlayerPreparationState.Phase.FAILED, bridge.state.phase)
+        assertEquals(emittedAfterFailure, emitted.size)
         assertEquals(
             listOf(
                 VideoPlayerPreparationState.Phase.READY,
@@ -51,7 +55,7 @@ class VideoPlayerCallbackBridgeTest {
     @Test
     fun callbacksFromDisposedVideoViewCannotMutateReplacementAttempt() {
         val emitted = mutableListOf<VideoPlayerPreparationState>()
-        val bridge = VideoPlayerCallbackBridge("attempt-1", emitted::add)
+        val bridge = VideoPlayerCallbackBridge("attempt-1") { next -> emitted.add(next); Unit }
 
         bridge.onPrepared("attempt-1")
         bridge.beginAttempt("attempt-2")
