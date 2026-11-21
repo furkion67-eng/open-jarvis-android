@@ -106,9 +106,8 @@ class SmsTransportExposureTest {
     }
 
     /**
-     * Removes comments/KDoc and literals before looking for platform API tokens. This avoids
-     * treating documentation such as "SmsManager" in a KDoc paragraph as a second transport,
-     * while real imports, calls and type references remain visible to the scan.
+     * Removes comments/KDoc while preserving literals. String templates can contain executable
+     * Kotlin expressions, so literals are not discarded by the transport security scan.
      */
     private fun kotlinCode(source: String): String {
         val output = StringBuilder(source.length)
@@ -131,17 +130,17 @@ class SmsTransportExposureTest {
                         state = 2
                     }
                     source.startsWith("\"\"\"", index) -> {
-                        output.append("   ")
+                        output.append("\"\"\"")
                         index += 3
                         state = 4
                     }
                     source[index] == '"' -> {
-                        output.append(' ')
+                        output.append('"')
                         index++
                         state = 3
                     }
                     source[index] == '\'' -> {
-                        output.append(' ')
+                        output.append('\'')
                         index++
                         state = 5
                     }
@@ -176,39 +175,39 @@ class SmsTransportExposureTest {
                 }
                 3, 5 -> {
                     val quote = if (state == 3) '"' else '\''
+                    val current = source[index]
+                    output.append(current)
+                    index++
                     when {
-                        source[index] == '\\' -> {
-                            output.append(' ')
-                            index++
-                            if (index < source.length) {
-                                output.append(if (source[index] == '\n') '\n' else ' ')
-                                index++
-                            }
-                        }
-                        source[index] == quote -> {
-                            output.append(' ')
-                            index++
-                            state = 0
-                        }
-                        else -> {
-                            output.append(if (source[index] == '\n') '\n' else ' ')
+                        current == '\\' && index < source.length -> {
+                            output.append(source[index])
                             index++
                         }
+                        current == quote -> state = 0
                     }
                 }
                 4 -> {
                     if (source.startsWith("\"\"\"", index)) {
-                        output.append("   ")
+                        output.append("\"\"\"")
                         index += 3
                         state = 0
                     } else {
-                        output.append(if (source[index] == '\n') '\n' else ' ')
+                        output.append(source[index])
                         index++
                     }
                 }
             }
         }
         return output.toString()
+    }
+
+    @Test
+    fun scannerIgnoresCommentsButPreservesLiteralAndExecutableTokens() {
+        val source = "val note = \"SmsManager\" // SmsManager\\n/* SmsManager */ SmsManager.getDefault()"
+        val scanned = kotlinCode(source)
+        assertTrue(scanned.contains("\"SmsManager\""))
+        assertFalse(scanned.contains("// SmsManager"))
+        assertTrue(scanned.contains("SmsManager.getDefault()"))
     }
 
     private fun readUtf8(path: Path): String =
