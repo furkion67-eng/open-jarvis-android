@@ -34,7 +34,8 @@ class SmsTransportExposureTest {
 
         assertTrue(senderSource.contains("internal fun createAndroidSmsDispatcher("))
         assertTrue(senderSource.contains("private class AndroidSmsSender("))
-        assertTrue(senderSource.contains("transport = AndroidSmsSender(appContext)"))
+        assertTrue(senderSource.contains("val sender = AndroidSmsSender(appContext)"))
+        assertTrue(senderSource.contains("transport = sender"))
         assertTrue(contractSource.contains("internal fun interface SmsTransport"))
         assertTrue(contractSource.contains("internal fun interface SmsPermission"))
         assertTrue(contractSource.contains("internal class ConfirmedSmsDispatcher("))
