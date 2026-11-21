@@ -45,7 +45,9 @@ class SmsTransportExposureTest {
             stream.filter { Files.isRegularFile(it) && it.toString().endsWith(".kt") }
                 .collect(Collectors.toList())
         }
-        val sourceByPath = kotlinFiles.associateWith { Files.readString(it) }
+        val sourceByPath: Map<Path, String> = kotlinFiles.associateWith { path: Path ->
+            Files.readString(path)
+        }
 
         val smsManagerFiles = sourceByPath.filterValues { it.contains("SmsManager") }
             .keys.map { sourceRoot.relativize(it).toString().replace('\\', '/') }
@@ -60,15 +62,15 @@ class SmsTransportExposureTest {
         }.keys
         assertEquals(setOf(senderPath), concreteSenderConstructionSites)
 
-        val directSenderCalls = sourceByPath.filterValues {
+        val directSenderCalls = sourceByPath.filterValues { source: String ->
             Regex("""\b(?:sender|smsSender)\s*\.\s*send\s*\(""")
-                .containsMatchIn(it)
-        }
+                .containsMatchIn(source)
+        }.keys
         assertTrue("No caller may invoke the concrete sender directly", directSenderCalls.isEmpty())
 
-        val transportDispatchSites = sourceByPath.filterValues {
+        val transportDispatchSites = sourceByPath.filterValues { source: String ->
             Regex("""\btransport\s*\.\s*send\s*\(\s*draft\s*,\s*callback\s*\)""")
-                .containsMatchIn(it)
+                .containsMatchIn(source)
         }.keys
         assertEquals(setOf(contractPath), transportDispatchSites)
     }
