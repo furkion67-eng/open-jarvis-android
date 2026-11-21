@@ -28,6 +28,43 @@ import java.util.UUID
 @RunWith(AndroidJUnit4::class)
 class VideoArtifactPlayerInstrumentedTest {
     @Test
+    fun preparationAndBufferingCallbacksExposeOnlyTruthfulPlaybackReadiness() {
+        var state = VideoPlayerPreparationState.preparing()
+        assertTrue(state.isLoading)
+        assertFalse(state.canPlay)
+
+        state = state.onPrepared()
+        assertEquals(VideoPlayerPreparationState.Phase.READY, state.phase)
+        assertFalse(state.isLoading)
+        assertTrue(state.canPlay)
+
+        state = state.onBufferingStarted()
+        assertEquals(VideoPlayerPreparationState.Phase.BUFFERING, state.phase)
+        assertTrue(state.isLoading)
+        assertFalse(state.canPlay)
+
+        state = state.onBufferingEnded()
+        assertEquals(VideoPlayerPreparationState.Phase.READY, state.phase)
+        assertFalse(state.isLoading)
+        assertTrue(state.canPlay)
+    }
+
+    @Test
+    fun mediaErrorDisablesPlaybackAndRetryReturnsToPreparing() {
+        val failed = VideoPlayerPreparationState.preparing().onError("Video açılamadı")
+        assertEquals(VideoPlayerPreparationState.Phase.FAILED, failed.phase)
+        assertFalse(failed.isLoading)
+        assertFalse(failed.canPlay)
+        assertEquals("Video açılamadı", failed.errorMessage)
+
+        val retry = failed.onRetry()
+        assertEquals(VideoPlayerPreparationState.Phase.PREPARING, retry.phase)
+        assertTrue(retry.isLoading)
+        assertFalse(retry.canPlay)
+        assertEquals(null, retry.errorMessage)
+    }
+
+    @Test
     fun revokedOrUnreadableContentUriReturnsUnavailableForRetry() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val metadata = com.openjarvis.tasks.VideoArtifactMetadata(
