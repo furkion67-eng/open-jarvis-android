@@ -60,6 +60,31 @@ class SmsActionContractTest {
     }
 
     @Test
+    fun permissionRevokedAfterFinalConfirmationPreventsTransport() {
+        val gate = SmsConfirmationGate()
+        val review = gate.prepare("İpek Yılmaz", "+905321112233", "Onaydan sonra izin geri alındı")
+        val confirmation = gate.confirm(review.reviewId)!!
+        var granted = true
+        var transportCalls = 0
+        var outcome: SmsSendOutcome? = null
+        val dispatcher = ConfirmedSmsDispatcher(
+            permission = SmsPermission { granted },
+            gate = gate,
+            transport = SmsTransport { _, callback ->
+                transportCalls += 1
+                callback(SmsSendOutcome.Sent)
+            }
+        )
+
+        granted = false
+        dispatcher.dispatch(confirmation) { outcome = it }
+
+        assertEquals(SmsSendOutcome.PermissionDenied, outcome)
+        assertEquals(0, transportCalls)
+        assertNull(gate.consume(confirmation))
+    }
+
+    @Test
     fun dispatcherConsumesConfirmationBeforeTransportAndRejectsReplay() {
         val gate = SmsConfirmationGate()
         val review = gate.prepare("İpek Yılmaz", "+905321112233", "Tam ve kesin mesaj")
