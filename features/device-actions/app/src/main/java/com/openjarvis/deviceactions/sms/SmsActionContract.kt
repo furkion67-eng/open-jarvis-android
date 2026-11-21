@@ -226,7 +226,8 @@ internal fun interface SmsTransport { fun send(draft: SmsDraft, callback: (SmsSe
 internal class ConfirmedSmsDispatcher(
     private val permission: SmsPermission,
     private val gate: SmsConfirmationGate,
-    private val transport: SmsTransport
+    private val transport: SmsTransport,
+    val recoveredUnknownCount: Int = 0
 ) {
     fun dispatch(confirmation: ConfirmedSmsAction, callback: (SmsSendOutcome) -> Unit) {
         if (!runCatching(permission::isGranted).getOrDefault(false)) {
