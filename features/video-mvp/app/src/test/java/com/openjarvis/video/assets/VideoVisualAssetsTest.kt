@@ -47,6 +47,43 @@ class VideoVisualAssetsTest {
     }
 
     @Test
+    fun downloadUrlMustMatchTheExactPinnedCommonsFileName() {
+        val source = descriptor().sourceUrl
+        assertTrue(VideoAssetLicensePolicy.isDownloadForPinnedSource(
+            source,
+            descriptor().downloadUrl
+        ))
+
+        val otherDownload = descriptor().copy(
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/a/ab/Other.jpg"
+        )
+        val otherSource = descriptor().copy(
+            sourceUrl = source.replace("File:Example.jpg", "File:Other.jpg")
+        )
+        assertTrue(runCatching { VideoAssetLicensePolicy.validate(otherDownload) }.isFailure)
+        assertTrue(runCatching { VideoAssetLicensePolicy.validate(otherSource) }.isFailure)
+
+        val thumbnail = descriptor().copy(
+            downloadUrl = "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Example.jpg/960px-Example.jpg"
+        )
+        assertTrue(runCatching { VideoAssetLicensePolicy.validate(thumbnail) }.isSuccess)
+    }
+
+    @Test
+    fun redirectCannotSubstituteASecondCommonsFileWithDifferentLicensing() {
+        val downloader = object : VideoVisualAssetDownloader {
+            override fun download(descriptor: VideoVisualAssetDescriptor): DownloadedVisualAsset =
+                DownloadedVisualAsset(
+                    bytes = jpeg,
+                    mimeType = "image/jpeg",
+                    finalUrl = "https://upload.wikimedia.org/wikipedia/commons/a/ab/Other.jpg"
+                )
+        }
+        val resolver = VideoVisualAssetResolver(MemoryCache(), downloader, clock = { now })
+        assertTrue(runCatching { resolver.resolveAll(listOf(descriptor())) }.isFailure)
+    }
+
+    @Test
     fun forgedAttributionCannotMarkNcLicenseAsCommercial() {
         val source = "https://commons.wikimedia.org/w/index.php?title=File:Example.jpg&oldid=123456"
         val forged = VideoAssetAttribution(
