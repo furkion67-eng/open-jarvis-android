@@ -295,6 +295,7 @@ class DeviceActionCoordinator(
         (pending as? PendingDeviceAction.SmsConfirmation)?.review?.let {
             smsConfirmationGate.cancel(it.reviewId)
         }
+        pending = null
         val review = try {
             smsConfirmationGate.prepare(labelOf(contactName, number), number, body)
         } catch (error: Exception) {
