@@ -176,7 +176,7 @@ class AndroidActionExecutor(private val context: Context) {
     fun placeCall(number: String, directIfPermitted: Boolean): Boolean = try {
         val direct = directIfPermitted && canCallDirectly()
         val action = if (direct) Intent.ACTION_CALL else Intent.ACTION_DIAL
-        context.startActivity(Intent(action, Uri.parse("tel:$number")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        context.startActivity(Intent(action, Uri.parse("tel:$number")))
         true
     } catch (_: Exception) {
         false
