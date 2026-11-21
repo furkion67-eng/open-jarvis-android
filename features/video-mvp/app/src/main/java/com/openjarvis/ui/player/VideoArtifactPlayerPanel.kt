@@ -134,7 +134,7 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
     var availability by remember(latest?.id, latest?.videoUri) {
         mutableStateOf<PlaybackAvailability>(PlaybackAvailability.Empty)
     }
-    var player by remember(latest?.videoUri, retryKey) { mutableStateOf<VideoView?>(null) }
+    var player by remember(latest?.id, latest?.videoUri, retryKey) { mutableStateOf<VideoView?>(null) }
     val playerAttemptId = "${latest?.id?.toString().orEmpty()}|${latest?.videoUri.orEmpty()}|$retryKey"
     var playerPreparation by remember(playerAttemptId) {
         mutableStateOf(VideoPlayerPreparationState.preparing(playerAttemptId))
@@ -309,6 +309,7 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
                         }
                         VideoPlayerPreparationControls(
                             state = playerPreparation,
+                            canPlay = player != null && playerPreparation.canPlay,
                             onPlay = { player?.start() },
                             onReplay = {
                                 player?.seekTo(0)
@@ -339,6 +340,7 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
 @Composable
 internal fun VideoPlayerPreparationControls(
     state: VideoPlayerPreparationState,
+    canPlay: Boolean,
     onPlay: () -> Unit,
     onReplay: () -> Unit,
     onRetry: () -> Unit
@@ -355,12 +357,12 @@ internal fun VideoPlayerPreparationControls(
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(
             onClick = onPlay,
-            enabled = state.canPlay,
+            enabled = canPlay,
             modifier = Modifier.testTag("video-player-play")
         ) { Text("Oynat") }
         TextButton(
             onClick = onReplay,
-            enabled = state.canPlay,
+            enabled = canPlay,
             modifier = Modifier.testTag("video-player-replay")
         ) { Text("Baştan oynat") }
         TextButton(

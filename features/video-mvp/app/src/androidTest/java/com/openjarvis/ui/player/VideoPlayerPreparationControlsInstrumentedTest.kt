@@ -1,5 +1,6 @@
 package com.openjarvis.ui.player
 
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -29,12 +30,15 @@ class VideoPlayerPreparationControlsInstrumentedTest {
         val replayClicks = AtomicInteger(0)
 
         composeRule.setContent {
-            VideoPlayerPreparationControls(
-                state = state.value,
-                onPlay = { playClicks.incrementAndGet() },
+            MaterialTheme {
+                VideoPlayerPreparationControls(
+                    state = state.value,
+                    canPlay = state.value.canPlay,
+                    onPlay = { playClicks.incrementAndGet() },
                 onReplay = { replayClicks.incrementAndGet() },
-                onRetry = { state.value = state.value.onRetry(secondAttempt) }
-            )
+                    onRetry = { state.value = state.value.onRetry(secondAttempt) }
+                )
+            }
         }
 
         assertTagCount("video-player-loading", 1)
