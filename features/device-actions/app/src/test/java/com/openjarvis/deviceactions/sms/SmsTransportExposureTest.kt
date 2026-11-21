@@ -40,6 +40,11 @@ class SmsTransportExposureTest {
         assertTrue(senderSource.contains("private class AndroidSmsSender("))
         assertTrue(senderSource.contains("val sender = AndroidSmsSender(appContext)"))
         assertTrue(senderSource.contains("transport = sender"))
+        // The review/token gate is an app-module implementation detail, not a public API.
+        assertTrue(contractSource.contains("internal data class SmsReview("))
+        assertTrue(contractSource.contains("internal data class SmsDraft("))
+        assertTrue(contractSource.contains("internal data class ConfirmedSmsAction("))
+        assertTrue(contractSource.contains("internal class SmsConfirmationGate {"))
         assertTrue(contractSource.contains("internal fun interface SmsTransport"))
         assertTrue(contractSource.contains("internal fun interface SmsPermission"))
         assertTrue(contractSource.contains("internal class ConfirmedSmsDispatcher("))
