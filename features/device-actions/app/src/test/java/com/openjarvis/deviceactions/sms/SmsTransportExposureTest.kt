@@ -28,9 +28,9 @@ class SmsTransportExposureTest {
         val panelPath = sourceRoot.resolve(
             "com/openjarvis/deviceactions/ui/SmsComposePanel.kt"
         )
-        val senderSource = Files.readString(senderPath)
-        val contractSource = Files.readString(contractPath)
-        val panelSource = Files.readString(panelPath)
+        val senderSource = readUtf8(senderPath)
+        val contractSource = readUtf8(contractPath)
+        val panelSource = readUtf8(panelPath)
 
         assertTrue(senderSource.contains("internal fun createAndroidSmsDispatcher("))
         assertTrue(senderSource.contains("private class AndroidSmsSender("))
@@ -46,7 +46,7 @@ class SmsTransportExposureTest {
                 .collect(Collectors.toList())
         }
         val sourceByPath: Map<Path, String> = kotlinFiles.associateWith { path: Path ->
-            Files.readString(path)
+            readUtf8(path)
         }
 
         val smsManagerFiles = sourceByPath.filterValues { it.contains("SmsManager") }
@@ -74,4 +74,7 @@ class SmsTransportExposureTest {
         }.keys
         assertEquals(setOf(contractPath), transportDispatchSites)
     }
+
+    private fun readUtf8(path: Path): String =
+        Files.newBufferedReader(path).use { reader -> reader.readText() }
 }

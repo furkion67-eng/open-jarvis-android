@@ -187,9 +187,16 @@ class SafStorageGateway(context: Context) {
             var total = 0L
             while (true) {
                 requireAccess(uri, requireWrite = false)
-                val count = stream.read(buffer)
+                val remainingBytes = maxBytes - total
+                // Read at most one byte beyond the remaining allowance to detect overflow.
+                val requestedBytes = if (remainingBytes >= buffer.size.toLong()) {
+                    buffer.size
+                } else {
+                    remainingBytes.toInt() + 1
+                }
+                val count = stream.read(buffer, 0, requestedBytes)
                 if (count < 0) break
-                if (count.toLong() > maxBytes - total) {
+                if (count.toLong() > remainingBytes) {
                     throw IOException("Dosya belirtilen ${maxBytes} bayt akış sınırını aşıyor.")
                 }
                 output.write(buffer, 0, count)
