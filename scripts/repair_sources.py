@@ -3,11 +3,69 @@ from pathlib import Path
 import hashlib
 import re
 import sys
+import tempfile
 
 root = Path(sys.argv[1])
-# The host ZIP is freshly extracted for each CI run. Hash the exact repair script so
-# a second invocation against the same extracted project becomes a byte-identical no-op.
-repair_digest = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+
+
+def _repair_input_digest(script_path: Path, features_root: Path) -> str:
+    """
+    Fingerprint the repair program and every feature source/resource it overlays.
+    A script-only marker can incorrectly skip a repair after Kotlin/resources change.
+    """
+    digest = hashlib.sha256()
+    digest.update(script_path.read_bytes())
+    if features_root.is_dir():
+        for source in sorted(features_root.rglob("*"), key=lambda item: item.as_posix()):
+            if not source.is_file():
+                continue
+            relative = source.relative_to(features_root)
+            if source.suffix != ".kt" and "res" not in relative.parts and source.name != "AndroidManifest.xml":
+                continue
+            digest.update(relative.as_posix().encode("utf-8"))
+            digest.update(b"\\0")
+            digest.update(source.read_bytes())
+            digest.update(b"\\0")
+    return digest.hexdigest()
+
+
+def _repair_input_digest_regression_test():
+    # Source-only test: unchanged inputs are stable, while Kotlin/resource changes invalidate
+    # the marker. Documentation-only edits do not force the generated host to be repaired again.
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        temporary_root = Path(temporary_directory)
+        script = temporary_root / "repair_sources.py"
+        script.write_bytes(b"repair-script-v1")
+        features = temporary_root / "features"
+        kotlin = features / "device-actions/app/src/main/java/Example.kt"
+        kotlin.parent.mkdir(parents=True)
+        kotlin.write_bytes(b"feature-source-v1")
+
+        first = _repair_input_digest(script, features)
+        if first != _repair_input_digest(script, features):
+            raise SystemExit("repair input digest is not deterministic")
+
+        kotlin.write_bytes(b"feature-source-v2")
+        second = _repair_input_digest(script, features)
+        if first == second:
+            raise SystemExit("repair input digest ignored a changed Kotlin source")
+
+        readme = features / "device-actions/README.md"
+        readme.write_text("documentation-only change", encoding="utf-8")
+        if second != _repair_input_digest(script, features):
+            raise SystemExit("documentation unexpectedly invalidated the source overlay digest")
+
+        resource = features / "device-access/app/src/main/res/values/strings.xml"
+        resource.parent.mkdir(parents=True)
+        resource.write_text("<resources/>", encoding="utf-8")
+        if second == _repair_input_digest(script, features):
+            raise SystemExit("repair input digest ignored a changed Android resource")
+
+
+_repair_input_digest_regression_test()
+repair_script_path = Path(__file__).resolve()
+feature_sources_root = repair_script_path.parent.parent / "features"
+repair_digest = _repair_input_digest(repair_script_path, feature_sources_root)
 repair_marker = root / ".openjarvis-repair-sources.sha256"
 if repair_marker.is_file() and repair_marker.read_text(encoding="utf-8").strip() == repair_digest:
     print("Open Jarvis source repair already applied for this exact script; skipping duplicate pass")
