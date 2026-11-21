@@ -219,4 +219,17 @@ class SmsActionContractTest {
         assertEquals(SmsSendState.SENT, recorder.record(1, -1))
     }
 
+
+    @Test
+    fun dispatcherExposesRecoveredUnknownCountForUiWithoutExposingTransport() {
+        val dispatcher = ConfirmedSmsDispatcher(
+            permission = SmsPermission { true },
+            gate = SmsConfirmationGate(),
+            transport = SmsTransport { _, callback -> callback(SmsSendOutcome.Rejected) },
+            recoveredUnknownCount = 2
+        )
+
+        assertEquals(2, dispatcher.recoveredUnknownCount)
+    }
+
 }
