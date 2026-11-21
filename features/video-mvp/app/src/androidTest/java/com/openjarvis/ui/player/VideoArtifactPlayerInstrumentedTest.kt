@@ -65,6 +65,16 @@ class VideoArtifactPlayerInstrumentedTest {
     }
 
     @Test
+    fun bufferingEventsBeforePreparedCannotEnablePlayback() {
+        val preparing = VideoPlayerPreparationState.preparing()
+        val afterBufferStart = preparing.onBufferingStarted()
+        assertEquals(VideoPlayerPreparationState.Phase.PREPARING, afterBufferStart.phase)
+        assertTrue(afterBufferStart.isLoading)
+        assertFalse(afterBufferStart.canPlay)
+        assertEquals(preparing, afterBufferStart.onBufferingEnded())
+    }
+
+    @Test
     fun revokedOrUnreadableContentUriReturnsUnavailableForRetry() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val metadata = com.openjarvis.tasks.VideoArtifactMetadata(
