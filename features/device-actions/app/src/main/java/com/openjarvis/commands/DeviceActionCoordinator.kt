@@ -29,6 +29,11 @@ class DeviceActionCoordinator(
     }
     private enum class PendingKind { Sms, Call, WhatsApp }
     private data class ResolvedRecipient(val displayName: String, val number: String)
+    private sealed class RecipientResolution {
+        data class Found(val recipient: ResolvedRecipient) : RecipientResolution()
+        object Handled : RecipientResolution()
+        object Missing : RecipientResolution()
+    }
     private var pending: PendingDeviceAction? = null
     fun hasPending(): Boolean = pending != null
     private fun awaitingBodyInput(): Boolean =
@@ -161,7 +166,11 @@ class DeviceActionCoordinator(
     }
     private suspend fun handleSms(routed: RoutedCommand.SendSms, command: String, setState: (AgentState) -> Unit) {
         setState(AgentState.Running("Alıcı çözümleniyor..."))
-        val recipient = resolveRecipient(routed.contactName, routed.phoneNumber, routed, command, setState)
+        val recipient = when (val resolution = resolveRecipient(routed.contactName, routed.phoneNumber, routed, command, setState)) {
+            is RecipientResolution.Found -> resolution.recipient
+            RecipientResolution.Handled -> return
+            RecipientResolution.Missing -> null
+        }
         if (recipient == null) {
             setState(AgentState.Error("Alıcı belirsiz; hem kişi hem numara bulunamadı."))
             logFailure(command, "sms: no recipient")
@@ -181,7 +190,11 @@ class DeviceActionCoordinator(
     }
     private suspend fun handleCall(routed: RoutedCommand.MakeCall, command: String, setState: (AgentState) -> Unit) {
         setState(AgentState.Running("Alıcı çözümleniyor..."))
-        val recipient = resolveRecipient(routed.contactName, routed.phoneNumber, routed, command, setState)
+        val recipient = when (val resolution = resolveRecipient(routed.contactName, routed.phoneNumber, routed, command, setState)) {
+            is RecipientResolution.Found -> resolution.recipient
+            RecipientResolution.Handled -> return
+            RecipientResolution.Missing -> null
+        }
         if (recipient == null) {
             setState(AgentState.Error("Aranacak numara bulunamadı."))
             logFailure(command, "call: no recipient")
@@ -200,7 +213,11 @@ class DeviceActionCoordinator(
     }
     private suspend fun handleWhatsApp(routed: RoutedCommand.WhatsAppMessage, command: String, setState: (AgentState) -> Unit) {
         setState(AgentState.Running("Alıcı çözümleniyor..."))
-        val recipient = resolveRecipient(routed.contactName, routed.phoneNumber, routed, command, setState)
+        val recipient = when (val resolution = resolveRecipient(routed.contactName, routed.phoneNumber, routed, command, setState)) {
+            is RecipientResolution.Found -> resolution.recipient
+            RecipientResolution.Handled -> return
+            RecipientResolution.Missing -> null
+        }
         if (recipient == null) {
             setState(AgentState.Error("WhatsApp alıcısı bulunamadı."))
             logFailure(command, "whatsapp: no recipient")
@@ -228,12 +245,14 @@ class DeviceActionCoordinator(
         routed: RoutedCommand,
         command: String,
         setState: (AgentState) -> Unit
-    ): ResolvedRecipient? = when (val source = RecipientSourcePolicy.choose(contactName, phoneNumber)) {
-        is RecipientSource.ContactName ->
-            resolveContactNumber(source.value, routed, command, setState)
+    ): RecipientResolution = when (val source = RecipientSourcePolicy.choose(contactName, phoneNumber)) {
+        is RecipientSource.ContactName -> {
+            val resolved = resolveContactNumber(source.value, routed, command, setState)
+            if (resolved == null) RecipientResolution.Handled else RecipientResolution.Found(resolved)
+        }
         is RecipientSource.ExplicitNumber ->
-            ResolvedRecipient(source.value, source.value)
-        RecipientSource.Missing -> null
+            RecipientResolution.Found(ResolvedRecipient(source.value, source.value))
+        RecipientSource.Missing -> RecipientResolution.Missing
     }
 
     private suspend fun resolveContactNumber(

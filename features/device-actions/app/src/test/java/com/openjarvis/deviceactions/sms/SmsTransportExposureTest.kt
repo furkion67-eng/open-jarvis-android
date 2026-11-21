@@ -67,7 +67,14 @@ class SmsTransportExposureTest {
         assertTrue(coordinatorSource.contains("executor.dispatchConfirmedSms(confirmation, smsConfirmationGate)"))
         assertTrue(coordinatorSource.contains("ResolvedRecipient(resolution.displayName, resolution.number)"))
         assertTrue(coordinatorSource.contains("RecipientSourcePolicy.choose(contactName, phoneNumber)"))
-        assertEquals(3, Regex("""resolveRecipient\\(routed\\.contactName, routed\\.phoneNumber, routed, command, setState\\)""").findAll(coordinatorSource).count())
+        assertEquals(
+            3,
+            coordinatorSource.split("resolveRecipient(routed.contactName, routed.phoneNumber, routed, command, setState)").size - 1
+        )
+        assertEquals(
+            3,
+            coordinatorSource.split("RecipientResolution.Handled -> return").size - 1
+        )
         assertFalse(coordinatorSource.contains("routed.phoneNumber != null -> ResolvedRecipient"))
         assertTrue(executorSource.contains("is ContactLookupResult.Unavailable -> ContactResolution.Unavailable(result.reason)"))
         assertTrue(coordinatorSource.contains("is AndroidActionExecutor.ContactResolution.Unavailable ->"))
