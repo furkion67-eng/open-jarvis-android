@@ -154,15 +154,27 @@ class StorageUriGrantRegistry internal constructor(
         return valid.map(Uri::parse)
     }
 
-    fun forget(uri: Uri) {
+    /**
+     * Releases a persisted user-selected grant before removing its local registry entry.
+     * Returns false if Android still reports the grant after the release attempt.
+     */
+    fun forget(uri: Uri): Boolean {
         val grant = grantAccess.snapshots().firstOrNull { it.uri == uri.toString() }
         if (grant != null) {
             var flags = 0
             if (grant.hasReadPermission) flags = flags or Intent.FLAG_GRANT_READ_URI_PERMISSION
             if (grant.hasWritePermission) flags = flags or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            runCatching { grantAccess.releasePersistableUriPermission(uri, flags) }
+            if (flags != 0) {
+                try {
+                    grantAccess.releasePersistableUriPermission(uri, flags)
+                } catch (error: Exception) {
+                    if (grantAccess.snapshots().any { it.uri == uri.toString() }) throw error
+                }
+            }
         }
+        if (grantAccess.snapshots().any { it.uri == uri.toString() }) return false
         removeSaved(uri.toString())
+        return true
     }
 
     private fun removeSaved(uri: String) {

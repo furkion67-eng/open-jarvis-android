@@ -45,6 +45,7 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val grantRegistry = remember(context) { StorageUriGrantRegistry(context) }
+    var savedGrantUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var treeUriText by rememberSaveable { mutableStateOf<String?>(null) }
     var parentDocumentId by rememberSaveable { mutableStateOf<String?>(null) }
     var refreshKey by remember { mutableStateOf(0) }
@@ -72,6 +73,9 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
                 treeUriText = uri.toString()
                 parentDocumentId = DocumentsContract.getTreeDocumentId(uri)
                 status = "Seçilen klasör izni kaydedildi; uygulama yeniden açıldığında tekrar kontrol edilecek."
+                scope.launch {
+                    savedGrantUris = withContext(Dispatchers.IO) { grantRegistry.grantedTreeUris() }
+                }
             } catch (error: SecurityException) {
                 status = "Android klasör iznini kalıcı yapmadı: " + (error.message ?: "izin reddedildi")
             } catch (error: Exception) {
@@ -89,6 +93,9 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
         if (result.resultCode == Activity.RESULT_OK && destinationTree != null && source != null) {
             try {
                 grantRegistry.persistPickerResult(destinationTree, data?.flags ?: 0, makeLast = false)
+                scope.launch {
+                    savedGrantUris = withContext(Dispatchers.IO) { grantRegistry.grantedTreeUris() }
+                }
                 val hasWriteGrant = context.contentResolver.persistedUriPermissions.any {
                     it.uri == destinationTree && it.isWritePermission
                 }
@@ -128,7 +135,11 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
     }
 
     LaunchedEffect(Unit) {
-        val restored = withContext(Dispatchers.IO) { grantRegistry.lastGrantedTreeUri() }
+        val restoredState = withContext(Dispatchers.IO) {
+            grantRegistry.grantedTreeUris() to grantRegistry.lastGrantedTreeUri()
+        }
+        savedGrantUris = restoredState.first
+        val restored = restoredState.second
         if (treeUriText == null && restored != null) {
             treeUriText = restored.toString()
             parentDocumentId = DocumentsContract.getTreeDocumentId(restored)
@@ -216,6 +227,45 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
                 }
             }
             Text(status, style = MaterialTheme.typography.bodySmall)
+            if (savedGrantUris.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Kaydedilmiş klasör erişimleri", style = MaterialTheme.typography.titleSmall)
+                    savedGrantUris.forEach { grantedUri ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                "Seçilen klasör · " + (grantedUri.authority ?: "Android dosya sağlayıcısı"),
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            TextButton(onClick = {
+                                scope.launch {
+                                    try {
+                                        val released = withContext(Dispatchers.IO) {
+                                            grantRegistry.forget(grantedUri)
+                                        }
+                                        if (!released) {
+                                            status = "Android bu klasör iznini henüz bırakamadı. Erişim listede tutuluyor."
+                                        } else {
+                                            savedGrantUris = withContext(Dispatchers.IO) {
+                                                grantRegistry.grantedTreeUris()
+                                            }
+                                            if (treeUriText == grantedUri.toString()) {
+                                                treeUriText = null
+                                                parentDocumentId = null
+                                                entries = emptyList()
+                                                searchQuery = ""
+                                            }
+                                            status = "Seçilen klasör erişimi kaldırıldı. JARVIS artık bu klasöre erişemez."
+                                        }
+                                    } catch (error: Exception) {
+                                        status = "Klasör erişimi kaldırılamadı: " +
+                                            (error.message ?: "Android izin hatası")
+                                    }
+                                }
+                            }) { Text("Erişimi kaldır") }
+                        }
+                    }
+                }
+            }
             if (loading) Text("Dosyalar yükleniyor…")
 
             if (treeUri != null && parentDocumentId != null) {
