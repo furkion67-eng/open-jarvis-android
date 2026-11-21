@@ -4224,8 +4224,27 @@ def remove_global_accessibility_overlay_gate(source):
     elif "PermissionScreen(" in source:
         raise SystemExit("MainActivity.kt: unexpected PermissionScreen reference remains")
 
+    # These two settings launchers were only reachable from PermissionScreen, which is removed.
+    # The Dashboard capability panel owns the optional, user-invoked settings entry points.
+    for obsolete_method in ("startAccessibilitySettings", "startOverlaySettings"):
+        declaration = re.compile(
+            r"(?m)^[ \\t]*private fun " + re.escape(obsolete_method) + r"[ \\t]*\\([^)]*\\)[ \\t]*\\{"
+        )
+        matches = list(declaration.finditer(source))
+        if len(matches) > 1:
+            raise SystemExit("MainActivity.kt: duplicate obsolete permission launcher: " + obsolete_method)
+        if matches:
+            method_open = source.find("{", matches[0].start(), matches[0].end())
+            try:
+                method_close = _kotlin_matching_delimiter(source, method_open, "{", "}")
+            except ValueError as error:
+                raise SystemExit("MainActivity.kt: refusing unsafe removal of " + obsolete_method + ": " + str(error))
+            source = source[:matches[0].start()] + source[method_close + 1:]
+        elif re.search(r"\\b" + re.escape(obsolete_method) + r"\\s*\\(", source):
+            raise SystemExit("MainActivity.kt: unexpected reference to obsolete permission launcher: " + obsolete_method)
+
     for import_line in (
-        "import android.content.ComponentName\n",
+        "import android.content.ComponentName\\n",
         "import android.provider.Settings\n",
         "import com.openjarvis.accessibility.JarvisAccessibilityService\n",
         "import com.openjarvis.agent.AgentState\n",
@@ -4240,6 +4259,8 @@ def remove_global_accessibility_overlay_gate(source):
         or "accessibilityEnabled" in source
         or "overlayEnabled" in source
         or "Settings.canDrawOverlays(this)" in source
+        or "startAccessibilitySettings(" in source
+        or "startOverlaySettings(" in source
     ):
         raise SystemExit("MainActivity.kt: obsolete global permission-gate references remain")
     if "DashboardScreen(" not in source:
@@ -4313,6 +4334,8 @@ fun RetainedStatusPanel() {
         or "Settings.canDrawOverlays(this)" in once
         or "onStartOverlay = { startActivity(Intent(this, VoiceCommandActivity::class.java)) }" not in once
         or "fun RetainedStatusPanel()" not in once
+        or "startAccessibilitySettings(" in once
+        or "startOverlaySettings(" in once
     ):
         raise SystemExit("MainActivity.kt: permission-independent Dashboard regression failed")
 
