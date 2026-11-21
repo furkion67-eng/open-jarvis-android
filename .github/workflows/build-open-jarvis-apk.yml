@@ -5,7 +5,7 @@ on:
   push:
     branches: [ main, "feature/approval-toggle", "feature/repair-overlay-input-digest-2026-11-21" ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, "feature/dashboard-launch-assertion-open-jarvis-20261121" ]
 
 permissions:
   contents: read
@@ -22,10 +22,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # PR runs validate the exact head commit, not GitHub's synthetic merge ref.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Assert exact pushed commit
-        if: github.event_name == 'push'
-        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Assert exact source commit
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
 
       - name: Extract source and locate project
         id: source
