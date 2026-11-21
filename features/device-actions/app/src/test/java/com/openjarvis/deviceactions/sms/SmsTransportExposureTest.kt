@@ -62,6 +62,12 @@ class SmsTransportExposureTest {
         assertFalse(executorSource.contains("SmsManager"))
         assertFalse(executorSource.contains("sendTextMessage"))
         assertFalse(executorSource.contains("sendMultipartTextMessage"))
+        assertTrue(executorSource.contains("DeviceActionOutcomeJournal.record"))
+        assertTrue(executorSource.contains("outcome.toDeviceActionOutcomeCode()"))
+        assertTrue(executorSource.contains("DeviceActionOutcomeCode.UNKNOWN"))
+        assertTrue(executorSource.contains("DeviceActionOutcomeCode.DRAFT"))
+        assertTrue(panelSource.contains("DeviceActionOutcomeJournal.record"))
+        assertTrue(panelSource.contains("outcome.toDeviceActionOutcomeCode()"))
         assertFalse(coordinatorSource.contains("SmsManager"))
 
         val kotlinFiles: List<Path> = Files.walk(sourceRoot).use { stream ->

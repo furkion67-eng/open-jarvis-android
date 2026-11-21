@@ -13,6 +13,14 @@ import com.openjarvis.deviceactions.contacts.ContactLookupResult
 import com.openjarvis.deviceactions.sms.SmsConfirmationGate
 import com.openjarvis.deviceactions.sms.SmsSendOutcome
 import com.openjarvis.deviceactions.sms.createAndroidSmsDispatcher
+import com.openjarvis.deviceactions.sms.toDeviceActionOutcomeCode
+import com.openjarvis.tasks.DeviceActionOutcomeCode
+import com.openjarvis.tasks.DeviceActionOutcomeJournal
+import com.openjarvis.tasks.DeviceActionType
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * Permission-aware execution of local Android actions.
@@ -26,6 +34,21 @@ import com.openjarvis.deviceactions.sms.createAndroidSmsDispatcher
  * delivery or reading by the recipient. A missing callback remains UNKNOWN and is never replayed.
  */
 class AndroidActionExecutor(private val context: Context) {
+    private val outcomeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private suspend fun persistOutcome(code: DeviceActionOutcomeCode) {
+        runCatching {
+            DeviceActionOutcomeJournal.record(
+                context.applicationContext,
+                DeviceActionType.SMS,
+                code
+            )
+        }
+    }
+
+    private fun persistOutcomeAsync(code: DeviceActionOutcomeCode) {
+        outcomeScope.launch { persistOutcome(code) }
+    }
 
     sealed class ContactResolution {
         data class Exact(val number: String, val displayName: String) : ContactResolution()
@@ -103,8 +126,13 @@ class AndroidActionExecutor(private val context: Context) {
         }
 
         val dispatcher = createAndroidSmsDispatcher(context, gate)
-        dispatcher.dispatch(confirmation) { outcome ->
-            val result = when (outcome) {
+        outcomeScope.launch {
+            // A process-reopened pending attempt is UNKNOWN, never replayed as a new send.
+            repeat(dispatcher.recoveredUnknownCount) {
+                persistOutcome(DeviceActionOutcomeCode.UNKNOWN)
+            }
+            dispatcher.dispatch(confirmation) { outcome ->
+                val result = when (outcome) {
                 SmsSendOutcome.Sent -> Result.success(Unit)
                 SmsSendOutcome.PermissionDenied ->
                     Result.failure<Unit>(SecurityException("SMS izni yok veya gönderim öncesinde geri alındı."))
@@ -118,8 +146,12 @@ class AndroidActionExecutor(private val context: Context) {
                     Result.failure<Unit>(IllegalStateException(
                         "Gönderim sonucu UNKNOWN; Android callback'i doğrulanamadı. Otomatik tekrar yapılmadı."
                     ))
+                }
+                outcomeScope.launch {
+                    persistOutcome(outcome.toDeviceActionOutcomeCode())
+                    onResult(result)
+                }
             }
-            onResult(result)
         }
     }
 
@@ -130,10 +162,13 @@ class AndroidActionExecutor(private val context: Context) {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)
+        persistOutcomeAsync(DeviceActionOutcomeCode.DRAFT)
         true
     } catch (_: ActivityNotFoundException) {
+        persistOutcomeAsync(DeviceActionOutcomeCode.NOT_EXECUTED)
         false
     } catch (_: Exception) {
+        persistOutcomeAsync(DeviceActionOutcomeCode.NOT_EXECUTED)
         false
     }
 
