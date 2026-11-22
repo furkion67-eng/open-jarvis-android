@@ -48,7 +48,8 @@ class VideoStoryPlanTest {
         val invalidSources = listOf(
             first.copy(sourceUrl = "https://islamansiklopedisi.org.tr.evil.example/halic"),
             first.copy(publisher = "Unverified publisher"),
-            first.copy(checkedOn = "2026-02-31")
+            first.copy(checkedOn = "2026-02-31"),
+            first.copy(checkedOn = "2099-01-01")
         )
         invalidSources.forEach { invalid ->
             val invalidPlan = plan.copy(
