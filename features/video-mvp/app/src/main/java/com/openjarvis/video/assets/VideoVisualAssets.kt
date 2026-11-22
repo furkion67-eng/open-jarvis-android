@@ -229,19 +229,28 @@ object VideoAssetLicensePolicy {
             uri.path != "/w/index.php" || uri.rawFragment != null
         ) return null
         val parameters = uri.rawQuery?.split("&") ?: return null
-        val titles = parameters.filter { it.substringBefore('=') == "title" }
-        val revisions = parameters.filter { it.substringBefore('=') == "oldid" }
+        val decodedParameters = mutableListOf<Pair<String, String>>()
+        for (parameter in parameters) {
+            val separator = parameter.indexOf('=')
+            if (separator <= 0) return null
+            val name = decodeQueryComponent(parameter.substring(0, separator)) ?: return null
+            val parameterValue = decodeQueryComponent(parameter.substring(separator + 1)) ?: return null
+            decodedParameters += name to parameterValue
+        }
+        val titles = decodedParameters.filter { it.first == "title" }
+        val revisions = decodedParameters.filter { it.first == "oldid" }
         if (titles.size != 1 || revisions.size != 1 ||
-            !revisions.single().substringAfter('=', "").matches(Regex("[1-9][0-9]{0,11}"))
+            !revisions.single().second.matches(Regex("[1-9][0-9]{0,11}"))
         ) return null
-        val title = runCatching {
-            URLDecoder.decode(titles.single().substringAfter('=', ""), "UTF-8")
-        }.getOrNull() ?: return null
+        val title = titles.single().second
         if (!title.startsWith("File:")) return null
         val fileName = title.removePrefix("File:")
         if (fileName.isBlank() || fileName.contains('/') || fileName.contains('\\')) return null
         return fileName.replace(' ', '_')
     }
+
+    private fun decodeQueryComponent(value: String): String? =
+        runCatching { URLDecoder.decode(value, "UTF-8") }.getOrNull()
 
     private fun commonsDownloadFileName(value: String): String? {
         if (!isAllowedDownloadUrl(value)) return null
