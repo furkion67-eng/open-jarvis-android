@@ -67,6 +67,14 @@ class AndroidCapabilityStatusReader(context: Context) {
     }
 
     private fun callStatus(): CapabilityStatusItem {
+        if (!declaresPermission(Manifest.permission.CALL_PHONE)) {
+            return CapabilityStatusItem(
+                "call-phone",
+                "Doğrudan arama",
+                CapabilityState.NOT_AVAILABLE,
+                CapabilityStatusPolicy.directCallDetail(CapabilityState.NOT_AVAILABLE)
+            )
+        }
         val permission = runtime(
             "call-phone",
             "Doğrudan arama",
@@ -74,6 +82,14 @@ class AndroidCapabilityStatusReader(context: Context) {
         )
         return permission.copy(detail = CapabilityStatusPolicy.directCallDetail(permission.state))
     }
+
+    private fun declaresPermission(permission: String): Boolean = runCatching {
+        @Suppress("DEPRECATION")
+        appContext.packageManager.getPackageInfo(
+            appContext.packageName,
+            PackageManager.GET_PERMISSIONS
+        ).requestedPermissions?.contains(permission) == true
+    }.getOrDefault(false)
 
     /** Camera capture is delegated to the user's camera app; this app does not silently open a camera. */
     private fun cameraStatus(): CapabilityStatusItem {
