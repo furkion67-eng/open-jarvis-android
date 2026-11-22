@@ -93,6 +93,7 @@ class CapabilityStatusPolicyTest {
         assertTrue(CapabilityStatusPolicy.directCallDetail(CapabilityState.NOT_REQUESTED).contains("ACTION_DIAL"))
         assertTrue(CapabilityStatusPolicy.directCallDetail(CapabilityState.DENIED).contains("ACTION_DIAL"))
         assertTrue(CapabilityStatusPolicy.directCallDetail(CapabilityState.REVOKED).contains("ACTION_DIAL"))
+        assertTrue(CapabilityStatusPolicy.directCallDetail(CapabilityState.NOT_AVAILABLE).contains("ACTION_DIAL"))
     }
 
     @Test
@@ -101,6 +102,7 @@ class CapabilityStatusPolicyTest {
         assertTrue(CapabilityStatusPolicy.shouldShowSettingsShortcut("accessibility", CapabilityState.ENABLED))
         assertTrue(CapabilityStatusPolicy.shouldShowSettingsShortcut("accessibility", CapabilityState.REQUIRES_SETTINGS))
         assertTrue(CapabilityStatusPolicy.shouldShowSettingsShortcut("call-phone", CapabilityState.ENABLED))
+        assertFalse(CapabilityStatusPolicy.shouldShowSettingsShortcut("call-phone", CapabilityState.NOT_AVAILABLE))
         assertFalse(CapabilityStatusPolicy.shouldShowSettingsShortcut("camera", CapabilityState.ENABLED))
         assertTrue(CapabilityStatusPolicy.shouldShowSettingsShortcut("camera", CapabilityState.DENIED))
         assertFalse(CapabilityStatusPolicy.shouldShowSettingsShortcut("shared-storage-read", CapabilityState.DENIED))
