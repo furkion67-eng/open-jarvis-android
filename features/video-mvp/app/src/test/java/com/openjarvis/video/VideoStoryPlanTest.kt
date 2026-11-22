@@ -42,6 +42,61 @@ class VideoStoryPlanTest {
     }
 
     @Test
+    fun storyQualityRejectsUntrustedResearchHostPublisherAndInvalidCheckDate() {
+        val plan = VideoStoryPlanBuilder.build("İstanbul'un Fethi")
+        val first = plan.claimSources.first()
+        val invalidSources = listOf(
+            first.copy(sourceUrl = "https://islamansiklopedisi.org.tr.evil.example/halic"),
+            first.copy(publisher = "Unverified publisher"),
+            first.copy(checkedOn = "2026-02-31")
+        )
+        invalidSources.forEach { invalid ->
+            val invalidPlan = plan.copy(
+                claimSources = plan.claimSources.map {
+                    if (it.claimId == first.claimId) invalid else it
+                }
+            )
+            assertTrue(runCatching { VideoStoryQualityPolicy.validate(invalidPlan) }.isFailure)
+        }
+    }
+
+    @Test
+    fun storyQualityRejectsSceneHeadingsRepeatedWithDifferentPunctuation() {
+        val plan = VideoStoryPlanBuilder.build("1453")
+        val invalid = plan.copy(
+            scenes = plan.scenes.toMutableList().also { scenes ->
+                scenes[1] = scenes[1].copy(heading = scenes[0].heading + "!!!")
+            }
+        )
+        assertTrue(runCatching { VideoStoryQualityPolicy.validate(invalid) }.isFailure)
+    }
+
+    @Test
+    fun storyQualityRejectsSceneCaptionsRepeatedWithDifferentPunctuation() {
+        val plan = VideoStoryPlanBuilder.build("1453")
+        val invalid = plan.copy(
+            scenes = plan.scenes.toMutableList().also { scenes ->
+                scenes[1] = scenes[1].copy(caption = scenes[0].caption + "!!!")
+            }
+        )
+        assertTrue(runCatching { VideoStoryQualityPolicy.validate(invalid) }.isFailure)
+    }
+
+    @Test
+    fun storyQualityRejectsResearchClaimsNotBoundToAnyScene() {
+        val plan = VideoStoryPlanBuilder.build("1453")
+        val orphan = plan.claimSources.first().copy(
+            claimId = "orphan-research-claim",
+            supportedClaim = "Bu kaynak hiçbir sahnede kullanılmamalı."
+        )
+        assertTrue(
+            runCatching {
+                VideoStoryQualityPolicy.validate(plan.copy(claimSources = plan.claimSources + orphan))
+            }.isFailure
+        )
+    }
+
+    @Test
     fun everySceneHasDistinctSourceBackedVisualAndClaim() {
         val plan = VideoStoryPlanBuilder.build("1453")
         assertEquals(5, plan.scenes.map { it.visualAssetId }.distinct().size)
