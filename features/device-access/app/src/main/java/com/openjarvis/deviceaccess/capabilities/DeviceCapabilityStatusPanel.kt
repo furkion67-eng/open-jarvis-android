@@ -186,13 +186,16 @@ fun DeviceCapabilityStatusPanel(modifier: Modifier = Modifier) {
                             Text(item.title, style = MaterialTheme.typography.titleSmall)
                             Text(stateLabel(item.state), color = stateColor(item.state))
                             Text(item.detail, style = MaterialTheme.typography.bodySmall)
-                            if (item.state != CapabilityState.ENABLED &&
-                                item.state != CapabilityState.NOT_AVAILABLE &&
-                                !item.id.startsWith("shared-storage")
-                            ) {
+                            if (CapabilityStatusPolicy.shouldShowSettingsShortcut(item.id, item.state)) {
+                                val settingsLabel = when (item.id) {
+                                    "overlay" -> "Android üstte görünme ayarını aç / izni geri al"
+                                    "accessibility" -> "Android erişilebilirlik ayarını aç / servisi kapat"
+                                    "call-phone" -> "Android uygulama izinlerini aç / CALL_PHONE iznini geri al"
+                                    else -> "İlgili Android ayarını aç"
+                                }
                                 androidx.compose.material3.TextButton(
                                     onClick = { openCapabilitySettings(context, item.id) }
-                                ) { Text("İlgili Android ayarını aç") }
+                                ) { Text(settingsLabel) }
                             }
                         }
                     }
