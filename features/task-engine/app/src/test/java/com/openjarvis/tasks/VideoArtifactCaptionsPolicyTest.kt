@@ -35,9 +35,9 @@ class VideoArtifactCaptionsPolicyTest {
 
     @Test
     fun rejectsInvalidTimestampsAndCuesWithoutCaptionText() {
-        val reversed = "1\\n00:00:02,000 --> 00:00:01,000\\ncaption\\n"
-        val missingText = "1\\n00:00:00,000 --> 00:00:01,000\\n"
-        val malformedTimestamp = "1\\n00:00:00 --> 00:00:01\\ncaption\\n"
+        val reversed = "1\n00:00:02,000 --> 00:00:01,000\ncaption\n"
+        val missingText = "1\n00:00:00,000 --> 00:00:01,000\n"
+        val malformedTimestamp = "1\n00:00:00 --> 00:00:01\ncaption\n"
 
         assertNull(VideoArtifactCaptionsPolicy.readValidated(ByteArrayInputStream(reversed.toByteArray())))
         assertNull(VideoArtifactCaptionsPolicy.readValidated(ByteArrayInputStream(missingText.toByteArray())))
