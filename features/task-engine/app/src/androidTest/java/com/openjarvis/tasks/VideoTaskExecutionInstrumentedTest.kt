@@ -344,12 +344,11 @@ class VideoTaskExecutionInstrumentedTest {
             }
             assertTrue(cueBlocks.drop(1).any { it.contains("29 Mayıs") })
         } finally {
-            mp4Uri?.let { context.contentResolver.delete(it, null, null) }
-            srtUri?.let { context.contentResolver.delete(it, null, null) }
-            thumbnailUri?.let { context.contentResolver.delete(it, null, null) }
-            staleVideoUri?.let { context.contentResolver.delete(it, null, null) }
-            staleCaptionsUri?.let { context.contentResolver.delete(it, null, null) }
-            staleThumbnailUri?.let { context.contentResolver.delete(it, null, null) }
+            // The production executor removes stale, uncommitted MediaStore rows before rerender.
+            // Do not issue a second delete against a URI whose row is already gone: MediaStore
+            // may reject that stale URI with SecurityException on API 33/34.
+            listOf(mp4Uri, srtUri, thumbnailUri, staleVideoUri, staleCaptionsUri, staleThumbnailUri)
+                .forEach { uri -> deleteIfPresent(context, uri) }
             taskId?.let { productionDao.deleteById(it) }
         }
     }
@@ -369,6 +368,15 @@ class VideoTaskExecutionInstrumentedTest {
         }
         return context.contentResolver.insert(collection, values)
             ?: throw AssertionError("Could not insert stale MediaStore fixture: " + displayName)
+    }
+
+    private fun deleteIfPresent(context: Context, uri: Uri?) {
+        if (uri == null) return
+        runCatching {
+            if (mediaRowExists(context, uri)) {
+                context.contentResolver.delete(uri, null, null)
+            }
+        }
     }
 
     private fun mediaRowExists(context: Context, uri: Uri): Boolean =
