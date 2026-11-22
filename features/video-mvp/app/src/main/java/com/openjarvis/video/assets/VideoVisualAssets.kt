@@ -259,7 +259,7 @@ object VideoAssetLicensePolicy {
     }
 
     private fun isSafeFileName(value: String): Boolean =
-        value.isNotBlank() && !value.contains('/') && !value.contains('\\\\') &&
+        value.isNotBlank() && !value.contains('/') && !value.contains(92.toChar()) &&
             value.none { it.isISOControl() }
 
     private fun decodedQueryParameters(value: String): List<Pair<String, String>>? {
