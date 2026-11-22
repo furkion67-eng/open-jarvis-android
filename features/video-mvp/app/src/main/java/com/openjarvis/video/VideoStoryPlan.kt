@@ -2,6 +2,7 @@ package com.openjarvis.video
 
 import java.net.URI
 import java.time.LocalDate
+import java.time.ZoneOffset
 import java.util.Locale
 
 data class TimedVideoCaption(
@@ -151,7 +152,8 @@ object VideoStoryQualityPolicy {
         val uri = runCatching { URI(source.sourceUrl) }.getOrNull() ?: return false
         val host = uri.host?.lowercase(Locale.ROOT) ?: return false
         val expectedPublisher = trustedResearchPublishers[host] ?: return false
-        val validDate = runCatching { LocalDate.parse(source.checkedOn) }.isSuccess
+        val checkedDate = runCatching { LocalDate.parse(source.checkedOn) }.getOrNull()
+        val validDate = checkedDate != null && !checkedDate.isAfter(LocalDate.now(ZoneOffset.UTC))
         return uri.scheme == "https" &&
             uri.rawUserInfo == null &&
             (uri.port == -1 || uri.port == 443) &&
