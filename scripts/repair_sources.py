@@ -4420,22 +4420,29 @@ def _repair_main_activity_bootstrap(source):
     if len(fields) > 1 or len(initializers) > 1 or bool(fields) != bool(initializers):
         raise SystemExit("MainActivity.kt: GraphifyRepository field/initializer pair is incomplete or duplicated")
 
-    has_result = "graphifyRepoResult" in source
-    if fields and initializers:
+    needs_lazy_repository = bool(fields and initializers)
+    if needs_lazy_repository:
         source = source[:fields[0].start()] + source[fields[0].end():]
         # The initializer offset may have shifted after removing the field.
         initializers = list(re.finditer(init_pattern, source))
         if len(initializers) != 1:
             raise SystemExit("MainActivity.kt: GraphifyRepository initializer was not uniquely preserved")
         source = source[:initializers[0].start()] + source[initializers[0].end():]
-        has_result = True
+        repository_declaration = "val graphifyRepoResult = remember { runCatching { GraphifyRepository(applicationContext) } }"
+        if repository_declaration not in source:
+            theme_pattern = re.compile(r"(?m)^(?P<indent>[ \\t]*)OpenJarvisTheme[ \\t]*\\{[ \\t]*$")
+            themes = list(theme_pattern.finditer(source))
+            if len(themes) != 1:
+                raise SystemExit("MainActivity.kt: expected one OpenJarvisTheme block for lazy repository initialization")
+            theme = themes[0]
+            indent = theme.group("indent") + "    "
+            source = source[:theme.end()] + "\\n" + indent + repository_declaration + source[theme.end():]
 
+    has_result = "graphifyRepoResult" in source
     if has_result:
-        if "val graphifyRepoResult = remember { runCatching { GraphifyRepository(applicationContext) } }" not in source:
-            if fields or initializers:
-                raise SystemExit("MainActivity.kt: unexpected existing graphifyRepoResult implementation")
-        else:
-            pass
+        repository_declaration = "val graphifyRepoResult = remember { runCatching { GraphifyRepository(applicationContext) } }"
+        if repository_declaration not in source:
+            raise SystemExit("MainActivity.kt: graphifyRepoResult exists without the approved guarded repository initializer")
         if "graphifyRepo = graphifyRepoResult.getOrThrow()," not in source:
             old_argument = re.compile(r"(?m)^(?P<indent>[ \t]*)graphifyRepo\s*=\s*graphifyRepo,[ \t]*$")
             matches = list(old_argument.finditer(source))
@@ -4465,7 +4472,23 @@ def _repair_main_activity_bootstrap(source):
                 indent + "} else {",
                 child + "DashboardScreen("
             ))
+            call_open = match.end() - 1
+            try:
+                call_close = _kotlin_matching_delimiter(source, call_open, "(", ")")
+            except ValueError as error:
+                raise SystemExit("MainActivity.kt: refusing to wrap an unbalanced DashboardScreen call: " + str(error))
             source = source[:match.start()] + fallback + source[match.end():]
+            # The original source had a bare call. Close the new else block after
+            # its matching call parenthesis, before the surrounding Compose braces.
+            updated_call = re.search(r"(?m)^" + re.escape(child) + r"DashboardScreen\\(", source)
+            if not updated_call:
+                raise SystemExit("MainActivity.kt: guarded DashboardScreen call was not inserted")
+            updated_open = updated_call.end() - 1
+            try:
+                updated_close = _kotlin_matching_delimiter(source, updated_open, "(", ")")
+            except ValueError as error:
+                raise SystemExit("MainActivity.kt: refusing to close an unbalanced DashboardScreen call: " + str(error))
+            source = source[:updated_close + 1] + "\\n" + indent + "}" + source[updated_close + 1:]
 
         if "import androidx.compose.runtime.remember" not in source and not re.search(
             r"(?m)^import androidx\.compose\.runtime\.\*[ \t]*$", source
@@ -4578,6 +4601,8 @@ class MainActivity {
     repaired_activity = _repair_main_activity_bootstrap(legacy_activity)
     if _repair_main_activity_bootstrap(repaired_activity) != repaired_activity:
         raise SystemExit("MainActivity.kt: guarded repository bootstrap repair is not idempotent")
+    if _kotlin_brace_balance(repaired_activity) != 0:
+        raise SystemExit("MainActivity.kt: guarded repository fallback produced unbalanced Kotlin braces")
     for required in (
         "val graphifyRepoResult = remember { runCatching { GraphifyRepository(applicationContext) } }",
         "if (graphifyRepoResult.isFailure)",
