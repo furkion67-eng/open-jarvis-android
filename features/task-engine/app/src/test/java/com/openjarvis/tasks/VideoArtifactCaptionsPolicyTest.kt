@@ -25,12 +25,13 @@ class VideoArtifactCaptionsPolicyTest {
     }
 
     @Test
-    fun rejectsOversizedInputBeforeReadingTheWholeDocument() {
+    fun rejectsOversizedInputAfterOnlyOneOverflowProbeByte() {
         val document = ByteArray(64 * 1024) { 'x'.code.toByte() }
         val source = CountingInputStream(document)
 
         assertNull(VideoArtifactCaptionsPolicy.readValidated(source, maxBytes = 64))
-        assertTrue("The validator must stop at the first bounded read.", source.bytesRead < document.size)
+        assertEquals("The validator may consume the limit plus one probe byte only.", 65, source.bytesRead)
+        assertEquals("The final bounded read must request exactly one overflow probe.", listOf(65), source.requestedLengths)
     }
 
     @Test
@@ -74,6 +75,7 @@ class VideoArtifactCaptionsPolicyTest {
         private var offset = 0
         var bytesRead: Int = 0
             private set
+        val requestedLengths = mutableListOf<Int>()
 
         override fun read(): Int {
             if (offset >= bytes.size) return -1
@@ -82,6 +84,7 @@ class VideoArtifactCaptionsPolicyTest {
         }
 
         override fun read(buffer: ByteArray, start: Int, length: Int): Int {
+            requestedLengths += length
             if (offset >= bytes.size) return -1
             val count = minOf(length, bytes.size - offset)
             bytes.copyInto(buffer, start, offset, offset + count)
