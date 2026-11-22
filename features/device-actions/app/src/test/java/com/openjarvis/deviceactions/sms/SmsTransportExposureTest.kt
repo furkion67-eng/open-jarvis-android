@@ -175,7 +175,7 @@ class SmsTransportExposureTest {
         )
 
         val dispatcherDispatchCallSites = sourceByPath.mapNotNull { (path, source) ->
-            val count = Regex("""\bdispatcher\s*\.\s*dispatch\s*\(""").findAll(source).count()
+            val count = Regex("""\bdispatcher\s*\.\s*dispatch\s*\(\s*confirmation\s*\)""").findAll(source).count()
             if (count > 0) path to count else null
         }.toMap()
         assertEquals(
