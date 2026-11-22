@@ -7,6 +7,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URI
+import java.net.URLDecoder
 import java.net.URL
 import java.security.MessageDigest
 import java.util.Locale
@@ -178,6 +179,9 @@ object VideoAssetLicensePolicy {
         require(isAllowedDownloadUrl(descriptor.downloadUrl)) {
             "Görsel indirme adresi güvenilir HTTPS Wikimedia dosya yolunda değil."
         }
+        require(isDownloadForPinnedSource(descriptor.sourceUrl, descriptor.downloadUrl)) {
+            "İndirilen dosyanın adı sabitlenmiş Wikimedia kaynak sayfasındaki dosyayla eşleşmiyor."
+        }
         require(descriptor.expectedMimeType in ALLOWED_IMAGE_MIME_TYPES) {
             "Görsel biçimi desteklenmiyor."
         }
@@ -211,14 +215,67 @@ object VideoAssetLicensePolicy {
             uri.rawUserInfo != null || (uri.port != -1 && uri.port != 443) ||
             uri.path != "/w/index.php" || uri.rawFragment != null
         ) return false
-        val parameters = uri.rawQuery?.split("&") ?: return false
-        val titles = parameters.filter { it.substringBefore('=') == "title" }
-        val revisions = parameters.filter { it.substringBefore('=') == "oldid" }
+        val parameters = decodedQueryParameters(uri.rawQuery ?: return false) ?: return false
+        val titles = parameters.filter { it.first == "title" }
+        val revisions = parameters.filter { it.first == "oldid" }
         return titles.size == 1 &&
-            titles.single().substringAfter('=', "").startsWith("File:") &&
+            titles.single().second.startsWith("File:") &&
             revisions.size == 1 &&
-            revisions.single().substringAfter('=', "").matches(Regex("[1-9][0-9]{0,11}"))
+            revisions.single().second.matches(Regex("[1-9][0-9]{0,11}"))
     }
+
+    internal fun isDownloadForPinnedSource(sourceUrl: String, downloadUrl: String): Boolean {
+        val pinnedName = pinnedCommonsFileName(sourceUrl) ?: return false
+        val downloadName = commonsDownloadFileName(downloadUrl) ?: return false
+        return pinnedName == downloadName
+    }
+
+    private fun pinnedCommonsFileName(sourceUrl: String): String? {
+        val uri = runCatching { URI(sourceUrl) }.getOrNull() ?: return null
+        if (!isPinnedCommonsSource(sourceUrl)) return null
+        val parameters = decodedQueryParameters(uri.rawQuery ?: return null) ?: return null
+        val title = parameters.single { it.first == "title" }.second
+        val fileName = title.removePrefix("File:")
+        return fileName.takeIf { isSafeFileName(it) }
+    }
+
+    private fun commonsDownloadFileName(downloadUrl: String): String? {
+        val uri = runCatching { URI(downloadUrl) }.getOrNull() ?: return null
+        if (!isAllowedDownloadUrl(downloadUrl)) return null
+        val relativePath = uri.rawPath?.removePrefix("/wikipedia/commons/") ?: return null
+        val segments = relativePath.split("/")
+        val rawName = when {
+            segments.size == 3 && segments[0].matches(Regex("[0-9a-f]")) &&
+                segments[1].matches(Regex("[0-9a-f]{2}")) -> segments[2]
+            segments.size == 5 && segments[0] == "thumb" &&
+                segments[1].matches(Regex("[0-9a-f]")) &&
+                segments[2].matches(Regex("[0-9a-f]{2}")) -> segments[3]
+            else -> return null
+        }
+        val decodedName = runCatching {
+            URLDecoder.decode(rawName.replace("+", "%2B"), "UTF-8")
+        }.getOrNull() ?: return null
+        return decodedName.takeIf(::isSafeFileName)
+    }
+
+    private fun isSafeFileName(value: String): Boolean =
+        value.isNotBlank() && !value.contains('/') && !value.contains('\\\\') &&
+            value.none { it.isISOControl() }
+
+    private fun decodedQueryParameters(value: String): List<Pair<String, String>>? {
+        val decoded = mutableListOf<Pair<String, String>>()
+        for (parameter in value.split("&")) {
+            val separator = parameter.indexOf('=')
+            if (separator <= 0) return null
+            val name = decodeQueryComponent(parameter.substring(0, separator)) ?: return null
+            val parameterValue = decodeQueryComponent(parameter.substring(separator + 1)) ?: return null
+            decoded += name to parameterValue
+        }
+        return decoded
+    }
+
+    private fun decodeQueryComponent(value: String): String? =
+        runCatching { URLDecoder.decode(value, "UTF-8") }.getOrNull()
 
     internal fun isAllowedDownloadUrl(value: String): Boolean {
         val uri = runCatching { URI(value) }.getOrNull() ?: return false
@@ -322,6 +379,10 @@ class VideoVisualAssetResolver(
             !cached.file.isFile ||
             cached.file.length() != cached.byteSize ||
             sha256(cached.file) != cached.sha256 ||
+            cached.retrievedAtEpochMs <= 0L ||
+            cached.retrievedAtEpochMs > now ||
+            cached.expiresAtEpochMs <= cached.retrievedAtEpochMs ||
+            cached.expiresAtEpochMs - cached.retrievedAtEpochMs > VideoAssetLicensePolicy.MAX_CACHE_TTL_MS ||
             cached.expiresAtEpochMs <= now
         ) {
             throw IOException("Önbellekteki görsel doğrulanamadı.")
@@ -355,8 +416,8 @@ class VideoVisualAssetResolver(
         descriptor: VideoVisualAssetDescriptor,
         downloaded: DownloadedVisualAsset
     ) {
-        require(VideoAssetLicensePolicy.isAllowedDownloadUrl(downloaded.finalUrl)) {
-            "Görsel indirme yönlendirmesi güvenilir HTTPS Wikimedia dosya yolunun dışına çıktı."
+        require(VideoAssetLicensePolicy.isDownloadForPinnedSource(descriptor.sourceUrl, downloaded.finalUrl)) {
+            "Görsel indirme yönlendirmesi farklı bir Wikimedia dosyasına geçti."
         }
         require(downloaded.mimeType == descriptor.expectedMimeType) {
             "Görselin MIME türü kaynak kaydıyla eşleşmiyor."
@@ -417,8 +478,10 @@ class FileVideoVisualAssetCache(
         val expiresAt = properties.getProperty("expiresAtEpochMs")?.toLongOrNull()
         val byteSize = properties.getProperty("byteSize")?.toLongOrNull()
         if (expectedHash.isNullOrBlank() || mimeType == null || retrievedAt == null ||
-            expiresAt == null || byteSize == null || expiresAt <= nowEpochMs ||
-            byteSize <= 0L || dataFile.length() != byteSize ||
+            expiresAt == null || byteSize == null || retrievedAt <= 0L ||
+            retrievedAt > nowEpochMs || expiresAt <= retrievedAt ||
+            expiresAt - retrievedAt > VideoAssetLicensePolicy.MAX_CACHE_TTL_MS ||
+            expiresAt <= nowEpochMs || byteSize <= 0L || dataFile.length() != byteSize ||
             mimeType !in VideoAssetLicensePolicy.ALLOWED_IMAGE_MIME_TYPES ||
             sha256(dataFile) != expectedHash
         ) {
@@ -440,7 +503,8 @@ class FileVideoVisualAssetCache(
         require(cacheKey.matches(Regex("[a-f0-9]{64}")))
         require(bytes.isNotEmpty() && mimeType in VideoAssetLicensePolicy.ALLOWED_IMAGE_MIME_TYPES)
         require(contentSha256.matches(Regex("[a-f0-9]{64}")) && sha256(bytes) == contentSha256)
-        require(expiresAtEpochMs > retrievedAtEpochMs)
+        require(retrievedAtEpochMs > 0L && expiresAtEpochMs > retrievedAtEpochMs &&
+            expiresAtEpochMs - retrievedAtEpochMs <= VideoAssetLicensePolicy.MAX_CACHE_TTL_MS)
         val dataFile = File(root, "$cacheKey.bin")
         val metadataFile = File(root, "$cacheKey.properties")
         val dataTemp = File(root, "$cacheKey.bin.tmp")
@@ -483,12 +547,20 @@ class FileVideoVisualAssetCache(
         files.forEach { file ->
             val key = file.nameWithoutExtension
             val metadata = File(root, "$key.properties")
-            val expiresAt = runCatching {
+            val cacheTimes = runCatching {
                 val properties = Properties()
                 FileInputStream(metadata).use { properties.load(it) }
-                properties.getProperty("expiresAtEpochMs")?.toLongOrNull()
+                val retrievedAt = properties.getProperty("retrievedAtEpochMs")?.toLongOrNull()
+                val expiresAt = properties.getProperty("expiresAtEpochMs")?.toLongOrNull()
+                retrievedAt to expiresAt
             }.getOrNull()
-            if (!metadata.isFile || expiresAt == null || expiresAt <= nowEpochMs) {
+            val retrievedAt = cacheTimes?.first
+            val expiresAt = cacheTimes?.second
+            if (!metadata.isFile || retrievedAt == null || expiresAt == null ||
+                retrievedAt <= 0L || retrievedAt > nowEpochMs || expiresAt <= retrievedAt ||
+                expiresAt - retrievedAt > VideoAssetLicensePolicy.MAX_CACHE_TTL_MS ||
+                expiresAt <= nowEpochMs
+            ) {
                 file.delete()
                 metadata.delete()
             } else {
@@ -522,7 +594,7 @@ class WikimediaCommonsVisualAssetDownloader : VideoVisualAssetDownloader {
         VideoAssetLicensePolicy.validate(descriptor)
         var current = URL(descriptor.downloadUrl)
         repeat(MAX_REDIRECTS + 1) {
-            validateUrl(current)
+            validateUrl(current, descriptor)
             val connection = current.openConnection() as HttpURLConnection
             try {
                 connection.connectTimeout = CONNECT_TIMEOUT_MS
@@ -575,9 +647,9 @@ class WikimediaCommonsVisualAssetDownloader : VideoVisualAssetDownloader {
         throw IOException("Wikimedia görseli için çok fazla yönlendirme yapıldı.")
     }
 
-    private fun validateUrl(url: URL) {
-        require(VideoAssetLicensePolicy.isAllowedDownloadUrl(url.toExternalForm())) {
-            "Wikimedia yönlendirmesi izin verilmeyen HTTPS dosya yoluna çıktı."
+    private fun validateUrl(url: URL, descriptor: VideoVisualAssetDescriptor) {
+        require(VideoAssetLicensePolicy.isDownloadForPinnedSource(descriptor.sourceUrl, url.toExternalForm())) {
+            "Wikimedia yönlendirmesi sabitlenmiş dosya adından uzaklaştı."
         }
     }
 
