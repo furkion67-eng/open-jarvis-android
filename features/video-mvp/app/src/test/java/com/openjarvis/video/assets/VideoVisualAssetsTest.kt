@@ -208,6 +208,64 @@ class VideoVisualAssetsTest {
     }
 
     @Test
+    fun pinnedSourceRejectsPercentEncodedDuplicateQueryKeys() {
+        val source = descriptor().sourceUrl
+        val invalid = listOf(
+            source.replace("&oldid=", "&%74itle=File%3AOther.jpg&oldid="),
+            source.replace("&oldid=", "&old%69d=654321&oldid="),
+            source + "&%ZZ=ignored"
+        )
+        assertTrue(VideoAssetLicensePolicy.isPinnedCommonsSource(source))
+        invalid.forEach { candidate ->
+            assertFalse(VideoAssetLicensePolicy.isPinnedCommonsSource(candidate))
+        }
+    }
+
+    @Test
+    fun downloadUrlMustMatchTheExactFileNamedByThePinnedCommonsPage() {
+        val mismatched = descriptor().copy(
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/a/ab/Other.jpg"
+        )
+        assertTrue(runCatching { VideoAssetLicensePolicy.validate(mismatched) }.isFailure)
+    }
+
+    @Test
+    fun redirectCannotSubstituteAnotherCommonsFileWithTheSameMimeType() {
+        val downloader = object : VideoVisualAssetDownloader {
+            override fun download(descriptor: VideoVisualAssetDescriptor) = DownloadedVisualAsset(
+                jpeg,
+                descriptor.expectedMimeType,
+                "https://upload.wikimedia.org/wikipedia/commons/a/ab/Other.jpg"
+            )
+        }
+        val resolver = VideoVisualAssetResolver(MemoryCache(), downloader, clock = { now })
+        assertTrue(runCatching { resolver.resolveAll(listOf(descriptor())) }.isFailure)
+    }
+
+    @Test
+    fun futureDatedCacheEntriesAreRejectedBeforeReuse() {
+        val file = File.createTempFile("jarvis-future-", ".img").apply { writeBytes(jpeg) }
+        val futureCache = object : VideoVisualAssetCache {
+            override fun read(cacheKey: String, nowEpochMs: Long): CachedVisualAsset = CachedVisualAsset(
+                file,
+                sha256(jpeg),
+                "image/jpeg",
+                now + 1L,
+                now + 10_000L,
+                jpeg.size.toLong()
+            )
+            override fun write(cacheKey: String, bytes: ByteArray, mimeType: String, contentSha256: String, retrievedAtEpochMs: Long, expiresAtEpochMs: Long) = Unit
+            override fun cleanup(nowEpochMs: Long) = Unit
+        }
+        try {
+            val resolver = VideoVisualAssetResolver(futureCache, FakeDownloader(jpeg), clock = { now })
+            assertTrue(runCatching { resolver.resolveAll(listOf(descriptor())) }.isFailure)
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
     fun resolvedAttributionRejectsMissingCreatorLicenseSourceAndCacheEvidence() {
         val attribution = VideoVisualAssetResolver(
             MemoryCache(),
@@ -245,6 +303,26 @@ class VideoVisualAssetsTest {
                 cacheTtlMs = VideoVisualAssetResolver.DEFAULT_CACHE_TTL_MS + 1L
             )
         }.isFailure)
+    }
+
+    @Test
+    fun fileCacheRejectsAnOverlongTtl() {
+        val root = Files.createTempDirectory("jarvis-asset-cache-ttl").toFile()
+        try {
+            val cache = FileVideoVisualAssetCache(root)
+            assertTrue(runCatching {
+                cache.write(
+                    "a".repeat(64),
+                    jpeg,
+                    "image/jpeg",
+                    sha256(jpeg),
+                    now,
+                    now + VideoAssetLicensePolicy.MAX_CACHE_TTL_MS + 1L
+                )
+            }.isFailure)
+        } finally {
+            root.deleteRecursively()
+        }
     }
 
     private fun descriptor(): VideoVisualAssetDescriptor {
