@@ -292,4 +292,26 @@ class SmsActionContractTest {
         assertEquals(2, dispatcher.recoveredUnknownCount)
     }
 
+    @Test
+    fun cancellingPreparedReviewPreventsLaterConfirmation() {
+        val gate = SmsConfirmationGate()
+        val review = gate.prepare("İpek Yılmaz", "+905321112233", "Gönderilmemeli")
+
+        gate.cancel(review.reviewId)
+
+        assertNull(gate.confirm(review.reviewId))
+    }
+
+    @Test
+    fun cancellingIssuedConfirmationInvalidatesItsOneTimeToken() {
+        val gate = SmsConfirmationGate()
+        val review = gate.prepare("İpek Yılmaz", "+905321112233", "Gönderilmemeli")
+        val confirmation = gate.confirm(review.reviewId)!!
+
+        gate.cancel(review.reviewId)
+
+        assertNull(gate.consume(confirmation))
+        assertNull(gate.confirm(review.reviewId))
+    }
+
 }

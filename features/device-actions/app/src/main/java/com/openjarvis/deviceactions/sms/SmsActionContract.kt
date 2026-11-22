@@ -3,25 +3,25 @@ package com.openjarvis.deviceactions.sms
 import java.util.UUID
 import com.openjarvis.tasks.DeviceActionOutcomeCode
 
-data class SmsReview(
+internal data class SmsReview(
     val reviewId: String,
     val recipientName: String,
     val phoneNumber: String,
     val exactMessage: String
 )
 
-data class SmsDraft(
+internal data class SmsDraft(
     val recipientName: String,
     val phoneNumber: String,
     val exactMessage: String
 )
 
-data class ConfirmedSmsAction internal constructor(
+internal data class ConfirmedSmsAction(
     val reviewId: String,
     internal val oneTimeToken: String
 )
 
-class SmsConfirmationGate {
+internal class SmsConfirmationGate {
     private val reviews = mutableMapOf<String, SmsReview>()
     private val tokens = mutableMapOf<String, String>()
 

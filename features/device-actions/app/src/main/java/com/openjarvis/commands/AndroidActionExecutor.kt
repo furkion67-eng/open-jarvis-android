@@ -28,7 +28,7 @@ import kotlinx.coroutines.launch
  *
  * Direct platform SMS transport is deliberately absent from this class: every direct send is delegated to the
  * feature-owned ConfirmedSmsDispatcher and its private AndroidSmsSender. The voice coordinator
- * calls sendSms only after its AwaitingConfirmation has been explicitly accepted. The Compose
+ * calls dispatchConfirmedSms only after its AwaitingConfirmation review has been explicitly accepted. The Compose
  * panel uses the same dispatcher factory, one-time confirmation gate and persisted attempt journal.
  *
  * A successful callback means Android accepted every SMS part (RESULT_OK); it does not prove
@@ -56,6 +56,7 @@ class AndroidActionExecutor(private val context: Context) {
         data class Ambiguous(val candidates: List<ContactMatcher.Match>) : ContactResolution()
         object NotFound : ContactResolution()
         object PermissionMissing : ContactResolution()
+        data class Unavailable(val reason: String) : ContactResolution()
     }
 
     fun canSendSmsDirectly(): Boolean = hasPermission(Manifest.permission.SEND_SMS)
@@ -81,6 +82,8 @@ class AndroidActionExecutor(private val context: Context) {
                 ambiguousNumbers(result.candidates)
             ContactLookupResult.PermissionDenied ->
                 ContactResolution.PermissionMissing
+            is ContactLookupResult.Unavailable ->
+                ContactResolution.Unavailable(result.reason)
             else ->
                 ContactResolution.NotFound
         }

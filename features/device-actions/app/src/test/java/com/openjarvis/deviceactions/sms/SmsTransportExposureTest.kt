@@ -40,6 +40,11 @@ class SmsTransportExposureTest {
         assertTrue(senderSource.contains("private class AndroidSmsSender("))
         assertTrue(senderSource.contains("val sender = AndroidSmsSender(appContext)"))
         assertTrue(senderSource.contains("transport = sender"))
+        // The review/token gate is an app-module implementation detail, not a public API.
+        assertTrue(contractSource.contains("internal data class SmsReview("))
+        assertTrue(contractSource.contains("internal data class SmsDraft("))
+        assertTrue(contractSource.contains("internal data class ConfirmedSmsAction("))
+        assertTrue(contractSource.contains("internal class SmsConfirmationGate {"))
         assertTrue(contractSource.contains("internal fun interface SmsTransport"))
         assertTrue(contractSource.contains("internal fun interface SmsPermission"))
         assertTrue(contractSource.contains("internal class ConfirmedSmsDispatcher("))
@@ -65,7 +70,23 @@ class SmsTransportExposureTest {
         assertTrue(coordinatorSource.contains("private suspend fun confirmSms(review: SmsReview"))
         assertTrue(coordinatorSource.contains("smsConfirmationGate.confirm(review.reviewId)"))
         assertTrue(coordinatorSource.contains("executor.dispatchConfirmedSms(confirmation, smsConfirmationGate)"))
+        assertTrue(coordinatorSource.contains("executor.dispatchConfirmedSms(confirmation, smsConfirmationGate) { result ->\n            scope.launch {"))
+        assertFalse(coordinatorSource.contains("scope.launch(Dispatchers.IO)"))
         assertTrue(coordinatorSource.contains("ResolvedRecipient(resolution.displayName, resolution.number)"))
+        assertTrue(coordinatorSource.contains("RecipientSourcePolicy.choose(contactName, phoneNumber)"))
+        assertEquals(
+            3,
+            coordinatorSource.split("resolveRecipient(routed.contactName, routed.phoneNumber, routed, command, setState)").size - 1
+        )
+        assertEquals(
+            3,
+            coordinatorSource.split("RecipientResolution.Handled -> return").size - 1
+        )
+        assertFalse(coordinatorSource.contains("routed.phoneNumber != null -> ResolvedRecipient"))
+        // Keep the source contract assertion independent of Kotlin line wrapping.
+        assertTrue(executorSource.contains("is ContactLookupResult.Unavailable ->"))
+        assertTrue(executorSource.contains("ContactResolution.Unavailable(result.reason)"))
+        assertTrue(coordinatorSource.contains("is AndroidActionExecutor.ContactResolution.Unavailable ->"))
         assertTrue(coordinatorSource.contains("Android gönderim callback'i başarılı;"))
         assertFalse(executorSource.contains("SmsManager"))
         assertFalse(executorSource.contains("sendTextMessage"))
@@ -122,6 +143,46 @@ class SmsTransportExposureTest {
                 .containsMatchIn(source)
         }.keys
         assertEquals(setOf(contractPath), transportDispatchSites)
+
+        // Keep construction and dispatch capability limited to the two approved UI/executor
+        // boundaries. Scan every Kotlin source in this module so a new helper cannot create
+        // a second gate or bypass the visible review panel.
+        val smsDispatcherFactoryCallSites = sourceByPath.mapNotNull { (path, source) ->
+            val count = Regex("""\bcreateAndroidSmsDispatcher\s*\(""")
+                .findAll(source)
+                .count { match ->
+                    val lineStart = source.lastIndexOf('\n', match.range.first)
+                        .let { if (it < 0) 0 else it + 1 }
+                    val prefix = source.substring(lineStart, match.range.first)
+                    !Regex("""\bfun\s+$""").containsMatchIn(prefix)
+                }
+            if (count > 0) path to count else null
+        }.toMap()
+        assertEquals(
+            "Only the executor and visible compose panel may create the confirmed dispatcher",
+            mapOf(executorPath to 1, panelPath to 1),
+            smsDispatcherFactoryCallSites
+        )
+
+        val confirmationGateConstructionSites = sourceByPath.mapNotNull { (path, source) ->
+            val count = Regex("""\bSmsConfirmationGate\s*\(""").findAll(source).count()
+            if (count > 0) path to count else null
+        }.toMap()
+        assertEquals(
+            "Only the coordinator and visible compose panel may construct the confirmation gate",
+            mapOf(coordinatorPath to 1, panelPath to 1),
+            confirmationGateConstructionSites
+        )
+
+        val dispatcherDispatchCallSites = sourceByPath.mapNotNull { (path, source) ->
+            val count = Regex("""\bdispatcher\s*\.\s*dispatch\s*\(\s*confirmation\s*\)""").findAll(source).count()
+            if (count > 0) path to count else null
+        }.toMap()
+        assertEquals(
+            "Only the executor and visible compose panel may dispatch a confirmed token",
+            mapOf(executorPath to 1, panelPath to 1),
+            dispatcherDispatchCallSites
+        )
     }
 
     /**
@@ -222,7 +283,7 @@ class SmsTransportExposureTest {
 
     @Test
     fun scannerIgnoresCommentsButPreservesLiteralAndExecutableTokens() {
-        val source = "val note = \"SmsManager\" // SmsManager\\n/* SmsManager */ SmsManager.getDefault()"
+        val source = "val note = \"SmsManager\" // SmsManager\n/* SmsManager */ SmsManager.getDefault()"
         val scanned = kotlinCode(source)
         assertTrue(scanned.contains("\"SmsManager\""))
         assertFalse(scanned.contains("// SmsManager"))

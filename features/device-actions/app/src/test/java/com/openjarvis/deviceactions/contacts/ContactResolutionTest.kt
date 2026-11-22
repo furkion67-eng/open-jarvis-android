@@ -40,8 +40,27 @@ class ContactResolutionTest {
     }
 
     @Test
+    fun weakInteriorSubstringDoesNotAutoResolveAConsequentialRecipient() {
+        val unrelated = listOf(
+            ContactPhoneRecord(9, "Kalina Kaya", "+90 536 777 88 99", "Cep")
+        )
+
+        assertTrue(ContactResolver.resolve("ali", unrelated) is ContactLookupResult.NoMatch)
+    }
+
+    @Test
     fun blankQueryIsRejected() {
         assertTrue(ContactResolver.resolve("   ", rows) is ContactLookupResult.InvalidQuery)
+    }
+
+    @Test
+    fun providerFailureIsUnavailableRatherThanReportedAsNoMatch() {
+        val useCase = ContactLookupUseCase(
+            hasReadContactsPermission = { true },
+            loadPhoneRows = { throw IllegalStateException("provider unavailable") }
+        )
+        val result = useCase.resolve("İpek")
+        assertTrue(result is ContactLookupResult.Unavailable)
     }
 
     @Test
