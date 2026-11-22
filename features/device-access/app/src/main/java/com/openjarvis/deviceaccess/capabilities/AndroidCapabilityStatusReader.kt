@@ -36,6 +36,7 @@ class AndroidCapabilityStatusReader(context: Context) {
     fun snapshot(): List<CapabilityStatusItem> = buildList {
         add(runtime("contacts", "Kişiler", Manifest.permission.READ_CONTACTS))
         add(runtime("sms", "SMS gönderme", Manifest.permission.SEND_SMS))
+        add(callStatus())
         add(cameraStatus())
         add(microphoneStatus())
         add(notificationStatus())
@@ -63,6 +64,15 @@ class AndroidCapabilityStatusReader(context: Context) {
             else -> "Android izin durumu okunamadı."
         }
         return CapabilityStatusItem(id, title, state, detail)
+    }
+
+    private fun callStatus(): CapabilityStatusItem {
+        val permission = runtime(
+            "call-phone",
+            "Doğrudan arama",
+            Manifest.permission.CALL_PHONE
+        )
+        return permission.copy(detail = CapabilityStatusPolicy.directCallDetail(permission.state))
     }
 
     /** Camera capture is delegated to the user's camera app; this app does not silently open a camera. */
@@ -244,7 +254,11 @@ class AndroidCapabilityStatusReader(context: Context) {
             "overlay",
             "Diğer uygulamaların üzerinde görünme",
             if (granted) CapabilityState.ENABLED else CapabilityState.REQUIRES_SETTINGS,
-            if (granted) "Üstte görünme izni açık." else "Bu özel izin Android ayarlarından kullanıcı tarafından açılmalı."
+            if (granted) {
+                "Üstte görünme izni açık. Geri almak için Android'in üstte görünme ayarını aç; JARVIS bu özel izni kendi başına kapatamaz."
+            } else {
+                "Bu özel izin Android ayarlarından kullanıcı tarafından açılmalı; aynı ekrandan daha sonra geri alınabilir."
+            }
         )
     }
 
@@ -270,9 +284,9 @@ class AndroidCapabilityStatusReader(context: Context) {
         val state = CapabilityStatusPolicy.accessibilityService(declared, enabled)
         val detail = when (state) {
             CapabilityState.ENABLED ->
-                "JARVIS erişilebilirlik servisi Android ayarlarında kullanıcı tarafından etkinleştirilmiş."
+                "JARVIS erişilebilirlik servisi Android ayarlarında kullanıcı tarafından etkinleştirilmiş. Geri almak için Android Erişilebilirlik ayarlarını aç; JARVIS servisi kendi kendine kapatamaz."
             CapabilityState.REQUIRES_SETTINGS ->
-                "JARVIS erişilebilirlik servisi uygulamada tanımlı; kullanmak için Android Erişilebilirlik ayarlarında kendin etkinleştirmelisin."
+                "JARVIS erişilebilirlik servisi uygulamada tanımlı; kullanmak için Android Erişilebilirlik ayarlarında kendin etkinleştirmelisin. Aynı ekrandan daha sonra kapatabilirsin."
             else ->
                 "Son host manifestinde JARVIS erişilebilirlik servisi tanımlı değil."
         }
