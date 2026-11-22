@@ -208,6 +208,17 @@ class VideoVisualAssetsTest {
     }
 
     @Test
+    fun everyCuratedAssetBindsItsDownloadToItsPinnedCommonsFilePage() {
+        assertEquals(5, Wikimedia1453AssetCatalog.assets.size)
+        Wikimedia1453AssetCatalog.assets.forEach { asset ->
+            assertTrue(
+                asset.assetId,
+                VideoAssetLicensePolicy.isDownloadForPinnedSource(asset.sourceUrl, asset.downloadUrl)
+            )
+        }
+    }
+
+    @Test
     fun pinnedSourceRejectsPercentEncodedDuplicateQueryKeys() {
         val source = descriptor().sourceUrl
         val invalid = listOf(
