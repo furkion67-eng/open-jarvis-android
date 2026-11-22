@@ -61,6 +61,17 @@ class VideoStoryPlanTest {
     }
 
     @Test
+    fun storyQualityRejectsTheOpeningHookRepeatedByAnyLaterSceneHeading() {
+        val plan = VideoStoryPlanBuilder.build("1453")
+        val invalid = plan.copy(
+            scenes = plan.scenes.toMutableList().also { scenes ->
+                scenes[4] = scenes[4].copy(heading = plan.hookText.removeSuffix("!"))
+            }
+        )
+        assertTrue(runCatching { VideoStoryQualityPolicy.validate(invalid) }.isFailure)
+    }
+
+    @Test
     fun storyQualityRejectsSceneHeadingsRepeatedWithDifferentPunctuation() {
         val plan = VideoStoryPlanBuilder.build("1453")
         val invalid = plan.copy(
