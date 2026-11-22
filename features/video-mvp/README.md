@@ -11,6 +11,16 @@ Current renderer/content-pipeline contract:
 - Production output is 720×1280 vertical at 24 FPS with a 1.5 Mbps video target (the size validator keeps the estimated MP4 under 24 MB). The output is H.264 video plus AAC tr-TR TTS narration only; no background music is included yet. A royalty-cleared music catalogue and mixing stage remain separate work. The renderer validates the muxed tracks; the pipeline additionally verifies a readable content:// MP4 URI, an SRT content:// URI, the MP4 ftyp signature and a timed first-hook caption before reporting success.
 - A 720×1280 JPEG cover is extracted from the rendered MP4, exported to Pictures/Open JARVIS, validated by its JPEG signature and returned with concise Turkish alt text and creator/license context. Output is exported to Movies/Open JARVIS and captions to Downloads/Open JARVIS through MediaStore. The share action remains a user-initiated Android chooser; this renderer does not upload or publish to any platform.
 
+## Research-source and story-quality gate
+
+Claim-source metadata is accepted only when the publisher label exactly matches its HTTPS host:
+- `Türk Tarih Kurumu` → `ttk.gov.tr`
+- `TDV İslâm Ansiklopedisi` → `islamansiklopedisi.org.tr`
+
+Source URLs with lookalike hosts, user-info, non-default ports, query strings or fragments are rejected. `checkedOn` must be a valid ISO calendar date and cannot be in the future. Every claim ID must be referenced by a scene, and every scene claim must resolve back to that scene; orphaned or missing citations stop rendering.
+
+Turkish-normalized scene headings and captions must be unique even when punctuation differs. The opening hook must not be reused as a later scene heading. These are fail-closed quality checks, not a substitute for reviewing the underlying historical source or the exact pinned Commons revision.
+
 ## Research pack
 
 The İstanbul 1453 story uses the following fact sources:
