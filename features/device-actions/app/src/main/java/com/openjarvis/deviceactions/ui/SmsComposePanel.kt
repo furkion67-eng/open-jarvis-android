@@ -1,8 +1,6 @@
 package com.openjarvis.deviceactions.ui
 
 import android.Manifest
-import android.content.Intent
-import android.net.Uri
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -271,10 +269,7 @@ fun SmsComposePanel(
                 TextButton(
                     enabled = message.isNotBlank(),
                     onClick = {
-                        val handoff = Intent(
-                            Intent.ACTION_SENDTO,
-                            Uri.parse("smsto:" + Uri.encode(phone.number))
-                        ).putExtra("sms_body", message)
+                        val handoff = SmsDraftHandoff.createIntent(phone.number, message)
                         try {
                             context.startActivity(handoff)
                             status = "SMS uygulamasında taslak açıldı. JARVIS bunu gönderildi olarak işaretlemez; son gönderme işlemi SMS uygulamasında sana aittir."
