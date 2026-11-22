@@ -84,6 +84,11 @@ object VideoStoryQualityPolicy {
             "Anlatım ilk iki saniyelik kancayla başlamalı."
         }
         require(plan.scenes.size in 3..6) { "Kaynaklı hikâye 3–6 sahne içermeli." }
+        require(
+            normalizeForComparison(plan.scenes.first().heading) != normalizeForComparison(plan.hookText)
+        ) {
+            "İlk sahne başlığı, ilk iki saniyelik ayrı kancayı tekrar etmemeli."
+        }
         require(plan.scenes.all { it.sceneId.isNotBlank() && !it.visualAssetId.isNullOrBlank() }) {
             "Her sahneye ayrı bir kaynak görsel bağlanmalı."
         }
@@ -130,6 +135,11 @@ object VideoStoryQualityPolicy {
         }
     }
 
+    private fun normalizeForComparison(value: String): String =
+        value.lowercase(Locale.forLanguageTag("tr-TR"))
+            .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
+            .trim()
+
     fun validateHookDuration(actualDurationMs: Long) {
         require(actualDurationMs in 1L..2_000L) {
             "İlk kanca 2 saniyeyi aşıyor; video üretilmedi."
@@ -157,7 +167,7 @@ object VideoStoryPlanBuilder {
         val hook = "Gemiler karadan Haliç'e!"
         val scenes = listOf(
             VideoScene(
-                heading = hook,
+                heading = "Haliç girişini zincir kapattı",
                 caption = "Bizans'ın gerdiği zincir, Osmanlı donanmasının Haliç'e doğrudan girmesini engelliyordu.",
                 sceneId = "1453-hook-siege",
                 visualAssetId = "commons-constantinople-1453-miniature",
