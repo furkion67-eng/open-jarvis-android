@@ -66,7 +66,7 @@ class SmsTransportExposureTest {
         assertTrue(coordinatorSource.contains("private suspend fun requestSmsConfirmation("))
         assertTrue(coordinatorSource.contains("smsConfirmationGate.prepare(labelOf(contactName, number), number, body)"))
         assertTrue(coordinatorSource.contains("AgentState.AwaitingConfirmation("))
-        assertTrue(coordinatorSource.contains("detail = \"Alıcı: \${review.recipientName} (\${review.phoneNumber})\\nMesaj: \${review.exactMessage}\""))
+        assertTrue(coordinatorSource.contains("detail = \"Alıcı: \${review.recipientName} (\${review.phoneNumber})\nMesaj: \${review.exactMessage}\""))
         assertTrue(coordinatorSource.contains("private suspend fun confirmSms(review: SmsReview"))
         assertTrue(coordinatorSource.contains("smsConfirmationGate.confirm(review.reviewId)"))
         assertTrue(coordinatorSource.contains("executor.dispatchConfirmedSms(confirmation, smsConfirmationGate)"))
@@ -148,13 +148,13 @@ class SmsTransportExposureTest {
         // boundaries. Scan every Kotlin source in this module so a new helper cannot create
         // a second gate or bypass the visible review panel.
         val smsDispatcherFactoryCallSites = sourceByPath.mapNotNull { (path, source) ->
-            val count = Regex("""\\bcreateAndroidSmsDispatcher\\s*\\(""")
+            val count = Regex("""\bcreateAndroidSmsDispatcher\s*\(""")
                 .findAll(source)
                 .count { match ->
-                    val lineStart = source.lastIndexOf('\\n', match.range.first)
+                    val lineStart = source.lastIndexOf('\n', match.range.first)
                         .let { if (it < 0) 0 else it + 1 }
                     val prefix = source.substring(lineStart, match.range.first)
-                    !Regex("""\\bfun\\s+$""").containsMatchIn(prefix)
+                    !Regex("""\bfun\s+$""").containsMatchIn(prefix)
                 }
             if (count > 0) path to count else null
         }.toMap()
@@ -165,7 +165,7 @@ class SmsTransportExposureTest {
         )
 
         val confirmationGateConstructionSites = sourceByPath.mapNotNull { (path, source) ->
-            val count = Regex("""\\bSmsConfirmationGate\\s*\\(""").findAll(source).count()
+            val count = Regex("""\bSmsConfirmationGate\s*\(""").findAll(source).count()
             if (count > 0) path to count else null
         }.toMap()
         assertEquals(
@@ -175,7 +175,7 @@ class SmsTransportExposureTest {
         )
 
         val dispatcherDispatchCallSites = sourceByPath.mapNotNull { (path, source) ->
-            val count = Regex("""\\bdispatcher\\s*\\.\\s*dispatch\\s*\\(""").findAll(source).count()
+            val count = Regex("""\bdispatcher\s*\.\s*dispatch\s*\(""").findAll(source).count()
             if (count > 0) path to count else null
         }.toMap()
         assertEquals(
