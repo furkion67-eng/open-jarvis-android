@@ -36,8 +36,10 @@ class VideoNarratedExportInstrumentedTest {
             hasExactTurkishVoice(context)
         )
 
+        val prompt = "İstanbul'un Fethi"
+        val storyPlan = VideoStoryPlanBuilder.build(prompt)
         val result = withTimeout(120_000L) {
-            VideoStoryPipeline(context).render("İstanbul'un Fethi")
+            VideoStoryPipeline(context).render(prompt)
         }
         try {
             assertTrue("MP4 export must use a MediaStore content URI", result.exportedUri.scheme == "content")
@@ -122,7 +124,15 @@ class VideoNarratedExportInstrumentedTest {
                 formatSrtTime(result.audioDurationMs),
                 cueTimes.last().groupValues[2]
             )
-            assertTrue("Spoken scene heading must appear in captions", srt.contains("Kuşatma başladı."))
+            assertTrue("The exact two-second hook must appear in captions", srt.contains(storyPlan.hookText))
+            assertTrue(
+                "The first scene caption must come from the current story plan",
+                srt.contains(storyPlan.scenes.first().caption)
+            )
+            assertTrue(
+                "A later scene heading and caption must come from the current story plan",
+                srt.contains("${storyPlan.scenes[1].heading}. ${storyPlan.scenes[1].caption}")
+            )
         } finally {
             context.contentResolver.delete(result.exportedUri, null, null)
             context.contentResolver.delete(result.captionsUri, null, null)

@@ -18,7 +18,8 @@ class VideoStoryPlanTest {
         assertEquals(0L, plan.captions.first().startMs)
         assertEquals(2_000L, plan.captions.first().endMs)
         assertEquals(plan.hookText, plan.captions.first().text)
-        assertEquals(plan.hookText, plan.scenes.first().heading)
+        assertTrue(plan.scenes.first().heading != plan.hookText)
+        assertTrue(plan.scenes.first().heading.contains("zincir", ignoreCase = true))
         assertTrue(plan.narrationText.startsWith(plan.hookText))
         assertEquals(plan.scenes.first().caption, plan.captions[1].text)
         assertEquals(45_000L, plan.captions.last().endMs)
@@ -26,6 +27,18 @@ class VideoStoryPlanTest {
         assertEquals(5, plan.claimSources.size)
         assertTrue(plan.claimSources.all { it.sourceUrl.startsWith("https://") })
         plan.renderSpec.copy(requireLicensedVisualAssets = false).validate()
+    }
+
+    @Test
+    fun storyQualityRejectsAFirstSceneHeadingThatRepeatsTheSeparateHook() {
+        val plan = VideoStoryPlanBuilder.build("İstanbul'un Fethi")
+        val repeatedHeading = plan.hookText.removeSuffix("!")
+        val invalid = plan.copy(
+            scenes = plan.scenes.toMutableList().also { scenes ->
+                scenes[0] = scenes[0].copy(heading = repeatedHeading)
+            }
+        )
+        assertTrue(runCatching { VideoStoryQualityPolicy.validate(invalid) }.isFailure)
     }
 
     @Test
