@@ -28,9 +28,17 @@ internal object VideoArtifactCaptionsPolicy {
         var totalBytes = 0
 
         while (true) {
-            val count = input.read(buffer)
+            val remainingBytes = maxBytes - totalBytes
+            // Keep the final overflow probe to one byte. Reading the full buffer here could
+            // consume several KiB beyond the configured limit even though none is retained.
+            val requestedBytes = if (remainingBytes >= buffer.size) {
+                buffer.size
+            } else {
+                remainingBytes + 1
+            }
+            val count = input.read(buffer, 0, requestedBytes)
             if (count < 0) break
-            if (count == 0 || count > maxBytes - totalBytes) return null
+            if (count == 0 || count > remainingBytes) return null
             output.write(buffer, 0, count)
             totalBytes += count
         }
