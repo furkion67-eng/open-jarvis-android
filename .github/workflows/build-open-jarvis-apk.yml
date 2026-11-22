@@ -3,9 +3,9 @@ name: Build Open Jarvis APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, "feature/approval-toggle", "feature/repair-overlay-input-digest-2026-11-21" ]
+    branches: [ main, "feature/approval-toggle", "feature/repair-overlay-input-digest-2026-11-21", "infra/ci-device-guardrails-a698-20261121", "infra/ci-voice-sms-dispatch-unification-20261121", "infra/ci-contact-first-voice-sms-20261121", "infra/ci-contact-first-voice-sms-5c17-20261122", "infra/ci-contact-first-voice-sms-33894-20261122", "infra/ci-integrated-shorts-player-6ad015-20261122", "infra/ci-integrated-device-shorts-6a9d-20261122", "infra/ci-integrated-device-shorts-5e6291-20261122", "infra/ci-integrated-device-shorts-7987927-20261122", "infra/ci-integrated-device-shorts-5209-20261122", "infra/ci-integrated-sms-draft-a20be-20261122" ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, "feature/device-integration-guardrails-2026-11-21", "feature/voice-sms-dispatch-unification-20261121", "feature/contact-first-voice-sms-routing-20261121", "feature/player-bounded-captions-20261122", "feature/call-permission-status-revocation-20261122", "feature/saf-read-bounded-revalidation-20261122", "feature/captions-single-byte-overflow-probe-20261122", "feature/medias-test-cleanup-guard-20261122", "feature/sms-sendto-draft-contract-20261122" ]
 
 permissions:
   contents: read
@@ -17,15 +17,38 @@ concurrency:
 jobs:
   build:
     name: Build debug APK
+    outputs:
+      artifacts_ready: ${{ steps.verify_apk.outcome == 'success' && steps.build_test_apk.outcome == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
 
       - name: Assert exact pushed commit
         if: github.event_name == 'push'
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Assert exact Feature source parent for infrastructure validation
+        if: github.event_name == 'push'
+        env:
+          EXPECTED_FEATURE_SHA: a20be44ca1566a04f0c5f1a14e0555bf6f7d9a87
+        run: test "$(git rev-parse HEAD^)" = "$EXPECTED_FEATURE_SHA"
+
+      - name: Assert exact pull-request head and base
+        if: github.event_name == 'pull_request'
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_BASE: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_FEATURE_SHA: a20be44ca1566a04f0c5f1a14e0555bf6f7d9a87
+        run: |
+          test "$EXPECTED_BASE" = "$EXPECTED_FEATURE_SHA"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_FEATURE_SHA"
+          test "$(git merge-base HEAD "$EXPECTED_BASE")" = "$EXPECTED_BASE"
 
       - name: Extract source and locate project
         id: source
@@ -37,72 +60,7 @@ jobs:
           test -d "$PROJECT_DIR/app"
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
           echo "Project directory: $PROJECT_DIR"
-          # Fix the launcher component: MainActivity is in com.openjarvis.ui,
-          # while the Gradle namespace/applicationId is com.openjarvis.
-          python3 - "$PROJECT_DIR/app/src/main/AndroidManifest.xml" <<'PY'
-          import pathlib, sys
-          p = pathlib.Path(sys.argv[1])
-          s = p.read_text()
-          s = s.replace('android:name=".MainActivity"', 'android:name=".ui.MainActivity"')
-          s = s.replace('android:parentActivityName=".MainActivity"', 'android:parentActivityName=".ui.MainActivity"')
-          p.write_text(s)
-          PY
           python3 scripts/repair_sources.py "$PROJECT_DIR"
-          # Avoid constructing AgentCore during launcher startup: it eagerly opens
-          # encrypted provider preferences and is not used by MainActivity's dashboard.
-          python3 - "$PROJECT_DIR/app/src/main/java/com/openjarvis/ui/MainActivity.kt" <<'PY'
-          import pathlib, sys
-          p = pathlib.Path(sys.argv[1])
-          s = p.read_text()
-          s = s.replace('import com.openjarvis.agent.AgentCore\n', '')
-          s = s.replace('import com.openjarvis.agent.AgentState\n', '')
-          s = s.replace('    private lateinit var agentCore: AgentCore\n', '')
-          s = s.replace('        agentCore = AgentCore(this)\n', '')
-          s = s.replace('                val agentState by agentCore.state.collectAsState()\n', '')
-          # Defer Room repository construction into a guarded Compose state.
-          # A database initialization exception must not terminate MainActivity.
-          s = s.replace('    private lateinit var graphifyRepo: GraphifyRepository\n', '')
-          s = s.replace('        graphifyRepo = GraphifyRepository(this)\n', '')
-          s = s.replace(
-              '                val context = LocalContext.current\n',
-              '                val context = LocalContext.current\n                val graphifyRepoResult = remember { runCatching { GraphifyRepository(applicationContext) } }\n'
-          )
-          s = s.replace(
-              '                        graphifyRepo = graphifyRepo,\n',
-              '                        graphifyRepo = graphifyRepoResult.getOrThrow(),\n'
-          )
-          # If repository creation fails, show a recoverable diagnostic screen.
-          s = s.replace(
-              '                } else {\n                    DashboardScreen(',
-              '''                } else if (graphifyRepoResult.isFailure) {
-                      androidx.compose.material3.Surface(modifier = Modifier.fillMaxSize()) {
-                          androidx.compose.material3.Text(
-                              text = "Open Jarvis could not initialize local storage.\\n" +
-                                  (graphifyRepoResult.exceptionOrNull()?.message ?: "Unknown startup error"),
-                              modifier = Modifier.padding(24.dp)
-                          )
-                      }
-                  } else {
-                      DashboardScreen('''
-          )
-          p.write_text(s)
-          # Keep the launcher/dashboard alive if the local Room database cannot
-          # be opened (for example, an older on-device schema or corrupt DB).
-          dashboard = p.parent / "dashboard" / "DashboardScreen.kt"
-          ds = dashboard.read_text()
-          ds = ds.replace(
-              "        recentTasks = graphifyRepo.getRecentTasks(10)\\n        mostUsedApps = graphifyRepo.getMostUsedApps(4)",
-              """        try {
-                  recentTasks = graphifyRepo.getRecentTasks(10)
-                  mostUsedApps = graphifyRepo.getMostUsedApps(4)
-              } catch (e: Exception) {
-                  android.util.Log.e("OpenJarvis", "Dashboard database load failed", e)
-                  recentTasks = emptyList()
-                  mostUsedApps = emptyList()
-              }"""
-          )
-          dashboard.write_text(ds)
-          PY
           python3 scripts/add_startup_diagnostics.py "$PROJECT_DIR"
           ls -la "$PROJECT_DIR"
 
@@ -170,6 +128,7 @@ jobs:
         run: gradle --no-daemon --max-workers=1 --stacktrace assembleDebug
 
       - name: Verify Debug APK signature, package metadata and checksum
+        id: verify_apk
         working-directory: ${{ steps.source.outputs.project_dir }}
         run: |
           set -euo pipefail
@@ -180,11 +139,26 @@ jobs:
           sha256sum "$APK" > "$APK.sha256"
           cat "$APK.sha256"
 
-      - name: Run Debug and Release JVM tests and build instrumented test APK
+      - name: Build instrumented test APK
+        id: build_test_apk
         working-directory: ${{ steps.source.outputs.project_dir }}
         env:
           GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=1g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1
-        run: gradle --no-daemon --max-workers=1 --stacktrace testDebugUnitTest testReleaseUnitTest assembleDebugAndroidTest
+        run: gradle --no-daemon --max-workers=1 --stacktrace assembleDebugAndroidTest
+
+      - name: Run Debug JVM tests
+        if: always()
+        working-directory: ${{ steps.source.outputs.project_dir }}
+        env:
+          GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=1g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1
+        run: gradle --no-daemon --max-workers=1 --stacktrace testDebugUnitTest
+
+      - name: Run Release JVM tests independently
+        if: always()
+        working-directory: ${{ steps.source.outputs.project_dir }}
+        env:
+          GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=1g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1
+        run: gradle --no-daemon --max-workers=1 --stacktrace testReleaseUnitTest
 
       - name: Upload unit test results
         if: always()
@@ -196,6 +170,7 @@ jobs:
           retention-days: 7
 
       - name: Upload instrumented test APK
+        if: always() && steps.build_test_apk.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: Open-Jarvis-Test-APK
@@ -219,6 +194,7 @@ jobs:
           retention-days: 2
 
       - name: Upload APK
+        if: always() && steps.verify_apk.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: Open-Jarvis-APK
@@ -232,6 +208,7 @@ jobs:
     name: Emulator launch and instrumentation (API ${{ matrix.api-level }})
     runs-on: ubuntu-latest
     needs: build
+    if: always() && needs.build.outputs.artifacts_ready == 'true'
     strategy:
       fail-fast: false
       matrix:
