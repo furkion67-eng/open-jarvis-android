@@ -3,9 +3,9 @@ name: Build Open Jarvis APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, "feature/approval-toggle", "feature/repair-overlay-input-digest-2026-11-21" ]
+    branches: [ main, "feature/approval-toggle", "feature/repair-overlay-input-digest-2026-11-21", "infra/ci-device-guardrails-a698-20261121", "infra/ci-voice-sms-dispatch-unification-20261121", "infra/ci-contact-first-voice-sms-20261121", "infra/ci-contact-first-voice-sms-5c17-20261122", "infra/ci-contact-first-voice-sms-33894-20261122", "infra/ci-integrated-shorts-player-6ad015-20261122", "infra/ci-integrated-device-shorts-6a9d-20261122", "infra/ci-integrated-device-shorts-5e6291-20261122", "infra/ci-integrated-device-shorts-7987927-20261122" ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, "feature/device-integration-guardrails-2026-11-21", "feature/voice-sms-dispatch-unification-20261121", "feature/contact-first-voice-sms-routing-20261121", "feature/player-bounded-captions-20261122", "feature/call-permission-status-revocation-20261122", "feature/saf-read-bounded-revalidation-20261122", "feature/captions-single-byte-overflow-probe-20261122" ]
 
 permissions:
   contents: read
@@ -17,15 +17,38 @@ concurrency:
 jobs:
   build:
     name: Build debug APK
+    outputs:
+      artifacts_ready: ${{ steps.verify_apk.outcome == 'success' && steps.build_test_apk.outcome == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
 
       - name: Assert exact pushed commit
         if: github.event_name == 'push'
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Assert exact Feature source parent for infrastructure validation
+        if: github.event_name == 'push'
+        env:
+          EXPECTED_FEATURE_SHA: 7987927a8b87a3f76c7ac3e301725758ddd5248f
+        run: test "$(git rev-parse HEAD^)" = "$EXPECTED_FEATURE_SHA"
+
+      - name: Assert exact pull-request head and base
+        if: github.event_name == 'pull_request'
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_BASE: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_FEATURE_SHA: 7987927a8b87a3f76c7ac3e301725758ddd5248f
+        run: |
+          test "$EXPECTED_BASE" = "$EXPECTED_FEATURE_SHA"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_FEATURE_SHA"
+          test "$(git merge-base HEAD "$EXPECTED_BASE")" = "$EXPECTED_BASE"
 
       - name: Extract source and locate project
         id: source
@@ -170,6 +193,7 @@ jobs:
         run: gradle --no-daemon --max-workers=1 --stacktrace assembleDebug
 
       - name: Verify Debug APK signature, package metadata and checksum
+        id: verify_apk
         working-directory: ${{ steps.source.outputs.project_dir }}
         run: |
           set -euo pipefail
@@ -180,11 +204,26 @@ jobs:
           sha256sum "$APK" > "$APK.sha256"
           cat "$APK.sha256"
 
-      - name: Run Debug and Release JVM tests and build instrumented test APK
+      - name: Build instrumented test APK
+        id: build_test_apk
         working-directory: ${{ steps.source.outputs.project_dir }}
         env:
           GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=1g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1
-        run: gradle --no-daemon --max-workers=1 --stacktrace testDebugUnitTest testReleaseUnitTest assembleDebugAndroidTest
+        run: gradle --no-daemon --max-workers=1 --stacktrace assembleDebugAndroidTest
+
+      - name: Run Debug JVM tests
+        if: always()
+        working-directory: ${{ steps.source.outputs.project_dir }}
+        env:
+          GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=1g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1
+        run: gradle --no-daemon --max-workers=1 --stacktrace testDebugUnitTest
+
+      - name: Run Release JVM tests independently
+        if: always()
+        working-directory: ${{ steps.source.outputs.project_dir }}
+        env:
+          GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=1g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1
+        run: gradle --no-daemon --max-workers=1 --stacktrace testReleaseUnitTest
 
       - name: Upload unit test results
         if: always()
@@ -196,6 +235,7 @@ jobs:
           retention-days: 7
 
       - name: Upload instrumented test APK
+        if: always() && steps.build_test_apk.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: Open-Jarvis-Test-APK
@@ -219,6 +259,7 @@ jobs:
           retention-days: 2
 
       - name: Upload APK
+        if: always() && steps.verify_apk.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: Open-Jarvis-APK
@@ -232,6 +273,7 @@ jobs:
     name: Emulator launch and instrumentation (API ${{ matrix.api-level }})
     runs-on: ubuntu-latest
     needs: build
+    if: always() && needs.build.outputs.artifacts_ready == 'true'
     strategy:
       fail-fast: false
       matrix:
