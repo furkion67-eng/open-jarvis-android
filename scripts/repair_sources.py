@@ -15,6 +15,10 @@ def _repair_input_digest(script_path: Path, features_root: Path) -> str:
     """
     digest = hashlib.sha256()
     digest.update(script_path.read_bytes())
+    auxiliary_script = script_path.with_name("add_startup_diagnostics.py")
+    if auxiliary_script.is_file():
+        digest.update(b"\\0auxiliary-script\\0")
+        digest.update(auxiliary_script.read_bytes())
     if features_root.is_dir():
         for source in sorted(features_root.rglob("*"), key=lambda item: item.as_posix()):
             if not source.is_file():
@@ -60,6 +64,13 @@ def _repair_input_digest_regression_test():
         resource.write_text("<resources/>", encoding="utf-8")
         if second == _repair_input_digest(script, features):
             raise SystemExit("repair input digest ignored a changed Android resource")
+
+        auxiliary = temporary_root / "add_startup_diagnostics.py"
+        auxiliary.write_bytes(b"startup-diagnostics-v1")
+        before_auxiliary_change = _repair_input_digest(script, features)
+        auxiliary.write_bytes(b"startup-diagnostics-v2")
+        if before_auxiliary_change == _repair_input_digest(script, features):
+            raise SystemExit("repair input digest ignored a changed auxiliary product repair script")
 
 
 _repair_input_digest_regression_test()
@@ -4355,6 +4366,305 @@ fun RetainedStatusPanel() {
 _dashboard_permission_gate_regression_test()
 edit("app/src/main/java/com/openjarvis/ui/MainActivity.kt", remove_global_accessibility_overlay_gate)
 print("Removed only the global Accessibility/Overlay launcher gate; optional capability actions remain user-controlled")
+
+
+# Architect-approved host source-of-truth repairs. Infrastructure must invoke this
+# product patch layer rather than editing extracted Kotlin/XML inline in a workflow.
+def _repair_launcher_component(manifest_text):
+    for attribute in ("android:name", "android:parentActivityName"):
+        old = attribute + '=".MainActivity"'
+        new = attribute + '=".ui.MainActivity"'
+        count = manifest_text.count(old)
+        if count > 1:
+            raise SystemExit("AndroidManifest.xml: duplicate launcher component anchor for " + attribute)
+        if count == 1:
+            manifest_text = manifest_text.replace(old, new, 1)
+    if not re.search(
+        r"<activity\b(?=[^>]*\bandroid:name\s*=\s*['\"](?:\.ui\.MainActivity|com\.openjarvis\.ui\.MainActivity)['\"])[^>]*>",
+        manifest_text,
+        re.DOTALL
+    ):
+        raise SystemExit("AndroidManifest.xml: expected launcher MainActivity declaration was not found")
+    return manifest_text
+
+
+def _remove_optional_kotlin_line(source, pattern, label):
+    matches = list(re.finditer(pattern, source))
+    if len(matches) > 1:
+        raise SystemExit(label + ": duplicate source anchors; refusing ambiguous repair")
+    if not matches:
+        return source
+    match = matches[0]
+    return source[:match.start()] + source[match.end():]
+
+
+def _repair_main_activity_bootstrap(source):
+    # AgentCore is not used by the launcher Dashboard. Constructing it during
+    # Activity startup eagerly opens unrelated provider/encrypted preferences.
+    for pattern, label in (
+        (r"(?m)^[ \t]*import com\.openjarvis\.agent\.AgentCore[ \t]*\n", "AgentCore import"),
+        (r"(?m)^[ \t]*import com\.openjarvis\.agent\.AgentState[ \t]*\n", "AgentState import"),
+        (r"(?m)^[ \t]*private lateinit var agentCore: AgentCore[ \t]*\n", "AgentCore field"),
+        (r"(?m)^[ \t]*agentCore = AgentCore\(this\)[ \t]*\n", "AgentCore construction"),
+        (r"(?m)^[ \t]*val agentState by agentCore\.state\.collectAsState\(\)[ \t]*\n", "AgentCore state collection"),
+    ):
+        source = _remove_optional_kotlin_line(source, pattern, label)
+
+    if re.search(r"\bagentCore\b|\bAgentCore\b|\bAgentState\b", source):
+        raise SystemExit("MainActivity.kt: unused eager AgentCore references remain after launcher repair")
+
+    field_pattern = r"(?m)^[ \t]*private lateinit var graphifyRepo: GraphifyRepository[ \t]*\n"
+    init_pattern = r"(?m)^[ \t]*graphifyRepo = GraphifyRepository\(this\)[ \t]*\n"
+    fields = list(re.finditer(field_pattern, source))
+    initializers = list(re.finditer(init_pattern, source))
+    if len(fields) > 1 or len(initializers) > 1 or bool(fields) != bool(initializers):
+        raise SystemExit("MainActivity.kt: GraphifyRepository field/initializer pair is incomplete or duplicated")
+
+    has_result = "graphifyRepoResult" in source
+    if fields and initializers:
+        source = source[:fields[0].start()] + source[fields[0].end():]
+        # The initializer offset may have shifted after removing the field.
+        initializers = list(re.finditer(init_pattern, source))
+        if len(initializers) != 1:
+            raise SystemExit("MainActivity.kt: GraphifyRepository initializer was not uniquely preserved")
+        source = source[:initializers[0].start()] + source[initializers[0].end():]
+        has_result = True
+
+    if has_result:
+        if "val graphifyRepoResult = remember { runCatching { GraphifyRepository(applicationContext) } }" not in source:
+            if fields or initializers:
+                raise SystemExit("MainActivity.kt: unexpected existing graphifyRepoResult implementation")
+        else:
+            pass
+        if "graphifyRepo = graphifyRepoResult.getOrThrow()," not in source:
+            old_argument = re.compile(r"(?m)^(?P<indent>[ \t]*)graphifyRepo\s*=\s*graphifyRepo,[ \t]*$")
+            matches = list(old_argument.finditer(source))
+            if len(matches) != 1:
+                raise SystemExit("MainActivity.kt: expected one DashboardScreen graphifyRepo argument")
+            match = matches[0]
+            replacement = match.group("indent") + "graphifyRepo = graphifyRepoResult.getOrThrow(),"
+            source = source[:match.start()] + replacement + source[match.end():]
+
+        if "if (graphifyRepoResult.isFailure)" not in source:
+            dashboard_call = re.compile(r"(?m)^(?P<indent>[ \t]*)DashboardScreen\([ \t]*$")
+            matches = list(dashboard_call.finditer(source))
+            if len(matches) != 1:
+                raise SystemExit("MainActivity.kt: expected one DashboardScreen call for guarded repository fallback")
+            match = matches[0]
+            indent = match.group("indent")
+            child = indent + "    "
+            fallback = "\n".join((
+                indent + "if (graphifyRepoResult.isFailure) {",
+                child + "androidx.compose.material3.Surface(modifier = Modifier.fillMaxSize()) {",
+                child + "    androidx.compose.material3.Text(",
+                child + '        text = "Open Jarvis could not initialize local storage.\\n" +',
+                child + '            (graphifyRepoResult.exceptionOrNull()?.message ?: "Unknown startup error"),',
+                child + "        modifier = Modifier.padding(24.dp)",
+                child + "    )",
+                child + "} ",
+                indent + "} else {",
+                child + "DashboardScreen("
+            ))
+            source = source[:match.start()] + fallback + source[match.end():]
+
+        if "import androidx.compose.runtime.remember" not in source and not re.search(
+            r"(?m)^import androidx\.compose\.runtime\.\*[ \t]*$", source
+        ):
+            package = re.search(r"(?m)^package [^\n]+\n", source)
+            if not package:
+                raise SystemExit("MainActivity.kt: package declaration missing while adding remember import")
+            source = source[:package.end()] + "import androidx.compose.runtime.remember\n" + source[package.end():]
+        if "import androidx.compose.ui.unit.dp" not in source and not re.search(
+            r"(?m)^import androidx\.compose\.ui\.unit\.\*[ \t]*$", source
+        ):
+            package = re.search(r"(?m)^package [^\n]+\n", source)
+            source = source[:package.end()] + "import androidx.compose.ui.unit.dp\n" + source[package.end():]
+    else:
+        # Some immutable host revisions already create the repository with a guarded
+        # try/catch before setContent and pass a nullable repository to DashboardScreen.
+        # Preserve that behavior; do not rewrite a safe source shape merely for style.
+        guarded_local = (
+            "val graphifyRepo = try" in source
+            and "GraphifyRepository(applicationContext)" in source
+            and "catch (e: Exception)" in source
+        )
+        already_guarded_compose = (
+            "val graphifyRepoResult = remember { runCatching { GraphifyRepository(applicationContext) } }" in source
+            and "if (graphifyRepoResult.isFailure)" in source
+            and "graphifyRepo = graphifyRepoResult.getOrThrow()," in source
+        )
+        if not guarded_local and not already_guarded_compose:
+            if "graphifyRepo = graphifyRepo," in source:
+                raise SystemExit("MainActivity.kt: GraphifyRepository is passed to Dashboard without a recognized guarded construction")
+            if "DashboardScreen(" in source and "graphifyRepo =" in source:
+                raise SystemExit("MainActivity.kt: unrecognized GraphifyRepository startup shape; refusing silent no-op")
+
+    if source.count("DashboardScreen(") != 1:
+        raise SystemExit("MainActivity.kt: expected exactly one DashboardScreen call after bootstrap repair")
+    return source
+
+
+def _repair_dashboard_database_reads(source):
+    if (
+        "getRecentTasks(10)" in source
+        and "getMostUsedApps(4)" in source
+        and "catch (e: Exception)" in source
+    ):
+        return source
+
+    pattern = re.compile(
+        r"(?m)^(?P<indent>[ \t]*)recentTasks\s*=\s*(?P<receiver>[A-Za-z_][A-Za-z0-9_]*)\.getRecentTasks\(10\)[ \t]*\n"
+        r"(?P=indent)mostUsedApps\s*=\s*(?P=receiver)\.getMostUsedApps\(4\)[ \t]*$"
+    )
+    matches = list(pattern.finditer(source))
+    if len(matches) != 1:
+        raise SystemExit("DashboardScreen.kt: expected one unguarded recent-task/app repository read pair")
+    match = matches[0]
+    indent = match.group("indent")
+    receiver = match.group("receiver")
+    child = indent + "    "
+    replacement = "\n".join((
+        indent + "try {",
+        child + "recentTasks = " + receiver + ".getRecentTasks(10)",
+        child + "mostUsedApps = " + receiver + ".getMostUsedApps(4)",
+        indent + "} catch (e: Exception) {",
+        child + 'android.util.Log.e("OpenJarvis", "Dashboard database load failed", e)',
+        child + "recentTasks = emptyList()",
+        child + "mostUsedApps = emptyList()",
+        indent + "}"
+    ))
+    return source[:match.start()] + replacement + source[match.end():]
+
+
+def _host_bootstrap_regression_test():
+    manifest = (
+        '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+        '<application><activity android:name=".MainActivity" '
+        'android:parentActivityName=".MainActivity" /></application></manifest>'
+    )
+    repaired_manifest = _repair_launcher_component(manifest)
+    if _repair_launcher_component(repaired_manifest) != repaired_manifest:
+        raise SystemExit("AndroidManifest.xml: launcher component repair is not idempotent")
+    if 'android:name=".ui.MainActivity"' not in repaired_manifest or \
+       'android:parentActivityName=".ui.MainActivity"' not in repaired_manifest:
+        raise SystemExit("AndroidManifest.xml: launcher component repair did not normalize both references")
+
+    legacy_activity = """package com.openjarvis.ui
+import com.openjarvis.agent.AgentCore
+import com.openjarvis.agent.AgentState
+import com.openjarvis.graphify.GraphifyRepository
+import androidx.compose.ui.Modifier
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.unit.dp
+
+class MainActivity {
+    private lateinit var agentCore: AgentCore
+    private lateinit var graphifyRepo: GraphifyRepository
+    fun onCreate() {
+        agentCore = AgentCore(this)
+        graphifyRepo = GraphifyRepository(this)
+        setContent {
+            OpenJarvisTheme {
+                val agentState by agentCore.state.collectAsState()
+                DashboardScreen(
+                    graphifyRepo = graphifyRepo,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+    }
+}
+"""
+    repaired_activity = _repair_main_activity_bootstrap(legacy_activity)
+    if _repair_main_activity_bootstrap(repaired_activity) != repaired_activity:
+        raise SystemExit("MainActivity.kt: guarded repository bootstrap repair is not idempotent")
+    for required in (
+        "val graphifyRepoResult = remember { runCatching { GraphifyRepository(applicationContext) } }",
+        "if (graphifyRepoResult.isFailure)",
+        "graphifyRepo = graphifyRepoResult.getOrThrow(),",
+        "Unknown startup error",
+    ):
+        if required not in repaired_activity:
+            raise SystemExit("MainActivity.kt: guarded bootstrap regression missing " + required)
+    if any(token in repaired_activity for token in ("AgentCore", "AgentState", "agentCore", "graphifyRepo = graphifyRepo,")):
+        raise SystemExit("MainActivity.kt: eager launcher dependency remained after bootstrap repair")
+
+    already_guarded_activity = """package com.openjarvis.ui
+import com.openjarvis.graphify.GraphifyRepository
+class MainActivity {
+    fun onCreate() {
+        val graphifyRepo = try {
+            GraphifyRepository(applicationContext)
+        } catch (e: Exception) {
+            null
+        }
+        setContent {
+            OpenJarvisTheme {
+                DashboardScreen(graphifyRepo = graphifyRepo)
+            }
+        }
+    }
+}
+"""
+    if _repair_main_activity_bootstrap(already_guarded_activity) != already_guarded_activity:
+        raise SystemExit("MainActivity.kt: already guarded repository initialization was unexpectedly rewritten")
+
+    dashboard = """LaunchedEffect(graphifyRepo) {
+    recentTasks = graphifyRepo.getRecentTasks(10)
+    mostUsedApps = graphifyRepo.getMostUsedApps(4)
+}
+"""
+    repaired_dashboard = _repair_dashboard_database_reads(dashboard)
+    if _repair_dashboard_database_reads(repaired_dashboard) != repaired_dashboard:
+        raise SystemExit("DashboardScreen.kt: database read guard is not idempotent")
+    if "catch (e: Exception)" not in repaired_dashboard or "emptyList()" not in repaired_dashboard:
+        raise SystemExit("DashboardScreen.kt: repository read recovery was not installed")
+
+    already_guarded_dashboard = """LaunchedEffect(graphifyRepo) {
+    try {
+        recentTasks = graphifyRepo.getRecentTasks(10)
+        mostUsedApps = graphifyRepo.getMostUsedApps(4)
+    } catch (e: Exception) {
+        databaseError = e.localizedMessage
+    }
+}
+"""
+    if _repair_dashboard_database_reads(already_guarded_dashboard) != already_guarded_dashboard:
+        raise SystemExit("DashboardScreen.kt: existing guarded database reads were unexpectedly rewritten")
+
+    try:
+        _repair_main_activity_bootstrap("class MainActivity { fun onCreate() { DashboardScreen(graphifyRepo = graphifyRepo) } }")
+    except SystemExit:
+        pass
+    else:
+        raise SystemExit("MainActivity.kt: unrecognized unguarded repository shape was not rejected")
+
+
+_host_bootstrap_regression_test()
+
+host_manifest_path = root / "app/src/main/AndroidManifest.xml"
+host_main_activity_path = root / "app/src/main/java/com/openjarvis/ui/MainActivity.kt"
+host_dashboard_path = root / "app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt"
+for required_path in (host_manifest_path, host_main_activity_path, host_dashboard_path):
+    if not required_path.is_file():
+        raise SystemExit("Host product source is missing: " + str(required_path))
+
+host_manifest_text = host_manifest_path.read_text(encoding="utf-8")
+repaired_host_manifest = _repair_launcher_component(host_manifest_text)
+if repaired_host_manifest != host_manifest_text:
+    host_manifest_path.write_text(repaired_host_manifest, encoding="utf-8")
+
+host_main_text = host_main_activity_path.read_text(encoding="utf-8")
+repaired_host_main = _repair_main_activity_bootstrap(host_main_text)
+if repaired_host_main != host_main_text:
+    host_main_activity_path.write_text(repaired_host_main, encoding="utf-8")
+
+host_dashboard_text = host_dashboard_path.read_text(encoding="utf-8")
+repaired_host_dashboard = _repair_dashboard_database_reads(host_dashboard_text)
+if repaired_host_dashboard != host_dashboard_text:
+    host_dashboard_path.write_text(repaired_host_dashboard, encoding="utf-8")
+
+print("Applied idempotent Feature-owned host launcher, lazy repository and dashboard recovery repairs")
 
 repair_marker.write_text(repair_digest + "\n", encoding="utf-8")
 print("OPEN_JARVIS_REPAIR_IDEMPOTENT_MARKER_WRITTEN")
