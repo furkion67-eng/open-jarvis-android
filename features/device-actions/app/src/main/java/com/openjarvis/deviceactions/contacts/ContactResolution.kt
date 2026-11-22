@@ -77,7 +77,8 @@ object ContactResolver {
         name == query -> 4
         name.startsWith("$query ") -> 3
         name.split(' ').any { it == query } -> 2
-        name.contains(query) -> 1
+        // Contact names are used for consequential actions (SMS/calls). Do not auto-resolve
+        // arbitrary interior substrings such as "ali" inside "Kalina" to a unique recipient.
         else -> 0
     }
 
