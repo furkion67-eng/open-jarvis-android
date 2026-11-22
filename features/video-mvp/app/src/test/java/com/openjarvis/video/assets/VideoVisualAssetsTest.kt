@@ -78,6 +78,25 @@ class VideoVisualAssetsTest {
     }
 
     @Test
+    fun pinnedSourceRejectsPercentEncodedDuplicateQueryKeys() {
+        val source = descriptor().sourceUrl
+        val duplicateTitle = source.replace(
+            "&oldid=",
+            "&%74itle=File%3AOther.jpg&oldid="
+        )
+        val duplicateRevision = source.replace(
+            "&oldid=",
+            "&old%69d=654321&oldid="
+        )
+        val malformedEncodedName = source + "&%ZZ=ignored"
+
+        assertTrue(VideoAssetLicensePolicy.isPinnedCommonsSource(source))
+        listOf(duplicateTitle, duplicateRevision, malformedEncodedName).forEach { candidate ->
+            assertFalse(VideoAssetLicensePolicy.isPinnedCommonsSource(candidate))
+        }
+    }
+
+    @Test
     fun redirectCannotSubstituteASecondCommonsFileWithDifferentLicensing() {
         val downloader = object : VideoVisualAssetDownloader {
             override fun download(descriptor: VideoVisualAssetDescriptor): DownloadedVisualAsset =
