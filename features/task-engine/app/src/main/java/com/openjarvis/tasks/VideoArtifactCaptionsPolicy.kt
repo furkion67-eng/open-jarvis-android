@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets
  */
 internal object VideoArtifactCaptionsPolicy {
     const val MAX_CAPTIONS_BYTES: Int = 2 * 1024 * 1024
+    private val timestampPattern = Regex("""^(\d{2,}):([0-5]\d):([0-5]\d),(\d{3})$""")
 
     fun readValidated(
         input: InputStream,
@@ -41,6 +42,42 @@ internal object VideoArtifactCaptionsPolicy {
             decoder.decode(ByteBuffer.wrap(output.toByteArray())).toString()
         }.getOrNull() ?: return null
 
-        return text.takeIf { it.isNotBlank() && it.contains("-->") }
+        return text.takeIf(::containsValidSrtCues)
+    }
+
+    private fun containsValidSrtCues(content: String): Boolean {
+        val normalized = content.removePrefix("\uFEFF").trim()
+        if (normalized.isEmpty()) return false
+        val blocks = normalized.split(Regex("\\r?\\n\\s*\\r?\\n"))
+        if (blocks.isEmpty()) return false
+
+        return blocks.all { block ->
+            val lines = block.lines().map { it.trim() }
+            if (lines.size < 3) {
+                false
+            } else {
+                val cueNumber = lines[0].toIntOrNull()
+                val timeRange = lines[1].split(" --> ")
+                val start = timeRange.getOrNull(0)?.let(::parseTimestamp)
+                val end = timeRange.getOrNull(1)?.let(::parseTimestamp)
+                cueNumber != null &&
+                    cueNumber > 0 &&
+                    timeRange.size == 2 &&
+                    start != null &&
+                    end != null &&
+                    end > start &&
+                    lines.drop(2).any { it.isNotBlank() }
+            }
+        }
+    }
+
+    private fun parseTimestamp(value: String): Long? {
+        val match = timestampPattern.matchEntire(value) ?: return null
+        val hours = match.groupValues[1].toLongOrNull() ?: return null
+        val minutes = match.groupValues[2].toLongOrNull() ?: return null
+        val seconds = match.groupValues[3].toLongOrNull() ?: return null
+        val millis = match.groupValues[4].toLongOrNull() ?: return null
+        if (hours > 100_000L) return null
+        return hours * 3_600_000L + minutes * 60_000L + seconds * 1_000L + millis
     }
 }
