@@ -10,7 +10,7 @@ import org.junit.Test
 class VideoArtifactCaptionsPolicyTest {
     @Test
     fun acceptsBoundedTurkishUtf8Srt() {
-        val srt = "1\\n00:00:00,000 --> 00:00:02,000\\nİstanbul'un fethi başladı.\\n"
+        val srt = "1\n00:00:00,000 --> 00:00:02,000\nİstanbul'un fethi başladı.\n"
 
         assertEquals(
             srt,
@@ -20,7 +20,7 @@ class VideoArtifactCaptionsPolicyTest {
 
     @Test
     fun rejectsBlankAndNonSrtContent() {
-        assertNull(VideoArtifactCaptionsPolicy.readValidated(ByteArrayInputStream("  \\n".toByteArray())))
+        assertNull(VideoArtifactCaptionsPolicy.readValidated(ByteArrayInputStream("  \n".toByteArray())))
         assertNull(VideoArtifactCaptionsPolicy.readValidated(ByteArrayInputStream("plain text".toByteArray())))
     }
 
@@ -36,9 +36,9 @@ class VideoArtifactCaptionsPolicyTest {
 
     @Test
     fun rejectsInvalidTimestampsAndCuesWithoutCaptionText() {
-        val reversed = "1\\n00:00:02,000 --> 00:00:01,000\\ncaption\\n"
-        val missingText = "1\\n00:00:00,000 --> 00:00:01,000\\n"
-        val malformedTimestamp = "1\\n00:00:00 --> 00:00:01\\ncaption\\n"
+        val reversed = "1\n00:00:02,000 --> 00:00:01,000\ncaption\n"
+        val missingText = "1\n00:00:00,000 --> 00:00:01,000\n"
+        val malformedTimestamp = "1\n00:00:00 --> 00:00:01\ncaption\n"
 
         assertNull(VideoArtifactCaptionsPolicy.readValidated(ByteArrayInputStream(reversed.toByteArray())))
         assertNull(VideoArtifactCaptionsPolicy.readValidated(ByteArrayInputStream(missingText.toByteArray())))
@@ -59,7 +59,7 @@ class VideoArtifactCaptionsPolicyTest {
 
     @Test
     fun exactByteLimitIsAccepted() {
-        val prefix = "1\\n00:00:00,000 --> 00:00:01,000\\n"
+        val prefix = "1\n00:00:00,000 --> 00:00:01,000\n"
         val padding = "a".repeat(64 - prefix.toByteArray(Charsets.UTF_8).size)
         val srt = prefix + padding
 
