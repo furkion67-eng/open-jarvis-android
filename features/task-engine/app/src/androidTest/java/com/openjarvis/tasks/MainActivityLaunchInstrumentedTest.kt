@@ -1,11 +1,13 @@
 package com.openjarvis.tasks
 
 import android.content.ComponentName
+import android.content.Intent
 import android.provider.Settings
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollTo
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.openjarvis.accessibility.JarvisAccessibilityService
@@ -21,8 +23,14 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class MainActivityLaunchInstrumentedTest {
+    /**
+     * The smoke-test phase starts MainActivity before instrumentation. An Activity-backed
+     * Compose rule can therefore attach after the prelaunched setContent call and see no roots.
+     * Register the empty Compose rule first, then clear/relaunch MainActivity inside the test so
+     * its Compose hierarchy is created while the test registry is already observing the process.
+     */
     @get:Rule
-    val composeRule = createAndroidComposeRule<MainActivity>()
+    val composeRule = createEmptyComposeRule()
 
     @Test
     fun dashboardAndVideoArchiveRemainVisibleWithoutAccessibilityOrOverlay() {
@@ -48,13 +56,21 @@ class MainActivityLaunchInstrumentedTest {
             Settings.canDrawOverlays(context)
         )
 
-        composeRule.waitForIdle()
-        composeRule.onNodeWithText("OPEN JARVIS").assertIsDisplayed()
-        composeRule.onNodeWithText("Türkçe sesli video üretimi")
-            .performScrollTo()
-            .assertIsDisplayed()
-        composeRule.onNodeWithText("JARVIS video arşivi")
-            .performScrollTo()
-            .assertIsDisplayed()
+        val launchIntent = Intent(context, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        }
+        val scenario = ActivityScenario.launch<MainActivity>(launchIntent)
+        try {
+            composeRule.waitForIdle()
+            composeRule.onNodeWithText("OPEN JARVIS").assertIsDisplayed()
+            composeRule.onNodeWithText("Türkçe sesli video üretimi")
+                .performScrollTo()
+                .assertIsDisplayed()
+            composeRule.onNodeWithText("JARVIS video arşivi")
+                .performScrollTo()
+                .assertIsDisplayed()
+        } finally {
+            scenario.close()
+        }
     }
 }
