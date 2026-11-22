@@ -91,10 +91,10 @@ object VideoStoryQualityPolicy {
             "Anlatım ilk iki saniyelik kancayla başlamalı."
         }
         require(plan.scenes.size in 3..6) { "Kaynaklı hikâye 3–6 sahne içermeli." }
-        require(
-            normalizeForComparison(plan.scenes.first().heading) != normalizeForComparison(plan.hookText)
-        ) {
-            "İlk sahne başlığı, ilk iki saniyelik ayrı kancayı tekrar etmemeli."
+        require(plan.scenes.none {
+            normalizeForComparison(it.heading) == normalizeForComparison(plan.hookText)
+        }) {
+            "İlk iki saniyelik kanca sonraki sahne başlıklarında tekrar edilmemeli."
         }
         require(plan.scenes.all { it.sceneId.isNotBlank() && !it.visualAssetId.isNullOrBlank() }) {
             "Her sahneye ayrı bir kaynak görsel bağlanmalı."
@@ -215,7 +215,7 @@ object VideoStoryPlanBuilder {
                 claimIds = listOf("rumeli-hisari")
             ),
             VideoScene(
-                heading = "Gemiler karadan Haliç'e",
+                heading = "Galata sırtlarından Haliç'e",
                 caption = "Osmanlı gemilerinin bir bölümü karadan Haliç'e indirildi. Kaynaklar gemi sayısı, güzergâh ve sürede farklılaşıyor.",
                 sceneId = "1453-halic-map",
                 visualAssetId = "commons-1453-siege-map-en",
