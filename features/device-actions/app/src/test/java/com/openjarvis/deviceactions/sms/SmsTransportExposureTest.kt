@@ -33,6 +33,8 @@ class SmsTransportExposureTest {
         val senderSource = kotlinCode(readUtf8(senderPath))
         val contractSource = kotlinCode(readUtf8(contractPath))
         val panelSource = kotlinCode(readUtf8(panelPath))
+        val handoffPath = sourceRoot.resolve("com/openjarvis/deviceactions/sms/SmsDraftHandoff.kt")
+        val handoffSource = kotlinCode(readUtf8(handoffPath))
         val executorSource = kotlinCode(readUtf8(executorPath))
         val coordinatorSource = kotlinCode(readUtf8(coordinatorPath))
 
@@ -97,7 +99,11 @@ class SmsTransportExposureTest {
         assertTrue(executorSource.contains("DeviceActionOutcomeCode.DRAFT"))
         assertTrue(panelSource.contains("DeviceActionOutcomeJournal.record"))
         assertTrue(panelSource.contains("outcome.toDeviceActionOutcomeCode()"))
-        assertTrue(panelSource.contains("DeviceActionOutcomeCode.DRAFT"))
+        assertTrue(panelSource.contains("SmsDraftHandoff.createIntent(phone.number, message)"))
+        assertTrue(panelSource.contains("SmsDraftHandoff.outcomeCode"))
+        assertTrue(handoffSource.contains("val outcomeCode: DeviceActionOutcomeCode = DeviceActionOutcomeCode.DRAFT"))
+        assertFalse(handoffSource.contains("SmsManager"))
+        assertFalse(handoffSource.contains("startActivity"))
         assertFalse(coordinatorSource.contains("SmsManager"))
 
         val kotlinFiles: List<Path> = Files.walk(sourceRoot).use { stream ->
