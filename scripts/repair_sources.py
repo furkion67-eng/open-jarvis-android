@@ -4430,13 +4430,13 @@ def _repair_main_activity_bootstrap(source):
         source = source[:initializers[0].start()] + source[initializers[0].end():]
         repository_declaration = "val graphifyRepoResult = remember { runCatching { GraphifyRepository(applicationContext) } }"
         if repository_declaration not in source:
-            theme_pattern = re.compile(r"(?m)^(?P<indent>[ \\t]*)OpenJarvisTheme[ \\t]*\\{[ \\t]*$")
+            theme_pattern = re.compile(r"(?m)^(?P<indent>[ \t]*)OpenJarvisTheme[ \t]*\{[ \t]*$")
             themes = list(theme_pattern.finditer(source))
             if len(themes) != 1:
                 raise SystemExit("MainActivity.kt: expected one OpenJarvisTheme block for lazy repository initialization")
             theme = themes[0]
             indent = theme.group("indent") + "    "
-            source = source[:theme.end()] + "\\n" + indent + repository_declaration + source[theme.end():]
+            source = source[:theme.end()] + "\n" + indent + repository_declaration + source[theme.end():]
 
     has_result = "graphifyRepoResult" in source
     if has_result:
@@ -4480,7 +4480,7 @@ def _repair_main_activity_bootstrap(source):
             source = source[:match.start()] + fallback + source[match.end():]
             # The original source had a bare call. Close the new else block after
             # its matching call parenthesis, before the surrounding Compose braces.
-            updated_call = re.search(r"(?m)^" + re.escape(child) + r"DashboardScreen\\(", source)
+            updated_call = re.search(r"(?m)^" + re.escape(child) + r"DashboardScreen\(", source)
             if not updated_call:
                 raise SystemExit("MainActivity.kt: guarded DashboardScreen call was not inserted")
             updated_open = updated_call.end() - 1
@@ -4488,7 +4488,7 @@ def _repair_main_activity_bootstrap(source):
                 updated_close = _kotlin_matching_delimiter(source, updated_open, "(", ")")
             except ValueError as error:
                 raise SystemExit("MainActivity.kt: refusing to close an unbalanced DashboardScreen call: " + str(error))
-            source = source[:updated_close + 1] + "\\n" + indent + "}" + source[updated_close + 1:]
+            source = source[:updated_close + 1] + "\n" + indent + "}" + source[updated_close + 1:]
 
         if "import androidx.compose.runtime.remember" not in source and not re.search(
             r"(?m)^import androidx\.compose\.runtime\.\*[ \t]*$", source
