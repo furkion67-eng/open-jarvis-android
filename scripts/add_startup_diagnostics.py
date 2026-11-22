@@ -76,7 +76,7 @@ class MainActivity : ComponentActivity() {
     twice = install_startup_diagnostics(once)
     if once != twice:
         raise SystemExit("MainActivity.kt: startup diagnostics installation is not idempotent")
-    if once.count("openjarvis_startup_crash.txt") != 2:
+    if once.count("openjarvis_startup_crash.txt") != 1:
         raise SystemExit("MainActivity.kt: startup diagnostics marker count is unexpected")
     if once.count("import java.io.File") != 1:
         raise SystemExit("MainActivity.kt: startup diagnostics duplicated the File import")
