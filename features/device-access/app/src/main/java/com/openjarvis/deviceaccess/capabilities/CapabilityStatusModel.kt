@@ -68,7 +68,9 @@ object CapabilityStatusPolicy {
 
     /** Keep Android-owned revocation/settings routes visible even while a capability is enabled. */
     fun shouldShowSettingsShortcut(id: String, state: CapabilityState): Boolean = when (id) {
-        "overlay", "accessibility", "call-phone" -> true
+        "overlay" -> true
+        "accessibility" -> state != CapabilityState.NOT_AVAILABLE
+        "call-phone" -> state != CapabilityState.NOT_AVAILABLE
         else -> state != CapabilityState.ENABLED &&
             state != CapabilityState.NOT_AVAILABLE &&
             !id.startsWith("shared-storage")
