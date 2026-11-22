@@ -91,12 +91,11 @@ internal object VideoArtifactPlaybackValidator {
                 runCatching { retriever.release() }
             }
 
-            val captionsText = context.contentResolver.openInputStream(captionsUri)?.bufferedReader(Charsets.UTF_8)?.use {
-                it.readText()
-            } ?: return PlaybackAvailability.Unavailable("SRT altyazısı artık okunamıyor. İzin kaldırılmış olabilir.")
-            if (captionsText.isBlank() || !captionsText.contains("-->")) {
-                return PlaybackAvailability.Unavailable("SRT altyazı içeriği doğrulanamadı.")
-            }
+            val captionsText = context.contentResolver.openInputStream(captionsUri)?.use { input ->
+                VideoCaptionsContentPolicy.readValidated(input)
+            } ?: return PlaybackAvailability.Unavailable(
+                "SRT altyazısı okunamıyor, bozuk veya 2 MB doğrulama sınırını aşıyor. İzin kaldırılmış olabilir."
+            )
             val thumbnailUri = metadata.thumbnailUri?.let(::parseContentUri)
             val readableThumbnail = thumbnailUri?.takeIf { candidate ->
                 runCatching {
