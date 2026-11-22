@@ -69,6 +69,18 @@ class ContactChoicePagingTest {
     }
 
     @Test
+    fun navigationNormalizesTurkishCasePunctuationAndRepeatedWhitespace() {
+        assertEquals(
+            1,
+            ContactChoicePaging.navigate("  SONRAKI   SAYFA. ", 0, candidates.size)
+        )
+        assertEquals(
+            0,
+            ContactChoicePaging.navigate("  ÖNCEKİ\\tSAYFA! ", 1, candidates.size)
+        )
+    }
+
+    @Test
     fun explicitNavigationDoesNotChangePageForAnUnrecognizedCommandOrPastLastPage() {
         assertNull(ContactChoicePaging.navigate("altıncı kişi", 0, candidates.size))
         assertNull(ContactChoicePaging.navigate("sonraki sayfa", 1, candidates.size))

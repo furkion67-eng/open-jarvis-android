@@ -67,6 +67,10 @@ internal object ContactChoicePaging {
     private fun normalize(command: String): String =
         command.trim()
             .lowercase(Locale.forLanguageTag("tr-TR"))
-            .replace("  ", " ")
+            .replace('\t', ' ')
+            .replace('\n', ' ')
+            .split(' ')
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
             .trimEnd('.', ',', '!', '?')
 }
