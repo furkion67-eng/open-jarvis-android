@@ -1,5 +1,7 @@
 package com.openjarvis.video
 
+import java.net.URI
+import java.time.LocalDate
 import java.util.Locale
 
 data class TimedVideoCaption(
@@ -73,6 +75,11 @@ object VideoStoryQualityPolicy {
         "önce temel soruyu"
     )
 
+    private val trustedResearchPublishers = mapOf(
+        "ttk.gov.tr" to "Türk Tarih Kurumu",
+        "islamansiklopedisi.org.tr" to "TDV İslâm Ansiklopedisi"
+    )
+
     fun validate(plan: VideoStoryPlan) {
         require(plan.hookText.isNotBlank() && plan.hookText.length <= 40) {
             "İlk iki saniye için kısa ve özgün bir kanca gerekli."
@@ -98,8 +105,11 @@ object VideoStoryQualityPolicy {
         require(plan.scenes.map { it.visualAssetId }.distinct().size == plan.scenes.size) {
             "Her sahnede farklı bir görsel kullanılmalı."
         }
-        require(plan.scenes.map { it.caption }.distinct().size == plan.scenes.size) {
-            "Hikâyede yinelenen sahne metni kullanılamaz."
+        require(plan.scenes.map { normalizeForComparison(it.heading) }.distinct().size == plan.scenes.size) {
+            "Noktalama farkıyla yinelenen sahne başlığı kullanılamaz."
+        }
+        require(plan.scenes.map { normalizeForComparison(it.caption) }.distinct().size == plan.scenes.size) {
+            "Noktalama farkıyla yinelenen sahne anlatımı kullanılamaz."
         }
         require(plan.scenes.all { it.claimIds.isNotEmpty() }) {
             "Her sahnenin en az bir doğrulanabilir bilgi kaynağı olmalı."
@@ -109,14 +119,16 @@ object VideoStoryQualityPolicy {
             "Araştırma kaynakları eksik veya yinelenmiş."
         }
         val claimsById = plan.claimSources.associateBy { it.claimId }
+        val usedClaimIds = plan.scenes.flatMap { it.claimIds }.toSet()
+        require(usedClaimIds == claimsById.keys) {
+            "Araştırma kaynakları sahnelere bire bir bağlanmalı; sahipsiz veya eksik kaynak bulunamaz."
+        }
         plan.scenes.forEach { scene ->
             scene.claimIds.forEach { claimId ->
                 val source = claimsById[claimId]
                     ?: throw IllegalArgumentException("Sahne için doğrulanmış kaynak bulunamadı.")
                 require(source.sceneId == scene.sceneId &&
-                    source.sourceUrl.startsWith("https://") &&
-                    source.publisher.isNotBlank() &&
-                    source.checkedOn.isNotBlank() &&
+                    isTrustedResearchSource(source) &&
                     source.supportedClaim.isNotBlank()) {
                     "Sahne kaynağının kimliği veya desteklediği iddia eksik."
                 }
@@ -133,6 +145,21 @@ object VideoStoryQualityPolicy {
         } == true) {
             "Kanca altyazısı videonun ilk iki saniyesinde başlamalı."
         }
+    }
+
+    private fun isTrustedResearchSource(source: VideoClaimSource): Boolean {
+        val uri = runCatching { URI(source.sourceUrl) }.getOrNull() ?: return false
+        val host = uri.host?.lowercase(Locale.ROOT) ?: return false
+        val expectedPublisher = trustedResearchPublishers[host] ?: return false
+        val validDate = runCatching { LocalDate.parse(source.checkedOn) }.isSuccess
+        return uri.scheme == "https" &&
+            uri.rawUserInfo == null &&
+            (uri.port == -1 || uri.port == 443) &&
+            uri.rawFragment == null &&
+            uri.rawQuery == null &&
+            !uri.path.isNullOrBlank() &&
+            source.publisher == expectedPublisher &&
+            validDate
     }
 
     private fun normalizeForComparison(value: String): String =
