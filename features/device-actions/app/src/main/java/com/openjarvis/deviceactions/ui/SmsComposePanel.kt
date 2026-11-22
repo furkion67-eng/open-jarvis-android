@@ -278,7 +278,7 @@ fun SmsComposePanel(
                                     DeviceActionOutcomeJournal.record(
                                         context,
                                         DeviceActionType.SMS,
-                                        DeviceActionOutcomeCode.DRAFT
+                                        SmsDraftHandoff.outcomeCode
                                     )
                                 } catch (cancelled: CancellationException) {
                                     throw cancelled
