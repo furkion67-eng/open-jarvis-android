@@ -277,10 +277,11 @@ class VideoStoryTaskExecutor(context: Context) : JarvisTaskExecutor {
     }
 
     private fun isReadableCaptionsUri(uri: Uri): Boolean {
-        if (uri.scheme != "content") return false
-        return appContext.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use {
-            val contents = it.readText()
-            contents.isNotBlank() && contents.contains("-->")
-        } == true
+        if (uri.scheme != "content" || uri.authority.isNullOrBlank()) return false
+        return runCatching {
+            appContext.contentResolver.openInputStream(uri)?.use { input ->
+                VideoArtifactCaptionsPolicy.readValidated(input) != null
+            } == true
+        }.getOrDefault(false)
     }
 }
