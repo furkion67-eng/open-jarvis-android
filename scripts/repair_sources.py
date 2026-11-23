@@ -4775,5 +4775,109 @@ edit(
 )
 print("Installed deterministic verb-first SMS contact-name routing and host JVM regressions")
 
+
+def _voice_sms_coordinator_handoff_regression_test():
+    """Fail closed if a routed voice SMS can no longer reach the confirmed Contacts/SMS path."""
+    def section(source, start_marker, end_marker, label):
+        start = source.find(start_marker)
+        end = source.find(end_marker, start + len(start_marker)) if start >= 0 else -1
+        if start < 0 or end < 0:
+            raise SystemExit(label + ": integration boundary missing or ambiguous")
+        return source[start:end]
+
+    def require(source, fragment, label):
+        if fragment not in source:
+            raise SystemExit(label + ": required integration contract missing: " + fragment)
+
+    coordinator_path = feature_sources_root / "device-actions/app/src/main/java/com/openjarvis/commands/DeviceActionCoordinator.kt"
+    executor_path = feature_sources_root / "device-actions/app/src/main/java/com/openjarvis/commands/AndroidActionExecutor.kt"
+    resolver_path = feature_sources_root / "device-actions/app/src/main/java/com/openjarvis/deviceactions/contacts/AndroidContactsResolver.kt"
+    if not coordinator_path.is_file() or not executor_path.is_file() or not resolver_path.is_file():
+        raise SystemExit("Voice SMS coordinator contract: Feature-owned coordinator/executor/Contacts resolver source missing")
+
+    coordinator = coordinator_path.read_text(encoding="utf-8")
+    executor = executor_path.read_text(encoding="utf-8")
+    resolver = resolver_path.read_text(encoding="utf-8")
+
+    dispatch = section(
+        coordinator,
+        "suspend fun handle(routed: RoutedCommand, command: String",
+        "private suspend fun handleOpenApp(",
+        "DeviceActionCoordinator.handle"
+    )
+    require(dispatch, "is RoutedCommand.SendSms -> handleSms(routed, command, setState)", "DeviceActionCoordinator.handle")
+
+    sms = section(
+        coordinator,
+        "private suspend fun handleSms(",
+        "private suspend fun handleCall(",
+        "DeviceActionCoordinator.handleSms"
+    )
+    require(sms, "resolveRecipient(routed.contactName, routed.phoneNumber, routed, command, setState)", "DeviceActionCoordinator.handleSms")
+    require(sms, "PendingDeviceAction.SmsAwaitingBody", "DeviceActionCoordinator.handleSms")
+    require(sms, "requestSmsConfirmation(recipient.displayName, recipient.number, body, command, setState)", "DeviceActionCoordinator.handleSms")
+
+    recipient = section(
+        coordinator,
+        "private suspend fun resolveRecipient(",
+        "private suspend fun resolveContactNumber(",
+        "DeviceActionCoordinator.resolveRecipient"
+    )
+    require(recipient, "RecipientSourcePolicy.choose(contactName, phoneNumber)", "DeviceActionCoordinator.resolveRecipient")
+    require(recipient, "is RecipientSource.ContactName", "DeviceActionCoordinator.resolveRecipient")
+    require(recipient, "resolveContactNumber(source.value", "DeviceActionCoordinator.resolveRecipient")
+
+    contact = section(
+        coordinator,
+        "private suspend fun resolveContactNumber(",
+        "private suspend fun requestSmsConfirmation(",
+        "DeviceActionCoordinator.resolveContactNumber"
+    )
+    require(contact, "executor.canReadContacts()", "DeviceActionCoordinator.resolveContactNumber")
+    require(contact, "executor.resolveContactNumber(name)", "DeviceActionCoordinator.resolveContactNumber")
+    require(contact, "ContactResolution.Ambiguous", "DeviceActionCoordinator.resolveContactNumber")
+
+    preview = section(
+        coordinator,
+        "private suspend fun requestSmsConfirmation(",
+        "suspend fun confirmPending(",
+        "DeviceActionCoordinator.requestSmsConfirmation"
+    )
+    require(preview, "smsConfirmationGate.prepare(", "DeviceActionCoordinator.requestSmsConfirmation")
+    require(preview, "AgentState.AwaitingConfirmation(", "DeviceActionCoordinator.requestSmsConfirmation")
+    require(preview, "review.phoneNumber", "DeviceActionCoordinator.requestSmsConfirmation")
+    require(preview, "review.exactMessage", "DeviceActionCoordinator.requestSmsConfirmation")
+
+    confirmation = section(
+        coordinator,
+        "suspend fun confirmPending(",
+        "private suspend fun confirmSms(",
+        "DeviceActionCoordinator.confirmPending"
+    )
+    require(confirmation, "is PendingDeviceAction.SmsConfirmation -> confirmSms(action.review, setState)", "DeviceActionCoordinator.confirmPending")
+
+    send = section(
+        coordinator,
+        "private suspend fun confirmSms(",
+        "suspend fun cancelPending(",
+        "DeviceActionCoordinator.confirmSms"
+    )
+    permission_index = send.find("if (!executor.canSendSmsDirectly())")
+    token_index = send.find("smsConfirmationGate.confirm(review.reviewId)")
+    transport_index = send.find("executor.dispatchConfirmedSms(confirmation, smsConfirmationGate)")
+    if min(permission_index, token_index, transport_index) < 0 or not (permission_index < token_index < transport_index):
+        raise SystemExit("DeviceActionCoordinator.confirmSms: permission recheck, one-time confirmation and transport order changed")
+
+    require(executor, "AndroidContactsResolver(context).resolve(name)", "AndroidActionExecutor.resolveContactNumber")
+    require(executor, "createAndroidSmsDispatcher(context, gate)", "AndroidActionExecutor.dispatchConfirmedSms")
+    require(executor, "dispatcher.dispatch(confirmation)", "AndroidActionExecutor.dispatchConfirmedSms")
+    require(resolver, "Manifest.permission.READ_CONTACTS", "AndroidContactsResolver")
+    require(resolver, "Phone.CONTENT_URI", "AndroidContactsResolver")
+    require(resolver, "ContactsContract.Contacts.DISPLAY_NAME_PRIMARY", "AndroidContactsResolver")
+
+
+_voice_sms_coordinator_handoff_regression_test()
+print("Verified voice SMS router-to-coordinator-to-ContactsContract handoff and confirmation-before-transport contract")
+
 repair_marker.write_text(repair_digest + "\n", encoding="utf-8")
 print("OPEN_JARVIS_REPAIR_IDEMPOTENT_MARKER_WRITTEN")
