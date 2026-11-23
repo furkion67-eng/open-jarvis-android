@@ -189,6 +189,7 @@ class JarvisTaskRepository(
         private const val STARTUP_RECOVERY_TRACE_COOKIE = 731
 
         private val startupRecoveryGate = JarvisStartupRecoveryGate()
+        private val repositoryBootstrap = JarvisTaskRepositoryBootstrap<JarvisTaskRepository>()
 
         fun getInstance(context: Context): JarvisTaskRepository {
             val dao = JarvisTaskDatabase.getInstance(context).taskDao()
@@ -196,32 +197,50 @@ class JarvisTaskRepository(
         }
 
         /**
-         * Dashboard bootstrap must not construct/open Room on the main thread.
-         * The first process-level load also marks abandoned active tasks INTERRUPTED;
-         * this is a state repair only and never replays an executor.
+         * Process-wide single-flight repository construction. This deliberately does not
+         * query Room or recover tasks; Dashboard consumers defer those operations until
+         * after the first visible frame, then call [recoverInterruptedTasksOnIo].
          */
-        suspend fun getInstanceOnIo(context: Context): JarvisTaskRepository = withContext(Dispatchers.IO) {
-            val repository = traceSection("JARVIS.task.repository.open") {
-                getInstance(context.applicationContext)
-            }
-            startupRecoveryGate.runOnce {
-                val recoveryStartedAt = SystemClock.elapsedRealtime()
-                if (Build.VERSION.SDK_INT >= 29) {
-                    Trace.beginAsyncSection("JARVIS.task.restore", STARTUP_RECOVERY_TRACE_COOKIE)
+        suspend fun getInstanceOnIo(context: Context): JarvisTaskRepository =
+            withContext(Dispatchers.IO) {
+                repositoryBootstrap.getOrCreate {
+                    traceSection("JARVIS.task.repository.bootstrap") {
+                        getInstance(context.applicationContext)
+                    }
                 }
-                try {
-                    repository.recoverInterruptedTasks()
-                } finally {
+            }
+
+        /**
+         * Marks abandoned active tasks INTERRUPTED exactly once after the first interactive
+         * frame. This is a state repair only and never replays an executor.
+         */
+        suspend fun recoverInterruptedTasksOnIo(repository: JarvisTaskRepository) =
+            withContext(Dispatchers.IO) {
+                startupRecoveryGate.runOnce {
+                    val recoveryStartedAt = SystemClock.elapsedRealtime()
                     if (Build.VERSION.SDK_INT >= 29) {
-                        Trace.endAsyncSection("JARVIS.task.restore", STARTUP_RECOVERY_TRACE_COOKIE)
+                        Trace.beginAsyncSection("JARVIS.task.restore", STARTUP_RECOVERY_TRACE_COOKIE)
                     }
-                    val elapsedMs = SystemClock.elapsedRealtime() - recoveryStartedAt
-                    if (elapsedMs > 250L) {
-                        Log.w("JARVISStartup", "task.restore_ms=" + elapsedMs + " budget_ms=250")
+                    try {
+                        traceSection("JARVIS.task.restore.database") {
+                            repository.recoverInterruptedTasks()
+                        }
+                    } finally {
+                        if (Build.VERSION.SDK_INT >= 29) {
+                            Trace.endAsyncSection("JARVIS.task.restore", STARTUP_RECOVERY_TRACE_COOKIE)
+                        }
+                        val elapsedMs = SystemClock.elapsedRealtime() - recoveryStartedAt
+                        if (elapsedMs > 250L) {
+                            Log.w("JARVISStartup", "task.restore_ms=" + elapsedMs + " budget_ms=250")
+                        }
                     }
                 }
             }
-            repository
+
+        /** Test-only reset paired with [JarvisTaskDatabase.closeInstanceForTesting]. */
+        internal fun resetProcessBootstrapForTesting() {
+            repositoryBootstrap.resetForTesting()
+            startupRecoveryGate.resetForTesting()
         }
 
         private inline fun <T> traceSection(name: String, block: () -> T): T {
