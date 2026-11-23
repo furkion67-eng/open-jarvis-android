@@ -66,6 +66,10 @@ internal object ContactChoicePaging {
 
     private fun normalize(command: String): String =
         command.lowercase(Locale.forLanguageTag("tr-TR"))
+            // Speech recognition may emit either Turkish İ or ASCII I in uppercase words.
+            // In this fixed navigation-command vocabulary, fold dotless ı to i so both
+            // "SONRAKİ" and "SONRAKI" resolve to the same explicit command.
+            .replace('ı', 'i')
             .replace(Regex("[^\\p{L}\\p{N}\\s]"), " ")
             .trim()
             .split(Regex("\\s+"))
