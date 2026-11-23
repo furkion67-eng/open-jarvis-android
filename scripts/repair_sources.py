@@ -4107,7 +4107,7 @@ panel_block = """
             }
 """
 panel_pattern = re.compile(
-    r"(?ms)^[ \\t]*// JARVIS_DEVICE_FEATURE_PANELS\\n.*?^[ \\t]*SmsComposePanel\\(modifier = Modifier\\.fillMaxWidth\\(\\)\\)\\n"
+    r"(?ms)^[ \t]*// JARVIS_DEVICE_FEATURE_PANELS\n.*?^[ \t]*SmsComposePanel\(modifier = Modifier\.fillMaxWidth\(\)\)\n"
 )
 panel_match = panel_pattern.search(dashboard_text)
 if panel_match:
