@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -24,6 +25,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -32,6 +34,7 @@ import kotlinx.coroutines.launch
 import com.openjarvis.deviceaccess.capabilities.AndroidCapabilityStatusReader
 import com.openjarvis.deviceactions.contacts.AndroidContactsResolver
 import com.openjarvis.deviceactions.contacts.ContactCandidate
+import com.openjarvis.deviceactions.contacts.ContactCandidatePager
 import com.openjarvis.deviceactions.contacts.ContactLookupResult
 import com.openjarvis.deviceactions.contacts.ContactPhoneOption
 import com.openjarvis.deviceactions.sms.SmsConfirmationGate
@@ -65,6 +68,7 @@ fun SmsComposePanel(
     var selectedPhone by remember { mutableStateOf<ContactPhoneOption?>(null) }
     var status by remember { mutableStateOf("SMS için önce rehberden bir kişi bul.") }
     var showConfirmation by remember { mutableStateOf(false) }
+    var contactPage by remember { mutableStateOf(0) }
 
     suspend fun persistSmsOutcome(outcome: SmsSendOutcome) {
         val journalFailed = try {
@@ -98,6 +102,7 @@ fun SmsComposePanel(
 
     fun applyLookup(result: ContactLookupResult) {
         lookupResult = result
+        contactPage = 0
         selectedContact = null
         selectedPhone = null
         showConfirmation = false
@@ -151,6 +156,7 @@ fun SmsComposePanel(
                         selectedContact = null
                         selectedPhone = null
                         lookupResult = null
+                        contactPage = 0
                         showConfirmation = false
                     }
                     nameQuery = value
@@ -187,7 +193,8 @@ fun SmsComposePanel(
                 )
                 is ContactLookupResult.ChooseContact -> {
                     Text("Birden fazla kişi eşleşti. Alıcıyı seç:")
-                    result.candidates.forEach { candidate ->
+                    val page = ContactCandidatePager.page(result.candidates, contactPage)
+                    page.items.forEach { candidate ->
                         Button(
                             onClick = {
                                 if (SmsSelectionInvalidationPolicy.recipientChanged(
@@ -211,6 +218,23 @@ fun SmsComposePanel(
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) { Text(candidate.displayName + " · " + candidate.phoneNumbers.size + " numara") }
+                    }
+                    if (page.pageCount > 1) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextButton(
+                                enabled = page.hasPrevious,
+                                onClick = { contactPage = page.pageIndex - 1 }
+                            ) { Text("Önceki") }
+                            Text("${page.pageIndex + 1}/${page.pageCount}")
+                            TextButton(
+                                enabled = page.hasNext,
+                                onClick = { contactPage = page.pageIndex + 1 }
+                            ) { Text("Sonraki") }
+                        }
                     }
                 }
                 is ContactLookupResult.ChooseNumber -> {
