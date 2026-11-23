@@ -35,7 +35,7 @@ class JarvisTaskRepositoryBootstrapTest {
     }
 
     @Test
-    fun failedOrCancelledFactoryIsNotCachedAndCanBeRetried() = runBlocking {
+    fun failedFactoryIsNotCachedAndCanBeRetried() = runBlocking {
         val bootstrap = JarvisTaskRepositoryBootstrap<Any>()
         val creations = AtomicInteger(0)
         val expected = Any()
