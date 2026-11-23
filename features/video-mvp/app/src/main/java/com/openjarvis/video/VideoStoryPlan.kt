@@ -185,14 +185,30 @@ object VideoStoryPlanBuilder {
         "1453"
     )
 
+    private val mimarSinanAliases = listOf(
+        "mimar sinan",
+        "sinan",
+        "şehzade camii",
+        "sehzade camii",
+        "süleymaniye",
+        "suleymaniye",
+        "selimiye"
+    )
+
     fun build(prompt: String): VideoStoryPlan {
         val clean = prompt.trim().take(VideoRenderSpec.MAX_TITLE_LENGTH)
         require(clean.isNotBlank()) { "Video konusu boş olamaz." }
         val normalized = clean.lowercase(Locale.forLanguageTag("tr-TR"))
-        require(istanbulConquestAliases.any(normalized::contains)) {
-            "Bu konu için doğrulanmış araştırma ve lisanslı sahne görselleri bulunamadı. Video üretilmedi."
+        return when {
+            mimarSinanAliases.any(normalized::contains) -> buildMimarSinan()
+            istanbulConquestAliases.any(normalized::contains) -> buildIstanbulConquest()
+            else -> throw IllegalArgumentException(
+                "Bu konu için doğrulanmış araştırma ve lisanslı sahne görselleri bulunamadı. Video üretilmedi."
+            )
         }
+    }
 
+    private fun buildIstanbulConquest(): VideoStoryPlan {
         val hook = "Gemiler karadan Haliç'e!"
         val scenes = listOf(
             VideoScene(
@@ -292,6 +308,115 @@ object VideoStoryPlanBuilder {
             }).joinToString(" "),
             captions = captions,
             sourceLabel = "Türk Tarih Kurumu + TDV İslâm Ansiklopedisi · Wikimedia Commons PD/CC BY-SA",
+            hookText = hook,
+            claimSources = sources
+        )
+        VideoStoryQualityPolicy.validate(plan)
+        plan.renderSpec.copy(requireLicensedVisualAssets = false).validate()
+        return plan
+    }
+
+    private fun buildMimarSinan(): VideoStoryPlan {
+        val hook = "Üç eser, tek usta!"
+        val scenes = listOf(
+            VideoScene(
+                heading = "Çıraklık eseri: Şehzade",
+                caption = "Sinan, 1548'de Şehzade Camii'ni tamamladı; bu yapıyı çıraklık eseri diye anlattı.",
+                sceneId = "sinan-sehzade",
+                visualAssetId = "commons-sinan-sehzade-minarets",
+                claimIds = listOf("sinan-apprentice")
+            ),
+            VideoScene(
+                heading = "Kalfalık eseri: Süleymaniye",
+                caption = "Kanûnî adına başlayan külliye yedi yılda tamamlandı. Sinan, Süleymaniye'yi kalfalık eseri saydı.",
+                sceneId = "sinan-suleymaniye",
+                visualAssetId = "commons-sinan-suleymaniye-exterior",
+                claimIds = listOf("sinan-journeyman")
+            ),
+            VideoScene(
+                heading = "Ustalık eseri: Selimiye",
+                caption = "Edirne'de II. Selim adına yaptığı Selimiye, Sinan'ın en büyük eseri olarak gösterilir.",
+                sceneId = "sinan-selimiye",
+                visualAssetId = "commons-sinan-selimiye-monument",
+                claimIds = listOf("sinan-master")
+            ),
+            VideoScene(
+                heading = "48 yaşında mimarbaşı",
+                caption = "Prut üzerindeki köprüsüyle dikkat çeken Sinan, 48 yaşındayken mimarbaşılığa getirildi.",
+                sceneId = "sinan-mimarbasi",
+                visualAssetId = "commons-sinan-sculpture",
+                claimIds = listOf("sinan-chief-architect")
+            ),
+            VideoScene(
+                heading = "Süleymaniye'de son iz",
+                caption = "Sinan 1588'de vefat etti. Mezarı, Süleymaniye Külliyesi'nin bir köşesinde bulunuyor.",
+                sceneId = "sinan-legacy",
+                visualAssetId = "commons-sinan-tomb",
+                claimIds = listOf("sinan-legacy")
+            )
+        )
+        val sourceUrl = "https://islamansiklopedisi.org.tr/sinan"
+        val publisher = "TDV İslâm Ansiklopedisi"
+        val checkedOn = "2026-11-23"
+        val sources = listOf(
+            VideoClaimSource(
+                "sinan-apprentice",
+                "sinan-sehzade",
+                sourceUrl,
+                publisher,
+                checkedOn,
+                "Sinan, Şehzade Camii'ni 1548'de tamamladı ve bu yapıyı çıraklık eseri olarak tanımladı."
+            ),
+            VideoClaimSource(
+                "sinan-journeyman",
+                "sinan-suleymaniye",
+                sourceUrl,
+                publisher,
+                checkedOn,
+                "Süleymaniye Camii ve külliyesi yedi yılda tamamlandı; Sinan bu yapıyı kalfalık eseri saydı."
+            ),
+            VideoClaimSource(
+                "sinan-master",
+                "sinan-selimiye",
+                sourceUrl,
+                publisher,
+                checkedOn,
+                "II. Selim adına Edirne'de yapılan Selimiye, Sinan'ın en büyük eseri olarak gösterilir."
+            ),
+            VideoClaimSource(
+                "sinan-chief-architect",
+                "sinan-mimarbasi",
+                sourceUrl,
+                publisher,
+                checkedOn,
+                "Sinan, Prut üzerindeki köprü çalışmasından sonra 48 yaşında mimarbaşılığa getirildi."
+            ),
+            VideoClaimSource(
+                "sinan-legacy",
+                "sinan-legacy",
+                sourceUrl,
+                publisher,
+                checkedOn,
+                "Sinan 1588'de vefat etti ve mezarı Süleymaniye Külliyesi'nin bir köşesindedir."
+            )
+        )
+        val captions = buildList {
+            add(TimedVideoCaption(0L, 2_000L, hook))
+            val sceneSpan = (45_000L - 2_000L) / scenes.size
+            scenes.forEachIndexed { index, scene ->
+                val start = 2_000L + index * sceneSpan
+                val spokenText = if (index == 0) scene.caption else scene.heading + ". " + scene.caption
+                add(TimedVideoCaption(start, start + sceneSpan, spokenText))
+            }
+        }
+        val plan = VideoStoryPlan(
+            title = "Mimar Sinan: Üç eser, bir ömür",
+            scenes = scenes,
+            narrationText = (listOf(hook) + scenes.mapIndexed { index, scene ->
+                if (index == 0) scene.caption else scene.heading + ". " + scene.caption
+            }).joinToString(" "),
+            captions = captions,
+            sourceLabel = "TDV İslâm Ansiklopedisi · Wikimedia Commons CC BY-SA 4.0",
             hookText = hook,
             claimSources = sources
         )
