@@ -11,11 +11,17 @@ import android.test.mock.MockContentResolver
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.Locale
+import com.openjarvis.deviceactions.sms.ConfirmedSmsDispatcher
+import com.openjarvis.deviceactions.sms.SmsConfirmationGate
+import com.openjarvis.deviceactions.sms.SmsPermission
+import com.openjarvis.deviceactions.sms.SmsSendOutcome
+import com.openjarvis.deviceactions.sms.SmsTransport
 
 @RunWith(AndroidJUnit4::class)
 class AndroidContactsResolverProviderInstrumentedTest {
@@ -106,6 +112,50 @@ class AndroidContactsResolverProviderInstrumentedTest {
             listOf("Cep", "İş"),
             (result as ContactLookupResult.ChooseNumber).contact.phoneNumbers.map { it.label }
         )
+    }
+
+    @Test
+    fun selectedProviderContactAndExactMessageRequireOneExplicitConfirmation() {
+        provider.rows = listOf(
+            FakePhoneRow(9L, "Zeynep Kaya", "+90 555 444 44 44", "İş"),
+            FakePhoneRow(9L, "Zeynep Kaya", "+90 555 333 33 33", "Cep")
+        )
+        val lookup = resolver().resolve("Zeynep Kaya")
+        assertTrue(lookup is ContactLookupResult.ChooseNumber)
+        val choice = lookup as ContactLookupResult.ChooseNumber
+        val selectedPhone = choice.contact.phoneNumbers.first()
+        val exactMessage = "Yarın saat 10.00'da görüşelim."
+
+        val gate = SmsConfirmationGate()
+        var transportCalls = 0
+        var deliveredDraft: com.openjarvis.deviceactions.sms.SmsDraft? = null
+        var outcome: SmsSendOutcome? = null
+        val dispatcher = ConfirmedSmsDispatcher(
+            permission = SmsPermission { true },
+            gate = gate,
+            transport = SmsTransport { draft, callback ->
+                transportCalls += 1
+                deliveredDraft = draft
+                callback(SmsSendOutcome.Sent)
+            }
+        )
+
+        assertSame(null, gate.confirm("not-prepared"))
+        assertEquals(0, transportCalls)
+        val review = gate.prepare(choice.contact.displayName, selectedPhone.number, exactMessage)
+        val confirmation = gate.confirm(review.reviewId)!!
+        assertEquals(0, transportCalls)
+
+        dispatcher.dispatch(confirmation) { outcome = it }
+        assertEquals(1, transportCalls)
+        assertEquals("Zeynep Kaya", deliveredDraft?.recipientName)
+        assertEquals(selectedPhone.number, deliveredDraft?.phoneNumber)
+        assertEquals(exactMessage, deliveredDraft?.exactMessage)
+        assertSame(SmsSendOutcome.Sent, outcome)
+
+        dispatcher.dispatch(confirmation) { outcome = it }
+        assertEquals(1, transportCalls)
+        assertSame(SmsSendOutcome.Rejected, outcome)
     }
 
     @Test
