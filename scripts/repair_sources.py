@@ -4072,29 +4072,65 @@ if missing_imports:
     )
 
 panel_marker = "// JARVIS_DEVICE_FEATURE_PANELS"
-if panel_marker not in dashboard_text:
-    video_anchor = "            VideoMvpPanel(modifier = Modifier.fillMaxWidth())"
-    if video_anchor not in dashboard_text:
-        raise SystemExit("DashboardScreen VideoMvpPanel anchor not found")
-    panel_block = """
+video_anchor = "            VideoMvpPanel(modifier = Modifier.fillMaxWidth())"
+panel_block = """
             // JARVIS_DEVICE_FEATURE_PANELS
             Spacer(modifier = Modifier.height(16.dp))
             VideoArtifactPlayerPanel(modifier = Modifier.fillMaxWidth())
             Spacer(modifier = Modifier.height(16.dp))
-            DeviceCapabilityStatusPanel(modifier = Modifier.fillMaxWidth())
-            Spacer(modifier = Modifier.height(16.dp))
-            StorageAccessPanel(modifier = Modifier.fillMaxWidth())
-            Spacer(modifier = Modifier.height(16.dp))
-            SmsComposePanel(modifier = Modifier.fillMaxWidth())
+            val deviceToolsExpanded = androidx.compose.runtime.rememberSaveable {
+                androidx.compose.runtime.mutableStateOf(false)
+            }
+            androidx.compose.material3.TextButton(
+                onClick = { deviceToolsExpanded.value = !deviceToolsExpanded.value }
+            ) {
+                androidx.compose.material3.Text(
+                    if (deviceToolsExpanded.value) "Telefon araçlarını gizle" else "Telefon araçlarını göster"
+                )
+            }
+            if (deviceToolsExpanded.value) {
+                androidx.compose.foundation.layout.Column(
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(16.dp)
+                ) {
+                    DeviceCapabilityStatusPanel(modifier = Modifier.fillMaxWidth())
+                    StorageAccessPanel(modifier = Modifier.fillMaxWidth())
+                    SmsComposePanel(modifier = Modifier.fillMaxWidth())
+                }
+            }
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                android.os.Trace.beginSection("JARVIS_DashboardFirstFrame")
+                try {
+                    androidx.compose.runtime.withFrameNanos { }
+                } finally {
+                    android.os.Trace.endSection()
+                }
+            }
 """
+panel_pattern = re.compile(
+    r"(?ms)^[ \\t]*// JARVIS_DEVICE_FEATURE_PANELS\\n.*?^[ \\t]*SmsComposePanel\\(modifier = Modifier\\.fillMaxWidth\\(\\)\\)\\n"
+)
+panel_match = panel_pattern.search(dashboard_text)
+if panel_match:
+    existing_panel_block = panel_match.group(0)
+    if "deviceToolsExpanded" not in existing_panel_block:
+        dashboard_text = (
+            dashboard_text[:panel_match.start()]
+            + panel_block
+            + dashboard_text[panel_match.end():]
+        )
+elif panel_marker not in dashboard_text:
+    if video_anchor not in dashboard_text:
+        raise SystemExit("DashboardScreen VideoMvpPanel anchor not found")
     dashboard_text = dashboard_text.replace(
         video_anchor,
         video_anchor + panel_block,
         1
     )
+else:
+    raise SystemExit("DashboardScreen device panel marker exists but its block cannot be safely migrated")
 
 dashboard_path.write_text(dashboard_text, encoding="utf-8")
-print("Wired embedded video player, capability status, SAF files and contact-first SMS into DashboardScreen")
+print("Wired the embedded player immediately and made device tools lazy behind an explicit dashboard toggle")
 
 # Register the embedded-player test host only in the extracted host's DEBUG app manifest.
 # The Activity class is copied from the Feature-owned ui/player source by the video-mvp Kotlin
