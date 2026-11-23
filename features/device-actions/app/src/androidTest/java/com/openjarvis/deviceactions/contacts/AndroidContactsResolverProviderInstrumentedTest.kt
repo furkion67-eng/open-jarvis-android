@@ -189,7 +189,7 @@ class AndroidContactsResolverProviderInstrumentedTest {
             hasReadContactsPermission = { permissionGranted }
         )
 
-    private data class FakePhoneRow(
+    data class FakePhoneRow(
         val contactId: Long,
         val displayName: String,
         val number: String,
