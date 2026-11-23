@@ -241,6 +241,20 @@ class VideoVisualAssetsTest {
     }
 
     @Test
+    fun pinnedCommonsFilenameComparisonIsCaseSensitive() {
+        val candidate = descriptor().copy(
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/a/ab/example.jpg"
+        )
+        assertFalse(
+            VideoAssetLicensePolicy.isDownloadForPinnedSource(
+                candidate.sourceUrl,
+                candidate.downloadUrl
+            )
+        )
+        assertTrue(runCatching { VideoAssetLicensePolicy.validate(candidate) }.isFailure)
+    }
+
+    @Test
     fun redirectCannotSubstituteAnotherCommonsFileWithTheSameMimeType() {
         val downloader = object : VideoVisualAssetDownloader {
             override fun download(descriptor: VideoVisualAssetDescriptor) = DownloadedVisualAsset(
