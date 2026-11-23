@@ -92,7 +92,7 @@ set -e
 grep -q "OK (" instrumented.log || fail "instrumentation did not report OK"
 if grep -q "FAILURES" instrumented.log; then fail "instrumentation reported failures"; fi
 
-for class in ContactResolutionInstrumentedTest SmsConfirmationInstrumentedTest SafStorageGatewayInstrumentedTest StorageUriGrantRegistryInstrumentedTest ContactChoicePagingCiOverlayTest VideoArtifactPlayerInstrumentedTest VideoNarratedExportInstrumentedTest VideoArtifactEvidenceCiOverlayTest; do
+for class in ContactResolutionInstrumentedTest AndroidContactsResolverProviderInstrumentedTest SmsConfirmationInstrumentedTest SafStorageGatewayInstrumentedTest StorageUriGrantRegistryInstrumentedTest ContactChoicePagingCiOverlayTest VideoArtifactPlayerInstrumentedTest VideoNarratedExportInstrumentedTest VideoArtifactEvidenceCiOverlayTest; do
   grep -Fq "$class" instrumented.log || fail "required instrumentation class not discovered: $class"
 done
 
