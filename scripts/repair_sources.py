@@ -4691,5 +4691,89 @@ if repaired_host_dashboard != host_dashboard_text:
 
 print("Applied idempotent Feature-owned host launcher, lazy repository and dashboard recovery repairs")
 
+
+
+# Voice-SMS contact-name route (architect-approved Feature-owned host repair).
+# The immutable host TurkishCommandRouter handles recipient-first phrases such as
+# "Valide Sultan'a SMS gönder", but the voice UI also recognizes verb-first
+# phrases such as "SMS gönder Valide Sultan". Route the latter locally so the
+# spoken contact name reaches DeviceActionCoordinator and ContactsContract;
+# never fall through to the LLM's generic phone-number prompt.
+def _install_voice_first_sms_contact_pattern(source):
+    marker = "        // Voice-first SMS contact routing (Feature repair)"
+    if marker in source:
+        return source
+    anchor = "    private val SMS_PATTERNS = listOf(\n"
+    if source.count(anchor) != 1:
+        raise SystemExit("TurkishCommandRouter.kt: SMS_PATTERNS insertion anchor missing or ambiguous")
+    pattern = r'''        // Voice-first SMS contact routing (Feature repair)
+        Regex("""^\s*(?:sms|mesaj|ileti)\s+(?:gönder|gonder|at|yolla|gönderir misin|gonderir misin)\s+(?<recipient>.+?)\s*$"""),
+'''
+    return source.replace(anchor, anchor + pattern, 1)
+
+
+def _install_voice_first_sms_contact_tests(source):
+    if "fun smsVerbFirstWithContactNameRoutesToContact()" in source:
+        return source
+    anchor = "    // ---- Calls"
+    if source.count(anchor) != 1:
+        raise SystemExit("TurkishCommandRouterTest.kt: Calls test anchor missing or ambiguous")
+    tests = '''    @Test
+    fun smsVerbFirstWithContactNameRoutesToContact() {
+        val sms = route("SMS gönder Valide Sultan") as RoutedCommand.SendSms
+        assertEquals("Valide Sultan", sms.contactName)
+        assertNull(sms.phoneNumber)
+        assertNull(sms.messageBody)
+    }
+
+    @Test
+    fun smsVerbFirstExplicitNumberRemainsAnExplicitNumber() {
+        val sms = route("SMS gönder 0532 123 45 67") as RoutedCommand.SendSms
+        assertNull(sms.contactName)
+        assertEquals("05321234567", sms.phoneNumber)
+        assertNull(sms.messageBody)
+    }
+
+'''
+    return source.replace(anchor, tests + anchor, 1)
+
+
+def _voice_first_sms_repair_regression_test():
+    router_fixture = r'''object TurkishCommandRouter {
+    private val SMS_PATTERNS = listOf(
+        Regex("""^\s*(?<recipient>.+?)\s+(?:mesaj|sms)\s+gönder\s*$""")
+    )
+}
+'''
+    once = _install_voice_first_sms_contact_pattern(router_fixture)
+    twice = _install_voice_first_sms_contact_pattern(once)
+    if once != twice or once.count("Voice-first SMS contact routing (Feature repair)") != 1:
+        raise SystemExit("TurkishCommandRouter.kt: verb-first SMS repair is not idempotent")
+    if "(?<recipient>.+?)" not in once or "sms|mesaj|ileti" not in once:
+        raise SystemExit("TurkishCommandRouter.kt: verb-first contact extraction regression failed")
+
+    test_fixture = '''class TurkishCommandRouterTest {
+    // ---- Calls
+}
+'''
+    test_once = _install_voice_first_sms_contact_tests(test_fixture)
+    if _install_voice_first_sms_contact_tests(test_once) != test_once:
+        raise SystemExit("TurkishCommandRouterTest.kt: verb-first regression insertion is not idempotent")
+    if test_once.count("smsVerbFirstWithContactNameRoutesToContact") != 1 or \
+       test_once.count("smsVerbFirstExplicitNumberRemainsAnExplicitNumber") != 1:
+        raise SystemExit("TurkishCommandRouterTest.kt: verb-first regression tests missing")
+
+
+_voice_first_sms_repair_regression_test()
+edit(
+    "app/src/main/java/com/openjarvis/commands/TurkishCommandRouter.kt",
+    _install_voice_first_sms_contact_pattern
+)
+edit(
+    "app/src/test/java/com/openjarvis/commands/TurkishCommandRouterTest.kt",
+    _install_voice_first_sms_contact_tests
+)
+print("Installed deterministic verb-first SMS contact-name routing and host JVM regressions")
+
 repair_marker.write_text(repair_digest + "\n", encoding="utf-8")
 print("OPEN_JARVIS_REPAIR_IDEMPOTENT_MARKER_WRITTEN")
