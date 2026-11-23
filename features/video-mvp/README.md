@@ -2,9 +2,9 @@
 
 Current renderer/content-pipeline contract:
 
-- A render request is accepted only when a researched story pack exists. The first supported pack is **İstanbul'un Fethi: 1453**; unsupported topics fail closed instead of receiving generic filler or invented facts.
+- A render request is accepted only when a researched story pack exists. The supported packs are **İstanbul'un Fethi: 1453** and **Mimar Sinan: Üç eser, tek usta**; unsupported topics fail closed instead of receiving generic filler or invented facts.
 - The five scenes use five distinct Wikimedia Commons assets with pinned file-page revisions. Every descriptor records the creator, exact license/version, license URL, source revision URL and attribution text. The resolver rejects missing/unknown licenses, NC/ND terms, unverified source revisions, non-HTTPS or non-Wikimedia downloads, unexpected MIME types, oversized/invalid images and duplicate image hashes.
-- The current pack uses Public Domain Mark 1.0 and CC BY-SA 4.0 assets. CC BY-SA adaptations must be distributed under CC BY-SA 4.0; this obligation is carried in the typed attribution manifest and the generated credits. Attribution includes the creator, license, source revision and 9:16 crop note.
+- The 1453 pack uses Public Domain Mark 1.0 and CC BY-SA 4.0 assets. The Mimar Sinan pack uses five distinct CC BY-SA 4.0 images. CC BY-SA adaptations must be distributed under CC BY-SA 4.0; this obligation is carried in the typed attribution manifest and the generated credits. Attribution includes the creator, license, source revision and 9:16 crop note.
 - Visual assets are fetched over HTTPS from Wikimedia Commons, cached under the app cache directory for at most 30 days, and bounded to 10 entries / 24 MB. Expired, corrupt and excess entries are removed. A valid cache entry can be reused offline; without a valid cache, network failure stops rendering. There is no procedural visual fallback for production story renders.
 - The first spoken segment is a separate Turkish hook. The pipeline measures the actual tr-TR TTS WAV duration and refuses to render if the hook exceeds 2,000 ms. The following scene segments are synthesized independently; SRT cues use the measured duration of the exact spoken text.
 - Each scene uses its own source image as a full-bleed 9:16 visual, with readable Turkish title/caption overlays and a visible creator/license credit line. The full attribution manifest and researched claim sources are returned as typed metadata for the host task/publishing-draft layer.
@@ -32,6 +32,21 @@ The İstanbul 1453 story uses the following fact sources:
 
 The script avoids a definitive ship count or route. The TDV sources note that the number, route and duration details are disputed.
 
+## Mimar Sinan research pack
+
+The Mimar Sinan script is based on Selçuk Mülâyim's TDV İslâm Ansiklopedisi entry “Sinan”:
+- https://islamansiklopedisi.org.tr/sinan
+
+The five scene claims are limited to the entry's statements about Şehzade Camii (1548, “çıraklık”), Süleymaniye (seven-year construction and 1557 completion, “kalfalık”), Selimiye in Edirne as Sinan's greatest work, his appointment as chief architect at age 48, and his death in 1588 / burial in the Süleymaniye complex.
+
+| Scene | Creator | License | Pinned source |
+|---|---|---|---|
+| Şehzade minarets | R Prazeres | CC BY-SA 4.0 | https://commons.wikimedia.org/w/index.php?title=File:Sehzade_Mosque_DSCF3265.jpg&oldid=1207014206 |
+| Süleymaniye exterior | Mattias Hill | CC BY-SA 4.0 | https://commons.wikimedia.org/w/index.php?title=File:S%C3%BCleymaniye_Mosque_Istanbul.JPG&oldid=1049867755 |
+| Selimiye and monument | BuhaM | CC BY-SA 4.0 | https://commons.wikimedia.org/w/index.php?title=File:Selimiye_Mosque_in_Edirne_and_a_monument_to_its_builder,_architect_Mimar_Sinan.jpg&oldid=1140027221 |
+| Mimar Sinan sculpture | Yahia | CC BY-SA 4.0 | https://commons.wikimedia.org/w/index.php?title=File:Koca_Mimar_Sinan.jpg&oldid=1181793138 |
+| Mimar Sinan tomb | Sahar.Ahmed | CC BY-SA 4.0 | https://commons.wikimedia.org/w/index.php?title=File:Mimar_Sinan_Tomb.jpg&oldid=1289199267 |
+
 ## Asset provenance
 
 | Scene | Creator | License | Pinned source |
@@ -45,7 +60,8 @@ The script avoids a definitive ship count or route. The TDV sources note that th
 ## Remaining validation and limitations
 
 - Exact-head Android 13/14 CI and physical TECNO Spark 20 Pro acceptance are still required. Unit tests do not prove the device's installed Turkish voice sounds natural.
-- The current curated research pack is only for İstanbul 1453. Other topics need a separate verified research bundle and a distinct licensed asset per scene before they can render.
+- Image bytes are SHA-256 hashed when retrieved and re-hashed when read from cache. The pinned Commons page revision is not yet cryptographically bound to a specific archived binary-upload revision; this remains a release gate and the current SHA-256 proves byte integrity after retrieval, not the historical upload's identity.
+- Two curated research packs are available: İstanbul 1453 and Mimar Sinan. Other topics need a separate verified research bundle and a distinct licensed asset per scene before they can render.
 - This is the creative-renderer layer only. It returns attribution and research metadata; the host task/publishing layer must persist those fields and expose the credits in a draft description.
 - No YouTube/TikTok/Instagram OAuth, account access, credential storage, scheduling or real publishing is included. Public posting remains a separate product flow requiring official OAuth and explicit per-post approval.
 
