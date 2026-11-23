@@ -1856,7 +1856,7 @@ edit("app/src/main/java/com/openjarvis/voice/AndroidTTSEngine.kt", patch_tts_tur
 def patch_groq_model(s):
     s = s.replace(
         '''        val model = prefs.getString("provider_model", "") ?: ""
-        
+\x20\x20\x20\x20\x20\x20\x20\x20
         return when (name) {
             "Groq" -> GroqProvider(apiKey, model)''',
         '''        var model = prefs.getString("provider_model", "") ?: ""
@@ -1864,7 +1864,7 @@ def patch_groq_model(s):
             model = "openai/gpt-oss-120b"
             prefs.edit().putString("provider_model", model).apply()
         }
-        
+\x20\x20\x20\x20\x20\x20\x20\x20
         return when (name) {
             "Groq" -> GroqProvider(apiKey, model)'''
     )
@@ -2017,7 +2017,7 @@ def patch_tts_completion(s):
     s = s.replace(
         """                tts?.setSpeechRate(speechRate)
                 tts?.setPitch(pitch)
-                
+\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {}
                     override fun onDone(utteranceId: String?) {}
@@ -2182,7 +2182,7 @@ def fix_tts_callback_and_auto_default(s):
     )
     s = s.replace(
         """        if (!isReady) return
-        
+\x20\x20\x20\x20\x20\x20\x20\x20
         val clean = text""",
         """        if (!isReady) {
             onDone?.invoke()
@@ -2194,7 +2194,7 @@ def fix_tts_callback_and_auto_default(s):
     )
     s = s.replace(
         """        if (clean.isBlank()) return
-        
+\x20\x20\x20\x20\x20\x20\x20\x20
         val utteranceId = "jarvis_\${UUID.randomUUID()}"
         tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, utteranceId)""",
         """        if (clean.isBlank()) {
@@ -2244,7 +2244,7 @@ def ensure_tts_completion_callback(s):
         }'''
     s = s.replace(old, new, 1)
     s = s.replace('''        if (clean.isBlank()) return
-        
+\x20\x20\x20\x20\x20\x20\x20\x20
         val utteranceId = "jarvis_\${UUID.randomUUID()}"''',
                   '''        if (clean.isBlank()) {
             onDone?.invoke()
@@ -2253,7 +2253,7 @@ def ensure_tts_completion_callback(s):
 
         val utteranceId = "jarvis_\${UUID.randomUUID()}"''', 1)
     s = s.replace('''        if (!isReady) return
-        
+\x20\x20\x20\x20\x20\x20\x20\x20
         val clean = text''',
                   '''        if (!isReady) {
             onDone?.invoke()
