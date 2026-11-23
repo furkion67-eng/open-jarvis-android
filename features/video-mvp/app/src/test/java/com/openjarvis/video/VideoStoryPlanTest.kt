@@ -38,6 +38,8 @@ class VideoStoryPlanTest {
         assertEquals(1_280, plan.renderSpec.height)
         assertEquals(6, plan.captions.size)
         assertEquals("Üç eser, tek usta!", plan.hookText)
+        assertEquals("sinan-mimarbasi", plan.scenes.first().sceneId)
+        assertEquals("commons-sinan-sculpture", plan.scenes.first().visualAssetId)
         assertEquals(0L, plan.captions.first().startMs)
         assertEquals(2_000L, plan.captions.first().endMs)
         assertEquals(plan.hookText, plan.captions.first().text)
