@@ -280,6 +280,7 @@ jobs:
             windows-*.txt
             launcher-start*.txt
             processes-*.txt
+            process-list-*.txt
             input-*.txt
             cpuinfo-*.txt
             meminfo-*.txt
