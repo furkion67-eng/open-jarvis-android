@@ -28,6 +28,8 @@ class JarvisTaskPersistenceInstrumentedTest {
 
     @Before
     fun setUp() {
+        // Each in-memory database gets a fresh process recovery gate.
+        JarvisTaskRepository.resetProcessBootstrapForTesting()
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         database = Room.inMemoryDatabaseBuilder(context, JarvisTaskDatabase::class.java)
             .allowMainThreadQueries()
@@ -40,6 +42,43 @@ class JarvisTaskPersistenceInstrumentedTest {
     @After
     fun tearDown() {
         database.close()
+    }
+
+
+    @Test
+    fun taskSubmissionWaitsForStartupRecoveryBeforeInsertingNewTask() = runBlocking {
+        val now = System.currentTimeMillis()
+        dao.insert(
+            JarvisTaskEntity(
+                id = "abandoned-before-submit",
+                goal = "Önceki süreçte yarım kalan görev",
+                status = JarvisTaskStatus.QUEUED.storageValue,
+                currentStep = "Önceki yürütme",
+                progressPercent = 73,
+                approvalGranted = true,
+                approvalReference = "stale-approval",
+                createdAt = now,
+                updatedAt = now,
+                idempotencyKey = "abandoned-before-submit-key"
+            )
+        )
+
+        // No explicit recovery call: createTask must pass the process recovery gate first.
+        val newTaskId = repository.createTask("Yeni yerel plan", "submit-after-recovery")
+        val abandoned = dao.findById("abandoned-before-submit")!!
+        val submitted = dao.findById(newTaskId)!!
+
+        assertEquals(JarvisTaskStatus.INTERRUPTED.storageValue, abandoned.status)
+        assertEquals(0, abandoned.progressPercent)
+        assertFalse(abandoned.approvalGranted)
+        assertNull(abandoned.approvalReference)
+        assertEquals("APP_RESTARTED", abandoned.errorCode)
+
+        // The new request is inserted only after recovery and remains a user-reviewed plan.
+        assertEquals(JarvisTaskStatus.WAITING_FOR_USER.storageValue, submitted.status)
+        assertEquals(JarvisTaskCheckpoint.PLAN_CREATED, submitted.checkpoint)
+        assertNull(submitted.planAcceptedAt)
+        assertNotEquals(JarvisTaskStatus.INTERRUPTED.storageValue, submitted.status)
     }
 
     @Test

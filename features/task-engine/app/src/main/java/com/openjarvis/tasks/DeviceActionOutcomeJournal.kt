@@ -1,8 +1,6 @@
 package com.openjarvis.tasks
 
 import android.content.Context
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /**
  * Awaitable bridge from a confirmed device action to the durable Room journal.
@@ -15,12 +13,9 @@ object DeviceActionOutcomeJournal {
         context: Context,
         actionType: DeviceActionType,
         outcomeCode: DeviceActionOutcomeCode
-    ): String = withContext(Dispatchers.IO) {
-        record(
-            JarvisTaskRepository.getInstance(context.applicationContext),
-            actionType,
-            outcomeCode
-        )
+    ): String {
+        val repository = JarvisTaskRepository.getInstanceOnIo(context.applicationContext)
+        return record(repository, actionType, outcomeCode)
     }
 
     /** Injectable repository overload keeps the commit-before-return contract instrumentable. */
