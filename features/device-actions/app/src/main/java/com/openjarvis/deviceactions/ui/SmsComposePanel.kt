@@ -156,7 +156,7 @@ fun SmsComposePanel(
                         selectedContact = null
                         selectedPhone = null
                         lookupResult = null
-                        contactPage = 0
+                        contactPageIndex = 0
                         showConfirmation = false
                     }
                     nameQuery = value
