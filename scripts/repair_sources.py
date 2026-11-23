@@ -3809,18 +3809,21 @@ def contacts_provider_test_dependencies(s):
         raise SystemExit("app/build.gradle: AndroidX test runner dependency anchor missing or ambiguous")
     return s.replace(
         anchor,
-        anchor + "\\n    androidTestImplementation 'androidx.test:rules:1.5.0'",
+        anchor + "\n    androidTestImplementation 'androidx.test:rules:1.5.0'",
         1
     )
 
 
 def _contacts_provider_test_dependencies_regression_test():
-    fixture = "dependencies {\\n    androidTestImplementation 'androidx.test:runner:1.5.2'\\n}\\n"
+    fixture = "dependencies {\n    androidTestImplementation 'androidx.test:runner:1.5.2'\n}\n"
     once = contacts_provider_test_dependencies(fixture)
+    expected_lines = "androidTestImplementation 'androidx.test:runner:1.5.2'\n    androidTestImplementation 'androidx.test:rules:1.5.0'"
+    if expected_lines not in once:
+        raise SystemExit("app/build.gradle: Contacts provider dependency was not inserted on its own line")
     twice = contacts_provider_test_dependencies(once)
     if once != twice or once.count("androidx.test:rules:1.5.0") != 1:
         raise SystemExit("app/build.gradle: Contacts provider test dependency is not idempotent")
-    existing = fixture + "    androidTestImplementation 'androidx.test:rules:1.6.1'\\n"
+    existing = fixture + "    androidTestImplementation 'androidx.test:rules:1.6.1'\n"
     if contacts_provider_test_dependencies(existing) != existing:
         raise SystemExit("app/build.gradle: an existing AndroidX test rules dependency was duplicated")
     try:
