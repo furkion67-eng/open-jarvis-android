@@ -1,6 +1,8 @@
 package com.openjarvis.tasks
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
 data class JarvisTaskPlan(
     val summary: String,
@@ -97,19 +99,18 @@ class JarvisTaskOrchestrator(
         val status = JarvisTaskStatus.fromStorage(task.status)
         if (!JarvisTaskStateMachine.canTransition(status, JarvisTaskStatus.PLANNING)) return
 
-        val enteredPlanning = dao.update(
-            task.copy(
-                status = JarvisTaskStatus.PLANNING.storageValue,
-                currentStep = "Yerel plan hazırlanıyor",
-                progressPercent = JarvisTaskStatus.PLANNING.defaultProgress,
-                errorCode = null,
-                errorMessage = null,
-                updatedAt = System.currentTimeMillis()
-            )
-        )
-        if (enteredPlanning == 0) return
-
         try {
+            val enteredPlanning = dao.update(
+                task.copy(
+                    status = JarvisTaskStatus.PLANNING.storageValue,
+                    currentStep = "Yerel plan hazırlanıyor",
+                    progressPercent = JarvisTaskStatus.PLANNING.defaultProgress,
+                    errorCode = null,
+                    errorMessage = null,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+            if (enteredPlanning == 0) return
             val capability = registry.resolve(task.goal)
                 ?: throw IllegalStateException("Bu istek için kayıtlı bir yetenek bulunamadı.")
             val plan = capability.buildPlan(task.goal)
@@ -142,7 +143,16 @@ class JarvisTaskOrchestrator(
                 )
             )
         } catch (error: Exception) {
-            if (error is CancellationException) throw error
+            if (error is CancellationException) {
+                persistInterrupted(
+                    taskId = taskId,
+                    expectedStatus = JarvisTaskStatus.PLANNING,
+                    errorCode = "PLAN_PREPARATION_CANCELLED",
+                    errorMessage = "Plan hazırlama iptal edildi. Görev otomatik yeniden başlatılmadı.",
+                    cancellation = error
+                )
+                throw error
+            }
             val latest = dao.findById(taskId) ?: return
             if (JarvisTaskStateMachine.canTransition(
                     JarvisTaskStatus.fromStorage(latest.status),
@@ -207,20 +217,41 @@ class JarvisTaskOrchestrator(
         }
 
         if (!JarvisTaskStateMachine.canTransition(status, JarvisTaskStatus.RUNNING)) return
-        val claimed = dao.claimForExecution(
-            id = taskId,
-            expectedStatus = status.storageValue,
-            runningStatus = JarvisTaskStatus.RUNNING.storageValue,
-            acceptedCheckpoint = JarvisTaskCheckpoint.PLAN_REVIEWED,
+        val claimed = try {
+            dao.claimForExecution(
+                id = taskId,
+                expectedStatus = status.storageValue,
+                runningStatus = JarvisTaskStatus.RUNNING.storageValue,
+                acceptedCheckpoint = JarvisTaskCheckpoint.PLAN_REVIEWED,
+                currentStep = executor.executionLabel + " çalıştırılıyor",
+                executionMode = executor.executionMode,
+                progressPercent = 0,
+                updatedAt = System.currentTimeMillis()
+            )
+        } catch (error: CancellationException) {
+            persistInterrupted(
+                taskId = taskId,
+                expectedStatus = JarvisTaskStatus.RUNNING,
+                errorCode = "EXECUTION_CANCELLED",
+                errorMessage = "Yürütme iptal edildi. Yinelenen işlem riski nedeniyle otomatik tekrar başlatılmadı.",
+                cancellation = error
+            )
+            throw error
+        }
+        if (claimed != 1) return
+
+        var claimedTask = task.copy(
+            status = JarvisTaskStatus.RUNNING.storageValue,
             currentStep = executor.executionLabel + " çalıştırılıyor",
             executionMode = executor.executionMode,
             progressPercent = 0,
-            updatedAt = System.currentTimeMillis()
+            artifactRefs = "[]",
+            videoUri = null,
+            captionsUri = null,
+            videoArtifactMetadataJson = null
         )
-        if (claimed != 1) return
-
-        val claimedTask = dao.findById(taskId) ?: return
         try {
+            claimedTask = dao.findById(taskId) ?: return
             val result = executor.execute(claimedTask, claimedTask.idempotencyKey)
             val references = result.artifactReferences.ifEmpty { listOf(result.evidenceReference) }
             val videoArtifact = result.videoArtifact
@@ -254,7 +285,16 @@ class JarvisTaskOrchestrator(
                 updatedAt = System.currentTimeMillis()
             )
         } catch (error: Exception) {
-            if (error is CancellationException) throw error
+            if (error is CancellationException) {
+                persistInterrupted(
+                    taskId = taskId,
+                    expectedStatus = JarvisTaskStatus.RUNNING,
+                    errorCode = "EXECUTION_CANCELLED",
+                    errorMessage = "Yürütme iptal edildi. Yinelenen işlem riski nedeniyle otomatik tekrar başlatılmadı.",
+                    cancellation = error
+                )
+                throw error
+            }
             dao.finishExecutionIfRunning(
                 id = taskId,
                 expectedStatus = JarvisTaskStatus.RUNNING.storageValue,
@@ -272,4 +312,33 @@ class JarvisTaskOrchestrator(
             )
         }
     }
+    /**
+     * Cancellation may leave a coroutine alive long enough that process-start recovery never
+     * runs. Persist the interrupted state even though the caller's Job is cancelled, but never
+     * replay the work here. Only the explicit repository retry path may claim it again.
+     */
+    private suspend fun persistInterrupted(
+        taskId: String,
+        expectedStatus: JarvisTaskStatus,
+        errorCode: String,
+        errorMessage: String,
+        cancellation: CancellationException
+    ) {
+        try {
+            withContext(NonCancellable) {
+                dao.markInterruptedIfCurrent(
+                    id = taskId,
+                    expectedStatus = expectedStatus.storageValue,
+                    interruptedStatus = JarvisTaskStatus.INTERRUPTED.storageValue,
+                    currentStep = "Görev kesintiye uğradı",
+                    errorCode = errorCode,
+                    errorMessage = errorMessage,
+                    updatedAt = System.currentTimeMillis()
+                )
+            }
+        } catch (persistenceError: Exception) {
+            cancellation.addSuppressed(persistenceError)
+        }
+    }
+
 }

@@ -15,6 +15,10 @@ def _repair_input_digest(script_path: Path, features_root: Path) -> str:
     """
     digest = hashlib.sha256()
     digest.update(script_path.read_bytes())
+    auxiliary_script = script_path.with_name("add_startup_diagnostics.py")
+    if auxiliary_script.is_file():
+        digest.update(b"\\0auxiliary-script\\0")
+        digest.update(auxiliary_script.read_bytes())
     if features_root.is_dir():
         for source in sorted(features_root.rglob("*"), key=lambda item: item.as_posix()):
             if not source.is_file():
@@ -60,6 +64,13 @@ def _repair_input_digest_regression_test():
         resource.write_text("<resources/>", encoding="utf-8")
         if second == _repair_input_digest(script, features):
             raise SystemExit("repair input digest ignored a changed Android resource")
+
+        auxiliary = temporary_root / "add_startup_diagnostics.py"
+        auxiliary.write_bytes(b"startup-diagnostics-v1")
+        before_auxiliary_change = _repair_input_digest(script, features)
+        auxiliary.write_bytes(b"startup-diagnostics-v2")
+        if before_auxiliary_change == _repair_input_digest(script, features):
+            raise SystemExit("repair input digest ignored a changed auxiliary product repair script")
 
 
 _repair_input_digest_regression_test()
@@ -1659,12 +1670,54 @@ def voice_activity_fixes(s):
 edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", voice_activity_fixes)
 
 def turkish_tts(s):
-    s = s.replace("tts?.language = Locale.US", """val turkish = Locale.forLanguageTag("tr-TR")
-                val languageResult = tts?.setLanguage(turkish) ?: TextToSpeech.LANG_NOT_SUPPORTED
-                if (languageResult == TextToSpeech.LANG_MISSING_DATA || languageResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    isReady = false
-                }""")
-    return s
+    marker = "JARVIS.tts.configure"
+    if marker in s:
+        return s
+    pattern = re.compile(r"(?m)^(?P<indent>[ \t]*)tts\?\.language = Locale\.US[ \t]*$")
+    matches = list(pattern.finditer(s))
+    if len(matches) != 1:
+        raise SystemExit("AndroidTTSEngine.kt: expected exactly one legacy TTS locale setup anchor")
+    match = matches[0]
+    indent = match.group("indent")
+    child = indent + "    "
+    replacement = "\n".join((
+        indent + 'android.os.Trace.beginSection("JARVIS.tts.configure")',
+        child + "val startedAt = android.os.SystemClock.elapsedRealtime()",
+        indent + "try {",
+        child + 'val turkish = Locale.forLanguageTag("tr-TR")',
+        child + "val languageResult = tts?.setLanguage(turkish) ?: TextToSpeech.LANG_NOT_SUPPORTED",
+        child + "isReady = languageResult != TextToSpeech.LANG_MISSING_DATA &&",
+        child + "    languageResult != TextToSpeech.LANG_NOT_SUPPORTED",
+        indent + "} finally {",
+        child + "android.os.Trace.endSection()",
+        child + "val elapsedMs = android.os.SystemClock.elapsedRealtime() - startedAt",
+        child + 'if (elapsedMs > 250L) android.util.Log.w("JARVISStartup", "tts.configure_ms=" + elapsedMs + " budget_ms=250")',
+        indent + "}"
+    ))
+    return s[:match.start()] + replacement + s[match.end():]
+
+
+def _tts_trace_regression_test():
+    fixture = """class AndroidTTSEngine {
+    fun onReady() {
+        tts?.language = Locale.US
+    }
+}
+"""
+    once = turkish_tts(fixture)
+    twice = turkish_tts(once)
+    if once != twice:
+        raise SystemExit("AndroidTTSEngine.kt: TTS trace installation is not idempotent")
+    if once.count("JARVIS.tts.configure") != 1 or once.count("android.os.Trace.beginSection") != 1 or once.count("android.os.Trace.endSection") != 1:
+        raise SystemExit("AndroidTTSEngine.kt: TTS configuration trace is incomplete")
+    if "tts.configure_ms=" not in once or "budget_ms=250" not in once:
+        raise SystemExit("AndroidTTSEngine.kt: TTS startup budget warning is missing")
+    if "isReady = languageResult != TextToSpeech.LANG_MISSING_DATA &&" not in once:
+        raise SystemExit("AndroidTTSEngine.kt: successful Turkish TTS initialization must remain ready")
+
+
+_tts_trace_regression_test()
+
 edit("app/src/main/java/com/openjarvis/voice/AndroidTTSEngine.kt", turkish_tts)
 
 def migrate_groq_model(s):
@@ -2813,6 +2866,215 @@ for source in sorted(tts_feature_root.rglob("*.kt")):
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(source.read_bytes())
 
+
+# Instrument the actual feature TTS source after the feature overlay copy. Earlier
+# legacy-host TTS patches run before this copy and are otherwise overwritten.
+def _install_tts_callback_diagnostics(source):
+    marker = "JARVIS_TTS_CALLBACK_DIAGNOSTICS_V1"
+    if marker in source:
+        required = (
+            "JARVISTtsTrace",
+            "init-callback thread=",
+            "configure thread=",
+            "utterance-start thread=",
+            "utterance-done thread=",
+            "duration_ms=",
+            "android.os.Trace.beginSection",
+            "android.os.Trace.endSection",
+        )
+        missing = [item for item in required if item not in source]
+        if missing:
+            raise SystemExit("AndroidTTSEngine.kt: partial TTS callback diagnostics; missing " + ", ".join(missing))
+        return source
+
+    if "import android.os.SystemClock" not in source:
+        anchor = "import android.os.Looper\n"
+        if source.count(anchor) != 1:
+            raise SystemExit("AndroidTTSEngine.kt: Looper import anchor missing or ambiguous")
+        source = source.replace(
+            anchor,
+            anchor + "import android.os.SystemClock\nimport android.os.Trace\nimport android.util.Log\n",
+            1
+        )
+    if "import java.util.concurrent.ConcurrentHashMap" not in source:
+        anchor = "import java.util.UUID\n"
+        if source.count(anchor) != 1:
+            raise SystemExit("AndroidTTSEngine.kt: UUID import anchor missing or ambiguous")
+        source = source.replace(anchor, anchor + "import java.util.concurrent.ConcurrentHashMap\n", 1)
+
+    fields_anchor = "    private val pendingCallbacks = PendingUtteranceCallbacks()\n"
+    if source.count(fields_anchor) != 1:
+        raise SystemExit("AndroidTTSEngine.kt: pending callback field anchor missing or ambiguous")
+    source = source.replace(
+        fields_anchor,
+        fields_anchor + """    // JARVIS_TTS_CALLBACK_DIAGNOSTICS_V1
+    @Volatile private var ttsInitializationStartedAtMs = 0L
+    private val utteranceStartedAtMs = ConcurrentHashMap<String, Long>()
+""",
+        1
+    )
+
+    initialize_anchor = """            tts = TextToSpeech(appContext) { result ->
+"""
+    initialize_replacement = """            ttsInitializationStartedAtMs = SystemClock.elapsedRealtime()
+            Log.i("JARVISTtsTrace", "init-start thread=" + Thread.currentThread().name)
+            tts = TextToSpeech(appContext) { result ->
+                val initDurationMs = SystemClock.elapsedRealtime() - ttsInitializationStartedAtMs
+                Log.i(
+                    "JARVISTtsTrace",
+                    "init-callback thread=" + Thread.currentThread().name + " duration_ms=" + initDurationMs
+                )
+"""
+    if source.count(initialize_anchor) != 1:
+        raise SystemExit("AndroidTTSEngine.kt: initialize callback anchor missing or ambiguous")
+    source = source.replace(initialize_anchor, initialize_replacement, 1)
+
+    configure_anchor = "    private fun configureTurkishVoice() {\n        val engine = tts\n"
+    configure_replacement = """    private fun configureTurkishVoice() {
+        val configureStartedAtMs = SystemClock.elapsedRealtime()
+        Trace.beginSection("JARVIS.tts.configure")
+        try {
+            val engine = tts
+"""
+    if source.count(configure_anchor) != 1:
+        raise SystemExit("AndroidTTSEngine.kt: configureTurkishVoice anchor missing or ambiguous")
+    source = source.replace(configure_anchor, configure_replacement, 1)
+
+    listener_anchor = """            engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) {
+                    speaking = true
+                }
+
+                override fun onDone(utteranceId: String?) {
+                    speaking = false
+                    utteranceId?.let { completeCallback(it) }
+                }
+
+                override fun onError(utteranceId: String?) {
+                    speaking = false
+                    utteranceId?.let { completeCallback(it) }
+                }
+
+                override fun onError(utteranceId: String?, errorCode: Int) {
+                    speaking = false
+                    utteranceId?.let { completeCallback(it) }
+                }
+            })
+"""
+    listener_replacement = """            engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) {
+                    speaking = true
+                    utteranceId?.let { utteranceStartedAtMs[it] = SystemClock.elapsedRealtime() }
+                    Log.d("JARVISTtsTrace", "utterance-start thread=" + Thread.currentThread().name)
+                }
+
+                override fun onDone(utteranceId: String?) {
+                    speaking = false
+                    val durationMs = utteranceId?.let {
+                        utteranceStartedAtMs.remove(it)?.let { startedAt ->
+                            SystemClock.elapsedRealtime() - startedAt
+                        }
+                    }
+                    Log.d(
+                        "JARVISTtsTrace",
+                        "utterance-done thread=" + Thread.currentThread().name + " duration_ms=" + (durationMs ?: -1L)
+                    )
+                    utteranceId?.let { completeCallback(it) }
+                }
+
+                override fun onError(utteranceId: String?) {
+                    speaking = false
+                    val durationMs = utteranceId?.let {
+                        utteranceStartedAtMs.remove(it)?.let { startedAt ->
+                            SystemClock.elapsedRealtime() - startedAt
+                        }
+                    }
+                    Log.w(
+                        "JARVISTtsTrace",
+                        "utterance-error thread=" + Thread.currentThread().name + " duration_ms=" + (durationMs ?: -1L)
+                    )
+                    utteranceId?.let { completeCallback(it) }
+                }
+
+                override fun onError(utteranceId: String?, errorCode: Int) {
+                    speaking = false
+                    val durationMs = utteranceId?.let {
+                        utteranceStartedAtMs.remove(it)?.let { startedAt ->
+                            SystemClock.elapsedRealtime() - startedAt
+                        }
+                    }
+                    Log.w(
+                        "JARVISTtsTrace",
+                        "utterance-error thread=" + Thread.currentThread().name +
+                            " code=" + errorCode + " duration_ms=" + (durationMs ?: -1L)
+                    )
+                    utteranceId?.let { completeCallback(it) }
+                }
+            })
+"""
+    if source.count(listener_anchor) != 1:
+        raise SystemExit("AndroidTTSEngine.kt: utterance listener anchor missing or ambiguous")
+    source = source.replace(listener_anchor, listener_replacement, 1)
+
+    ready_end_anchor = """        mutableStatus.value = TurkishTtsStatus.Ready(
+            voiceLocale = actualLocale,
+            offline = !selected.requiresNetwork
+        )
+    }
+
+    fun speak(text: String, onDone: (() -> Unit)? = null) {
+"""
+    ready_end_replacement = """        mutableStatus.value = TurkishTtsStatus.Ready(
+            voiceLocale = actualLocale,
+            offline = !selected.requiresNetwork
+        )
+        } finally {
+            Trace.endSection()
+            Log.i(
+                "JARVISTtsTrace",
+                "configure thread=" + Thread.currentThread().name +
+                    " duration_ms=" + (SystemClock.elapsedRealtime() - configureStartedAtMs)
+            )
+        }
+    }
+
+    fun speak(text: String, onDone: (() -> Unit)? = null) {
+"""
+    if source.count(ready_end_anchor) != 1:
+        raise SystemExit("AndroidTTSEngine.kt: configureTurkishVoice closing anchor missing or ambiguous")
+    source = source.replace(ready_end_anchor, ready_end_replacement, 1)
+    return source
+
+
+def _tts_callback_diagnostics_regression_test():
+    feature_source = tts_feature_root / "app/src/main/java/com/openjarvis/voice/AndroidTTSEngine.kt"
+    if not feature_source.is_file():
+        raise SystemExit("AndroidTTSEngine.kt: feature source missing for callback diagnostics regression")
+    fixture = feature_source.read_text(encoding="utf-8")
+    once = _install_tts_callback_diagnostics(fixture)
+    twice = _install_tts_callback_diagnostics(once)
+    if once != twice:
+        raise SystemExit("AndroidTTSEngine.kt: TTS callback diagnostics are not idempotent")
+    required = (
+        "init-start thread=",
+        "init-callback thread=",
+        "configure thread=",
+        "utterance-start thread=",
+        "utterance-done thread=",
+        "utterance-error thread=",
+        "duration_ms=",
+        "JARVIS_TTS_CALLBACK_DIAGNOSTICS_V1",
+    )
+    missing = [item for item in required if item not in once]
+    if missing:
+        raise SystemExit("AndroidTTSEngine.kt: TTS callback diagnostics regression failed; missing " + ", ".join(missing))
+
+
+_tts_callback_diagnostics_regression_test()
+edit("app/src/main/java/com/openjarvis/voice/AndroidTTSEngine.kt", _install_tts_callback_diagnostics)
+print("Installed post-overlay TTS initialization/configuration/callback thread and duration diagnostics")
+
+
 def expose_turkish_tts_status(s):
     anchor = "    private val ttsEngine = AndroidTTSEngine(context)"
     property = "    val ttsStatus: StateFlow<TurkishTtsStatus> get() = ttsEngine.status"
@@ -3607,7 +3869,7 @@ def install_video_command_routing(s):
         lifecycleScope.launch {
             updateStatus("Video planı görev merkezine kaydediliyor…")
             try {
-                val taskId = JarvisTaskRepository.getInstance(applicationContext).createTask(
+                val taskId = JarvisTaskRepository.getInstanceOnIo(applicationContext).createTask(
                     goal = "$topic hakkında video oluştur",
                     idempotencyKey = VideoCommandRouter.requestIdempotencyKey(topic, System.currentTimeMillis())
                 )
@@ -4355,6 +4617,585 @@ fun RetainedStatusPanel() {
 _dashboard_permission_gate_regression_test()
 edit("app/src/main/java/com/openjarvis/ui/MainActivity.kt", remove_global_accessibility_overlay_gate)
 print("Removed only the global Accessibility/Overlay launcher gate; optional capability actions remain user-controlled")
+
+
+# Architect-approved host source-of-truth repairs. Infrastructure must invoke this
+# product patch layer rather than editing extracted Kotlin/XML inline in a workflow.
+def _repair_launcher_component(manifest_text):
+    for attribute in ("android:name", "android:parentActivityName"):
+        old = attribute + '=".MainActivity"'
+        new = attribute + '=".ui.MainActivity"'
+        count = manifest_text.count(old)
+        if count > 1:
+            raise SystemExit("AndroidManifest.xml: duplicate launcher component anchor for " + attribute)
+        if count == 1:
+            manifest_text = manifest_text.replace(old, new, 1)
+    if not re.search(
+        r"<activity\b(?=[^>]*\bandroid:name\s*=\s*['\"](?:\.ui\.MainActivity|com\.openjarvis\.ui\.MainActivity)['\"])[^>]*>",
+        manifest_text,
+        re.DOTALL
+    ):
+        raise SystemExit("AndroidManifest.xml: expected launcher MainActivity declaration was not found")
+    return manifest_text
+
+
+def _remove_optional_kotlin_line(source, pattern, label):
+    matches = list(re.finditer(pattern, source))
+    if len(matches) > 1:
+        raise SystemExit(label + ": duplicate source anchors; refusing ambiguous repair")
+    if not matches:
+        return source
+    match = matches[0]
+    return source[:match.start()] + source[match.end():]
+
+
+def _repair_main_activity_bootstrap(source):
+    # AgentCore is not used by the launcher Dashboard. Constructing it during
+    # Activity startup eagerly opens unrelated provider/encrypted preferences.
+    for pattern, label in (
+        (r"(?m)^[ \t]*import com\.openjarvis\.agent\.AgentCore[ \t]*\n", "AgentCore import"),
+        (r"(?m)^[ \t]*import com\.openjarvis\.agent\.AgentState[ \t]*\n", "AgentState import"),
+        (r"(?m)^[ \t]*private lateinit var agentCore: AgentCore[ \t]*\n", "AgentCore field"),
+        (r"(?m)^[ \t]*agentCore = AgentCore\(this\)[ \t]*\n", "AgentCore construction"),
+        (r"(?m)^[ \t]*val agentState by agentCore\.state\.collectAsState\(\)[ \t]*\n", "AgentCore state collection"),
+    ):
+        source = _remove_optional_kotlin_line(source, pattern, label)
+
+    if re.search(r"\bagentCore\b|\bAgentCore\b|\bAgentState\b", source):
+        raise SystemExit("MainActivity.kt: unused eager AgentCore references remain after launcher repair")
+
+    field_pattern = r"(?m)^[ \t]*private lateinit var graphifyRepo: GraphifyRepository[ \t]*\n"
+    init_pattern = r"(?m)^[ \t]*graphifyRepo = GraphifyRepository\(this\)[ \t]*\n"
+    fields = list(re.finditer(field_pattern, source))
+    initializers = list(re.finditer(init_pattern, source))
+    if len(fields) > 1 or len(initializers) > 1 or bool(fields) != bool(initializers):
+        raise SystemExit("MainActivity.kt: GraphifyRepository field/initializer pair is incomplete or duplicated")
+
+    guarded_local_pattern = re.compile(
+        r'(?m)^(?P<indent>[ \t]*)val graphifyRepo = try \{\s*'
+        r'GraphifyRepository\(applicationContext\)\s*\} catch \(e: Exception\) \{\s*'
+        r'(?:android\.util\.Log\.e\("OpenJarvis", "Graphify database initialization failed", e\)\s*)?'
+        r'null\s*\}[ \t]*$'
+    )
+    guarded_locals = list(guarded_local_pattern.finditer(source))
+    if len(guarded_locals) > 1:
+        raise SystemExit("MainActivity.kt: duplicate guarded GraphifyRepository locals")
+    if "val graphifyRepo = try" in source and not guarded_locals:
+        raise SystemExit("MainActivity.kt: unrecognized guarded GraphifyRepository initialization; refusing to keep main-thread database work")
+    needs_async_repository = bool(fields and initializers) or bool(guarded_locals)
+
+    old_repository_declaration = "val graphifyRepoResult = remember { runCatching { GraphifyRepository(applicationContext) } }"
+    repository_marker = "produceState<Result<GraphifyRepository>?>(initialValue = null)"
+    repository_declaration = """val graphifyRepoResult = androidx.compose.runtime.produceState<Result<GraphifyRepository>?>(initialValue = null) {
+    value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        android.os.Trace.beginSection("JARVIS.graphify.initialize")
+        val startedAt = android.os.SystemClock.elapsedRealtime()
+        try {
+            runCatching { GraphifyRepository(applicationContext) }
+        } finally {
+            android.os.Trace.endSection()
+            val elapsedMs = android.os.SystemClock.elapsedRealtime() - startedAt
+            if (elapsedMs > 250L) {
+                android.util.Log.w("JARVISStartup", "graphify.initialize_ms=" + elapsedMs + " budget_ms=250")
+            }
+        }
+    }
+}.value"""
+
+    def replace_old_repository_declaration(text):
+        old_pattern = re.compile(r"(?m)^(?P<indent>[ \t]*)" + re.escape(old_repository_declaration) + r"[ \t]*$")
+        matches = list(old_pattern.finditer(text))
+        if len(matches) > 1:
+            raise SystemExit("MainActivity.kt: duplicate synchronous GraphifyRepository initializers")
+        if not matches:
+            return text
+        match = matches[0]
+        indent = match.group("indent")
+        rendered = indent + repository_declaration.replace("\n", "\n" + indent)
+        return text[:match.start()] + rendered + text[match.end():]
+
+    if needs_async_repository:
+        if fields:
+            source = source[:fields[0].start()] + source[fields[0].end():]
+        if initializers:
+            initializers = list(re.finditer(init_pattern, source))
+            if len(initializers) != 1:
+                raise SystemExit("MainActivity.kt: GraphifyRepository initializer was not uniquely preserved")
+            source = source[:initializers[0].start()] + source[initializers[0].end():]
+        if guarded_locals:
+            match = guarded_locals[0]
+            source = source[:match.start()] + source[match.end():]
+        source = replace_old_repository_declaration(source)
+        if repository_marker not in source:
+            theme_pattern = re.compile(r"(?m)^(?P<indent>[ \t]*)OpenJarvisTheme[ \t]*\{[ \t]*$")
+            themes = list(theme_pattern.finditer(source))
+            if len(themes) != 1:
+                raise SystemExit("MainActivity.kt: expected one OpenJarvisTheme block for asynchronous repository initialization")
+            theme = themes[0]
+            indent = theme.group("indent") + "    "
+            rendered_repository = indent + repository_declaration.replace("\n", "\n" + indent)
+            source = source[:theme.end()] + "\n" + rendered_repository + source[theme.end():]
+
+    has_result = "graphifyRepoResult" in source
+    if has_result:
+        source = replace_old_repository_declaration(source)
+        if repository_marker not in source:
+            raise SystemExit("MainActivity.kt: graphifyRepoResult exists without the approved IO-backed repository initializer")
+        if "graphifyRepo = graphifyRepoResult.getOrThrow()," not in source:
+            old_argument = re.compile(r"(?m)^(?P<indent>[ \t]*)graphifyRepo\s*=\s*graphifyRepo,[ \t]*$")
+            matches = list(old_argument.finditer(source))
+            if len(matches) != 1:
+                raise SystemExit("MainActivity.kt: expected one DashboardScreen graphifyRepo argument")
+            match = matches[0]
+            replacement = match.group("indent") + "graphifyRepo = graphifyRepoResult.getOrThrow(),"
+            source = source[:match.start()] + replacement + source[match.end():]
+
+        if "if (graphifyRepoResult == null)" not in source:
+            failure_condition = re.compile(r"(?m)^(?P<indent>[ \t]*)if \(graphifyRepoResult\.isFailure\) \{$")
+            existing = list(failure_condition.finditer(source))
+            if existing:
+                match = existing[0]
+                indent = match.group("indent")
+                child = indent + "    "
+                loading_branch = "\n".join((
+                    indent + "if (graphifyRepoResult == null) {",
+                    child + "androidx.compose.material3.Surface(modifier = Modifier.fillMaxSize()) {",
+                    child + "    androidx.compose.material3.Text(",
+                    child + '        text = "Yerel hafıza hazırlanıyor…",',
+                    child + "        modifier = Modifier.padding(24.dp)",
+                    child + "    )",
+                    child + "} ",
+                    indent + "} else if (graphifyRepoResult.isFailure) {"
+                ))
+                source = source[:match.start()] + loading_branch + source[match.end():]
+            else:
+                dashboard_call = re.compile(r"(?m)^(?P<indent>[ \t]*)DashboardScreen\([ \t]*$")
+                matches = list(dashboard_call.finditer(source))
+                if len(matches) != 1:
+                    raise SystemExit("MainActivity.kt: expected one DashboardScreen call for guarded repository fallback")
+                match = matches[0]
+                indent = match.group("indent")
+                child = indent + "    "
+                fallback = "\n".join((
+                    indent + "if (graphifyRepoResult == null) {",
+                    child + "androidx.compose.material3.Surface(modifier = Modifier.fillMaxSize()) {",
+                    child + "    androidx.compose.material3.Text(",
+                    child + '        text = "Yerel hafıza hazırlanıyor…",',
+                    child + "        modifier = Modifier.padding(24.dp)",
+                    child + "    )",
+                    child + "} ",
+                    indent + "} else if (graphifyRepoResult.isFailure) {",
+                    child + "androidx.compose.material3.Surface(modifier = Modifier.fillMaxSize()) {",
+                    child + "    androidx.compose.material3.Text(",
+                    child + '        text = "Open Jarvis could not initialize local storage.\\n" +',
+                    child + '            (graphifyRepoResult.exceptionOrNull()?.message ?: "Unknown startup error"),',
+                    child + "        modifier = Modifier.padding(24.dp)",
+                    child + "    )",
+                    child + "} ",
+                    indent + "} else {",
+                    child + "DashboardScreen("
+                ))
+                call_open = match.end() - 1
+                try:
+                    _kotlin_matching_delimiter(source, call_open, "(", ")")
+                except ValueError as error:
+                    raise SystemExit("MainActivity.kt: refusing to wrap an unbalanced DashboardScreen call: " + str(error))
+                source = source[:match.start()] + fallback + source[match.end():]
+                updated_call = re.search(r"(?m)^" + re.escape(child) + r"DashboardScreen\(", source)
+                if not updated_call:
+                    raise SystemExit("MainActivity.kt: guarded DashboardScreen call was not inserted")
+                updated_open = updated_call.end() - 1
+                try:
+                    updated_close = _kotlin_matching_delimiter(source, updated_open, "(", ")")
+                except ValueError as error:
+                    raise SystemExit("MainActivity.kt: refusing to close an unbalanced DashboardScreen call: " + str(error))
+                source = source[:updated_close + 1] + "\n" + indent + "}" + source[updated_close + 1:]
+
+        if "import androidx.compose.ui.unit.dp" not in source and not re.search(
+            r"(?m)^import androidx\.compose\.ui\.unit\.\*[ \t]*$", source
+        ):
+            package = re.search(r"(?m)^package [^\n]+\n", source)
+            source = source[:package.end()] + "import androidx.compose.ui.unit.dp\n" + source[package.end():]
+    else:
+        already_guarded_compose = (
+            repository_marker in source
+            and "if (graphifyRepoResult == null)" in source
+            and "graphifyRepo = graphifyRepoResult.getOrThrow()," in source
+        )
+        if not already_guarded_compose:
+            if "graphifyRepo = graphifyRepo," in source:
+                raise SystemExit("MainActivity.kt: GraphifyRepository is passed to Dashboard without a recognized guarded construction")
+            if "DashboardScreen(" in source and "graphifyRepo =" in source:
+                raise SystemExit("MainActivity.kt: unrecognized GraphifyRepository startup shape; refusing silent no-op")
+
+    if source.count("DashboardScreen(") != 1:
+        raise SystemExit("MainActivity.kt: expected exactly one DashboardScreen call after bootstrap repair")
+    return source
+
+def _repair_dashboard_database_reads(source):
+    if (
+        "getRecentTasks(10)" in source
+        and "getMostUsedApps(4)" in source
+        and "catch (e: Exception)" in source
+    ):
+        return source
+
+    pattern = re.compile(
+        r"(?m)^(?P<indent>[ \t]*)recentTasks\s*=\s*(?P<receiver>[A-Za-z_][A-Za-z0-9_]*)\.getRecentTasks\(10\)[ \t]*\n"
+        r"(?P=indent)mostUsedApps\s*=\s*(?P=receiver)\.getMostUsedApps\(4\)[ \t]*$"
+    )
+    matches = list(pattern.finditer(source))
+    if len(matches) != 1:
+        raise SystemExit("DashboardScreen.kt: expected one unguarded recent-task/app repository read pair")
+    match = matches[0]
+    indent = match.group("indent")
+    receiver = match.group("receiver")
+    child = indent + "    "
+    replacement = "\n".join((
+        indent + "try {",
+        child + "recentTasks = " + receiver + ".getRecentTasks(10)",
+        child + "mostUsedApps = " + receiver + ".getMostUsedApps(4)",
+        indent + "} catch (e: Exception) {",
+        child + 'android.util.Log.e("OpenJarvis", "Dashboard database load failed", e)',
+        child + "recentTasks = emptyList()",
+        child + "mostUsedApps = emptyList()",
+        indent + "}"
+    ))
+    return source[:match.start()] + replacement + source[match.end():]
+
+
+def _host_bootstrap_regression_test():
+    manifest = (
+        '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+        '<application><activity android:name=".MainActivity" '
+        'android:parentActivityName=".MainActivity" /></application></manifest>'
+    )
+    repaired_manifest = _repair_launcher_component(manifest)
+    if _repair_launcher_component(repaired_manifest) != repaired_manifest:
+        raise SystemExit("AndroidManifest.xml: launcher component repair is not idempotent")
+    if 'android:name=".ui.MainActivity"' not in repaired_manifest or \
+       'android:parentActivityName=".ui.MainActivity"' not in repaired_manifest:
+        raise SystemExit("AndroidManifest.xml: launcher component repair did not normalize both references")
+
+    legacy_activity = """package com.openjarvis.ui
+import com.openjarvis.agent.AgentCore
+import com.openjarvis.agent.AgentState
+import com.openjarvis.graphify.GraphifyRepository
+import androidx.compose.ui.Modifier
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.unit.dp
+
+class MainActivity {
+    private lateinit var agentCore: AgentCore
+    private lateinit var graphifyRepo: GraphifyRepository
+    fun onCreate() {
+        agentCore = AgentCore(this)
+        graphifyRepo = GraphifyRepository(this)
+        setContent {
+            OpenJarvisTheme {
+                val agentState by agentCore.state.collectAsState()
+                DashboardScreen(
+                    graphifyRepo = graphifyRepo,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+    }
+}
+"""
+    repaired_activity = _repair_main_activity_bootstrap(legacy_activity)
+    if _repair_main_activity_bootstrap(repaired_activity) != repaired_activity:
+        raise SystemExit("MainActivity.kt: guarded repository bootstrap repair is not idempotent")
+    if _kotlin_brace_balance(repaired_activity) != 0:
+        raise SystemExit("MainActivity.kt: guarded repository fallback produced unbalanced Kotlin braces")
+    for required in (
+        "produceState<Result<GraphifyRepository>?>(initialValue = null)",
+        "kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO)",
+        'android.os.Trace.beginSection("JARVIS.graphify.initialize")',
+        "graphify.initialize_ms=",
+        "budget_ms=250",
+        "if (graphifyRepoResult == null)",
+        "if (graphifyRepoResult.isFailure)",
+        "graphifyRepo = graphifyRepoResult.getOrThrow(),",
+        "Unknown startup error",
+    ):
+        if required not in repaired_activity:
+            raise SystemExit("MainActivity.kt: guarded bootstrap regression missing " + required)
+    if "remember { runCatching { GraphifyRepository(applicationContext) } }" in repaired_activity:
+        raise SystemExit("MainActivity.kt: GraphifyRepository construction still runs synchronously during composition")
+    if any(token in repaired_activity for token in ("AgentCore", "AgentState", "agentCore", "graphifyRepo = graphifyRepo,")):
+        raise SystemExit("MainActivity.kt: eager launcher dependency remained after bootstrap repair")
+
+    already_guarded_activity = """package com.openjarvis.ui
+import com.openjarvis.graphify.GraphifyRepository
+class MainActivity {
+    fun onCreate() {
+        val graphifyRepo = try {
+            GraphifyRepository(applicationContext)
+        } catch (e: Exception) {
+            null
+        }
+        setContent {
+            OpenJarvisTheme {
+                DashboardScreen(
+                    graphifyRepo = graphifyRepo,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+    }
+}
+"""
+    repaired_guarded_activity = _repair_main_activity_bootstrap(already_guarded_activity)
+    if _repair_main_activity_bootstrap(repaired_guarded_activity) != repaired_guarded_activity:
+        raise SystemExit("MainActivity.kt: guarded local repository conversion is not idempotent")
+    if "GraphifyRepository(applicationContext)" in repaired_guarded_activity and "withContext(kotlinx.coroutines.Dispatchers.IO)" not in repaired_guarded_activity:
+        raise SystemExit("MainActivity.kt: guarded local GraphifyRepository still initializes on the main thread")
+
+    dashboard = """LaunchedEffect(graphifyRepo) {
+    recentTasks = graphifyRepo.getRecentTasks(10)
+    mostUsedApps = graphifyRepo.getMostUsedApps(4)
+}
+"""
+    repaired_dashboard = _repair_dashboard_database_reads(dashboard)
+    if _repair_dashboard_database_reads(repaired_dashboard) != repaired_dashboard:
+        raise SystemExit("DashboardScreen.kt: database read guard is not idempotent")
+    if "catch (e: Exception)" not in repaired_dashboard or "emptyList()" not in repaired_dashboard:
+        raise SystemExit("DashboardScreen.kt: repository read recovery was not installed")
+
+    already_guarded_dashboard = """LaunchedEffect(graphifyRepo) {
+    try {
+        recentTasks = graphifyRepo.getRecentTasks(10)
+        mostUsedApps = graphifyRepo.getMostUsedApps(4)
+    } catch (e: Exception) {
+        databaseError = e.localizedMessage
+    }
+}
+"""
+    if _repair_dashboard_database_reads(already_guarded_dashboard) != already_guarded_dashboard:
+        raise SystemExit("DashboardScreen.kt: existing guarded database reads were unexpectedly rewritten")
+
+    try:
+        _repair_main_activity_bootstrap("class MainActivity { fun onCreate() { DashboardScreen(graphifyRepo = graphifyRepo) } }")
+    except SystemExit:
+        pass
+    else:
+        raise SystemExit("MainActivity.kt: unrecognized unguarded repository shape was not rejected")
+
+
+_host_bootstrap_regression_test()
+
+host_manifest_path = root / "app/src/main/AndroidManifest.xml"
+host_main_activity_path = root / "app/src/main/java/com/openjarvis/ui/MainActivity.kt"
+host_dashboard_path = root / "app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt"
+for required_path in (host_manifest_path, host_main_activity_path, host_dashboard_path):
+    if not required_path.is_file():
+        raise SystemExit("Host product source is missing: " + str(required_path))
+
+host_manifest_text = host_manifest_path.read_text(encoding="utf-8")
+repaired_host_manifest = _repair_launcher_component(host_manifest_text)
+if repaired_host_manifest != host_manifest_text:
+    host_manifest_path.write_text(repaired_host_manifest, encoding="utf-8")
+
+host_main_text = host_main_activity_path.read_text(encoding="utf-8")
+repaired_host_main = _repair_main_activity_bootstrap(host_main_text)
+if repaired_host_main != host_main_text:
+    host_main_activity_path.write_text(repaired_host_main, encoding="utf-8")
+
+host_dashboard_text = host_dashboard_path.read_text(encoding="utf-8")
+repaired_host_dashboard = _repair_dashboard_database_reads(host_dashboard_text)
+if repaired_host_dashboard != host_dashboard_text:
+    host_dashboard_path.write_text(repaired_host_dashboard, encoding="utf-8")
+
+print("Applied idempotent Feature-owned host launcher, lazy repository and dashboard recovery repairs")
+
+
+
+# Voice-SMS contact-name route (architect-approved Feature-owned host repair).
+# The immutable host TurkishCommandRouter handles recipient-first phrases such as
+# "Valide Sultan'a SMS gönder", but the voice UI also recognizes verb-first
+# phrases such as "SMS gönder Valide Sultan". Route the latter locally so the
+# spoken contact name reaches DeviceActionCoordinator and ContactsContract;
+# never fall through to the LLM's generic phone-number prompt.
+def _install_voice_first_sms_contact_pattern(source):
+    marker = "        // Voice-first SMS contact routing (Feature repair)"
+    if marker in source:
+        return source
+    anchor = "    private val SMS_PATTERNS = listOf(\n"
+    if source.count(anchor) != 1:
+        raise SystemExit("TurkishCommandRouter.kt: SMS_PATTERNS insertion anchor missing or ambiguous")
+    pattern = r'''        // Voice-first SMS contact routing (Feature repair)
+        Regex("""^\s*(?:sms|mesaj|ileti)\s+(?:gönder|gonder|at|yolla|gönderir misin|gonderir misin)\s+(?<recipient>.+?)\s*$"""),
+'''
+    return source.replace(anchor, anchor + pattern, 1)
+
+
+def _install_voice_first_sms_contact_tests(source):
+    if "fun smsVerbFirstWithContactNameRoutesToContact()" in source:
+        return source
+    anchor = "    // ---- Calls"
+    if source.count(anchor) != 1:
+        raise SystemExit("TurkishCommandRouterTest.kt: Calls test anchor missing or ambiguous")
+    tests = '''    @Test
+    fun smsVerbFirstWithContactNameRoutesToContact() {
+        val sms = route("SMS gönder Valide Sultan") as RoutedCommand.SendSms
+        assertEquals("Valide Sultan", sms.contactName)
+        assertNull(sms.phoneNumber)
+        assertNull(sms.messageBody)
+    }
+
+    @Test
+    fun smsVerbFirstExplicitNumberRemainsAnExplicitNumber() {
+        val sms = route("SMS gönder 0532 123 45 67") as RoutedCommand.SendSms
+        assertNull(sms.contactName)
+        assertEquals("05321234567", sms.phoneNumber)
+        assertNull(sms.messageBody)
+    }
+
+'''
+    return source.replace(anchor, tests + anchor, 1)
+
+
+def _voice_first_sms_repair_regression_test():
+    router_fixture = r'''object TurkishCommandRouter {
+    private val SMS_PATTERNS = listOf(
+        Regex("""^\s*(?<recipient>.+?)\s+(?:mesaj|sms)\s+gönder\s*$""")
+    )
+}
+'''
+    once = _install_voice_first_sms_contact_pattern(router_fixture)
+    twice = _install_voice_first_sms_contact_pattern(once)
+    if once != twice or once.count("Voice-first SMS contact routing (Feature repair)") != 1:
+        raise SystemExit("TurkishCommandRouter.kt: verb-first SMS repair is not idempotent")
+    if "(?<recipient>.+?)" not in once or "sms|mesaj|ileti" not in once:
+        raise SystemExit("TurkishCommandRouter.kt: verb-first contact extraction regression failed")
+
+    test_fixture = '''class TurkishCommandRouterTest {
+    // ---- Calls
+}
+'''
+    test_once = _install_voice_first_sms_contact_tests(test_fixture)
+    if _install_voice_first_sms_contact_tests(test_once) != test_once:
+        raise SystemExit("TurkishCommandRouterTest.kt: verb-first regression insertion is not idempotent")
+    if test_once.count("smsVerbFirstWithContactNameRoutesToContact") != 1 or \
+       test_once.count("smsVerbFirstExplicitNumberRemainsAnExplicitNumber") != 1:
+        raise SystemExit("TurkishCommandRouterTest.kt: verb-first regression tests missing")
+
+
+_voice_first_sms_repair_regression_test()
+edit(
+    "app/src/main/java/com/openjarvis/commands/TurkishCommandRouter.kt",
+    _install_voice_first_sms_contact_pattern
+)
+edit(
+    "app/src/test/java/com/openjarvis/commands/TurkishCommandRouterTest.kt",
+    _install_voice_first_sms_contact_tests
+)
+print("Installed deterministic verb-first SMS contact-name routing and host JVM regressions")
+
+
+def _voice_sms_coordinator_handoff_regression_test():
+    """Fail closed if a routed voice SMS can no longer reach the confirmed Contacts/SMS path."""
+    def section(source, start_marker, end_marker, label):
+        start = source.find(start_marker)
+        end = source.find(end_marker, start + len(start_marker)) if start >= 0 else -1
+        if start < 0 or end < 0:
+            raise SystemExit(label + ": integration boundary missing or ambiguous")
+        return source[start:end]
+
+    def require(source, fragment, label):
+        if fragment not in source:
+            raise SystemExit(label + ": required integration contract missing: " + fragment)
+
+    coordinator_path = feature_sources_root / "device-actions/app/src/main/java/com/openjarvis/commands/DeviceActionCoordinator.kt"
+    executor_path = feature_sources_root / "device-actions/app/src/main/java/com/openjarvis/commands/AndroidActionExecutor.kt"
+    resolver_path = feature_sources_root / "device-actions/app/src/main/java/com/openjarvis/deviceactions/contacts/AndroidContactsResolver.kt"
+    if not coordinator_path.is_file() or not executor_path.is_file() or not resolver_path.is_file():
+        raise SystemExit("Voice SMS coordinator contract: Feature-owned coordinator/executor/Contacts resolver source missing")
+
+    coordinator = coordinator_path.read_text(encoding="utf-8")
+    executor = executor_path.read_text(encoding="utf-8")
+    resolver = resolver_path.read_text(encoding="utf-8")
+
+    dispatch = section(
+        coordinator,
+        "suspend fun handle(routed: RoutedCommand, command: String",
+        "private suspend fun handleOpenApp(",
+        "DeviceActionCoordinator.handle"
+    )
+    require(dispatch, "is RoutedCommand.SendSms -> handleSms(routed, command, setState)", "DeviceActionCoordinator.handle")
+
+    sms = section(
+        coordinator,
+        "private suspend fun handleSms(",
+        "private suspend fun handleCall(",
+        "DeviceActionCoordinator.handleSms"
+    )
+    require(sms, "resolveRecipient(routed.contactName, routed.phoneNumber, routed, command, setState)", "DeviceActionCoordinator.handleSms")
+    require(sms, "PendingDeviceAction.SmsAwaitingBody", "DeviceActionCoordinator.handleSms")
+    require(sms, "requestSmsConfirmation(recipient.displayName, recipient.number, body, command, setState)", "DeviceActionCoordinator.handleSms")
+
+    recipient = section(
+        coordinator,
+        "private suspend fun resolveRecipient(",
+        "private suspend fun resolveContactNumber(",
+        "DeviceActionCoordinator.resolveRecipient"
+    )
+    require(recipient, "RecipientSourcePolicy.choose(contactName, phoneNumber)", "DeviceActionCoordinator.resolveRecipient")
+    require(recipient, "is RecipientSource.ContactName", "DeviceActionCoordinator.resolveRecipient")
+    require(recipient, "resolveContactNumber(source.value", "DeviceActionCoordinator.resolveRecipient")
+
+    contact = section(
+        coordinator,
+        "private suspend fun resolveContactNumber(",
+        "private suspend fun requestSmsConfirmation(",
+        "DeviceActionCoordinator.resolveContactNumber"
+    )
+    require(contact, "executor.canReadContacts()", "DeviceActionCoordinator.resolveContactNumber")
+    require(contact, "executor.resolveContactNumber(name)", "DeviceActionCoordinator.resolveContactNumber")
+    require(contact, "ContactResolution.Ambiguous", "DeviceActionCoordinator.resolveContactNumber")
+
+    preview = section(
+        coordinator,
+        "private suspend fun requestSmsConfirmation(",
+        "suspend fun confirmPending(",
+        "DeviceActionCoordinator.requestSmsConfirmation"
+    )
+    require(preview, "smsConfirmationGate.prepare(", "DeviceActionCoordinator.requestSmsConfirmation")
+    require(preview, "AgentState.AwaitingConfirmation(", "DeviceActionCoordinator.requestSmsConfirmation")
+    require(preview, "review.phoneNumber", "DeviceActionCoordinator.requestSmsConfirmation")
+    require(preview, "review.exactMessage", "DeviceActionCoordinator.requestSmsConfirmation")
+
+    confirmation = section(
+        coordinator,
+        "suspend fun confirmPending(",
+        "private suspend fun confirmSms(",
+        "DeviceActionCoordinator.confirmPending"
+    )
+    require(confirmation, "is PendingDeviceAction.SmsConfirmation -> confirmSms(action.review, setState)", "DeviceActionCoordinator.confirmPending")
+
+    send = section(
+        coordinator,
+        "private suspend fun confirmSms(",
+        "suspend fun cancelPending(",
+        "DeviceActionCoordinator.confirmSms"
+    )
+    permission_index = send.find("if (!executor.canSendSmsDirectly())")
+    token_index = send.find("smsConfirmationGate.confirm(review.reviewId)")
+    transport_index = send.find("executor.dispatchConfirmedSms(confirmation, smsConfirmationGate)")
+    if min(permission_index, token_index, transport_index) < 0 or not (permission_index < token_index < transport_index):
+        raise SystemExit("DeviceActionCoordinator.confirmSms: permission recheck, one-time confirmation and transport order changed")
+
+    require(executor, "AndroidContactsResolver(context).resolve(name)", "AndroidActionExecutor.resolveContactNumber")
+    require(executor, "createAndroidSmsDispatcher(context, gate)", "AndroidActionExecutor.dispatchConfirmedSms")
+    require(executor, "dispatcher.dispatch(confirmation)", "AndroidActionExecutor.dispatchConfirmedSms")
+    require(resolver, "Manifest.permission.READ_CONTACTS", "AndroidContactsResolver")
+    require(resolver, "Phone.CONTENT_URI", "AndroidContactsResolver")
+    require(resolver, "ContactsContract.Contacts.DISPLAY_NAME_PRIMARY", "AndroidContactsResolver")
+
+
+_voice_sms_coordinator_handoff_regression_test()
+print("Verified voice SMS router-to-coordinator-to-ContactsContract handoff and confirmation-before-transport contract")
 
 repair_marker.write_text(repair_digest + "\n", encoding="utf-8")
 print("OPEN_JARVIS_REPAIR_IDEMPOTENT_MARKER_WRITTEN")

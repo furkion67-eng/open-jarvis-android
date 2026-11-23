@@ -46,36 +46,59 @@ import java.util.UUID
 @Composable
 fun TaskControlCenter(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val repositoryResult = remember(context) {
-        runCatching { JarvisTaskRepository.getInstance(context.applicationContext) }
+    var repository by remember(context) { mutableStateOf<JarvisTaskRepository?>(null) }
+    var repositoryError by remember(context) { mutableStateOf<String?>(null) }
+    var repositoryLoading by remember(context) { mutableStateOf(true) }
+    var repositoryLoadAttempt by remember(context) { mutableStateOf(0) }
+
+    LaunchedEffect(context, repositoryLoadAttempt) {
+        repositoryLoading = true
+        repositoryError = null
+        try {
+            repository = JarvisTaskRepository.getInstanceOnIo(context.applicationContext)
+        } catch (error: Exception) {
+            repositoryError = error.localizedMessage ?: "Bilinmeyen hata"
+        } finally {
+            repositoryLoading = false
+        }
     }
 
-    if (repositoryResult.isFailure) {
+    if (repository == null) {
         Card(
             modifier = modifier,
             colors = CardDefaults.cardColors(containerColor = VoidColor.Void900),
             shape = RoundedCornerShape(22.dp)
         ) {
-            Text(
-                text = "Görev hafızası açılamadı: ${repositoryResult.exceptionOrNull()?.localizedMessage ?: "Bilinmeyen hata"}",
-                color = VoidColor.Red,
-                modifier = Modifier.padding(18.dp)
-            )
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = if (repositoryLoading) {
+                        "Görev hafızası arka planda yükleniyor…"
+                    } else {
+                        "Görev hafızası açılamadı: " + (repositoryError ?: "Bilinmeyen hata")
+                    },
+                    color = if (repositoryLoading) VoidColor.TextSecondary else VoidColor.Red
+                )
+                if (!repositoryLoading) {
+                    TextButton(onClick = { repositoryLoadAttempt++ }) {
+                        Text("Yeniden dene")
+                    }
+                }
+            }
         }
         return
     }
 
-    val repository = repositoryResult.getOrThrow()
-    val tasks by repository.observeRecentTasks().collectAsState(initial = emptyList())
+    val activeRepository = requireNotNull(repository)
+    val tasksFlow = remember(activeRepository) { activeRepository.observeRecentTasks() }
+    val tasks by tasksFlow.collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     var goal by rememberSaveable { mutableStateOf("") }
     var submissionKey by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
     var busy by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(repository) {
-        repository.recoverInterruptedTasks()
-    }
 
     fun runAction(action: suspend () -> Unit) {
         scope.launch {
@@ -132,7 +155,7 @@ fun TaskControlCenter(modifier: Modifier = Modifier) {
                     val requestKey = submissionKey
                     if (requestedGoal.isNotEmpty()) {
                         runAction {
-                            repository.createTask(requestedGoal, requestKey)
+                            activeRepository.createTask(requestedGoal, requestKey)
                             goal = ""
                             submissionKey = UUID.randomUUID().toString()
                         }
@@ -164,9 +187,9 @@ fun TaskControlCenter(modifier: Modifier = Modifier) {
                     TaskItem(
                         task = task,
                         enabled = !busy,
-                        onAcceptPlan = { runAction { repository.acceptPlan(task.id) } },
-                        onRetry = { runAction { repository.retry(task.id) } },
-                        onCancel = { runAction { repository.cancel(task.id) } }
+                        onAcceptPlan = { runAction { activeRepository.acceptPlan(task.id) } },
+                        onRetry = { runAction { activeRepository.retry(task.id) } },
+                        onCancel = { runAction { activeRepository.cancel(task.id) } }
                     )
                 }
             }
