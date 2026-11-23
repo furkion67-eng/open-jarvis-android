@@ -3783,20 +3783,51 @@ for source in sorted(download_service_feature_root.rglob("*.kt")):
 print("Installed DownloadService startId/generation lifecycle guard")
 
 
-# Compose UI assertions for the task review vs external-action approval states.
+# Compose UI assertions for task, SMS and SAF panel acceptance.
 def task_compose_test_dependencies(s):
-    if "androidx.compose.ui:ui-test-junit4" in s:
-        return s
     anchor = "    androidTestImplementation 'androidx.test:runner:1.5.2'"
-    if anchor not in s:
-        raise SystemExit("app/build.gradle: AndroidX test runner dependency anchor not found")
-    return s.replace(
-        anchor,
-        anchor + "\n    androidTestImplementation platform('androidx.compose:compose-bom:2023.10.01')"
-        + "\n    androidTestImplementation 'androidx.compose.ui:ui-test-junit4'",
-        1
-    )
+    if "androidx.compose.ui:ui-test-junit4" not in s:
+        if s.count(anchor) != 1:
+            raise SystemExit("app/build.gradle: AndroidX test runner dependency anchor missing or ambiguous")
+        s = s.replace(
+            anchor,
+            anchor + "\n    androidTestImplementation platform('androidx.compose:compose-bom:2023.10.01')"
+            + "\n    androidTestImplementation 'androidx.compose.ui:ui-test-junit4'",
+            1
+        )
+    if "androidx.compose.ui:ui-test-manifest" not in s:
+        if s.count(anchor) != 1:
+            raise SystemExit("app/build.gradle: AndroidX test runner dependency anchor missing for Compose test manifest")
+        s = s.replace(
+            anchor,
+            "    debugImplementation 'androidx.compose.ui:ui-test-manifest:1.5.4'\n" + anchor,
+            1
+        )
+    return s
 
+
+def _task_compose_test_dependencies_regression_test():
+    fixture = "dependencies {\n    androidTestImplementation 'androidx.test:runner:1.5.2'\n}\n"
+    once = task_compose_test_dependencies(fixture)
+    if once.count("androidx.compose.ui:ui-test-junit4") != 1:
+        raise SystemExit("app/build.gradle: Compose UI JUnit test dependency was not added exactly once")
+    if once.count("androidx.compose.ui:ui-test-manifest") != 1:
+        raise SystemExit("app/build.gradle: Compose UI test manifest was not added exactly once")
+    if task_compose_test_dependencies(once) != once:
+        raise SystemExit("app/build.gradle: Compose UI test dependencies are not idempotent")
+    existing = fixture + "    debugImplementation 'androidx.compose.ui:ui-test-manifest:1.6.0'\n"
+    preserved = task_compose_test_dependencies(existing)
+    if "ui-test-manifest:1.6.0" not in preserved or preserved.count("ui-test-manifest") != 1:
+        raise SystemExit("app/build.gradle: existing Compose UI test manifest version was not preserved")
+    try:
+        task_compose_test_dependencies("dependencies { }")
+    except SystemExit:
+        pass
+    else:
+        raise SystemExit("app/build.gradle: missing AndroidX test runner anchor was not rejected")
+
+
+_task_compose_test_dependencies_regression_test()
 edit("app/build.gradle", task_compose_test_dependencies)
 
 def contacts_provider_test_dependencies(s):
