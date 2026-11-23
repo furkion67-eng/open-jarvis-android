@@ -745,6 +745,95 @@ object Wikimedia1453AssetCatalog {
     fun find(assetId: String): VideoVisualAssetDescriptor? = byId[assetId]
 }
 
+object WikimediaSinanAssetCatalog {
+    private const val BY_SA_URL = "https://creativecommons.org/licenses/by-sa/4.0/"
+
+    val assets: List<VideoVisualAssetDescriptor> = listOf(
+        VideoVisualAssetDescriptor(
+            assetId = "commons-sinan-sehzade-minarets",
+            sceneId = "sinan-sehzade",
+            title = "Sehzade Mosque minarets",
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/7/70/Sehzade_Mosque_DSCF3265.jpg",
+            sourceUrl = "https://commons.wikimedia.org/w/index.php?title=File:Sehzade_Mosque_DSCF3265.jpg&oldid=1207014206",
+            creator = "R Prazeres",
+            licenseId = "CC BY-SA",
+            licenseVersion = "4.0",
+            licenseUrl = BY_SA_URL,
+            attributionText = "R Prazeres, Sehzade Mosque minarets; CC BY-SA 4.0. 9:16 kadraj için kırpıldı; uyarlama CC BY-SA 4.0 ile paylaşılmalıdır. Kaynak: https://commons.wikimedia.org/w/index.php?title=File:Sehzade_Mosque_DSCF3265.jpg&oldid=1207014206 Lisans: https://creativecommons.org/licenses/by-sa/4.0/",
+            expectedMimeType = "image/jpeg",
+            shareAlikeRequired = true,
+            requiredOutputLicense = "CC BY-SA 4.0"
+        ),
+        VideoVisualAssetDescriptor(
+            assetId = "commons-sinan-suleymaniye-exterior",
+            sceneId = "sinan-suleymaniye",
+            title = "Süleymaniye Mosque Istanbul",
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/d/d0/S%C3%BCleymaniye_Mosque_Istanbul.JPG",
+            sourceUrl = "https://commons.wikimedia.org/w/index.php?title=File:S%C3%BCleymaniye_Mosque_Istanbul.JPG&oldid=1049867755",
+            creator = "Mattias Hill",
+            licenseId = "CC BY-SA",
+            licenseVersion = "4.0",
+            licenseUrl = BY_SA_URL,
+            attributionText = "Mattias Hill, Süleymaniye Mosque Istanbul; CC BY-SA 4.0. 9:16 kadraj için kırpıldı; uyarlama CC BY-SA 4.0 ile paylaşılmalıdır. Kaynak: https://commons.wikimedia.org/w/index.php?title=File:S%C3%BCleymaniye_Mosque_Istanbul.JPG&oldid=1049867755 Lisans: https://creativecommons.org/licenses/by-sa/4.0/",
+            expectedMimeType = "image/jpeg",
+            maxBytes = 4_400_000L,
+            shareAlikeRequired = true,
+            requiredOutputLicense = "CC BY-SA 4.0"
+        ),
+        VideoVisualAssetDescriptor(
+            assetId = "commons-sinan-selimiye-monument",
+            sceneId = "sinan-selimiye",
+            title = "Selimiye Mosque and Mimar Sinan monument",
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/0/09/Selimiye_Mosque_in_Edirne_and_a_monument_to_its_builder%2C_architect_Mimar_Sinan.jpg",
+            sourceUrl = "https://commons.wikimedia.org/w/index.php?title=File:Selimiye_Mosque_in_Edirne_and_a_monument_to_its_builder,_architect_Mimar_Sinan.jpg&oldid=1140027221",
+            creator = "BuhaM",
+            licenseId = "CC BY-SA",
+            licenseVersion = "4.0",
+            licenseUrl = BY_SA_URL,
+            attributionText = "BuhaM, Selimiye Mosque and Mimar Sinan monument; CC BY-SA 4.0. 9:16 kadraj için kırpıldı; uyarlama CC BY-SA 4.0 ile paylaşılmalıdır. Kaynak: https://commons.wikimedia.org/w/index.php?title=File:Selimiye_Mosque_in_Edirne_and_a_monument_to_its_builder,_architect_Mimar_Sinan.jpg&oldid=1140027221 Lisans: https://creativecommons.org/licenses/by-sa/4.0/",
+            expectedMimeType = "image/jpeg",
+            maxBytes = 4_400_000L,
+            shareAlikeRequired = true,
+            requiredOutputLicense = "CC BY-SA 4.0"
+        ),
+        VideoVisualAssetDescriptor(
+            assetId = "commons-sinan-sculpture",
+            sceneId = "sinan-mimarbasi",
+            title = "Koca Mimar Sinan sculpture",
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/1/18/Koca_Mimar_Sinan.jpg",
+            sourceUrl = "https://commons.wikimedia.org/w/index.php?title=File:Koca_Mimar_Sinan.jpg&oldid=1181793138",
+            creator = "Yahia",
+            licenseId = "CC BY-SA",
+            licenseVersion = "4.0",
+            licenseUrl = BY_SA_URL,
+            attributionText = "Yahia, Koca Mimar Sinan sculpture; CC BY-SA 4.0. Heykel fotoğrafı 9:16 kadraj için kırpıldı; uyarlama CC BY-SA 4.0 ile paylaşılmalıdır. Kaynak: https://commons.wikimedia.org/w/index.php?title=File:Koca_Mimar_Sinan.jpg&oldid=1181793138 Lisans: https://creativecommons.org/licenses/by-sa/4.0/",
+            expectedMimeType = "image/jpeg",
+            shareAlikeRequired = true,
+            requiredOutputLicense = "CC BY-SA 4.0"
+        ),
+        VideoVisualAssetDescriptor(
+            assetId = "commons-sinan-tomb",
+            sceneId = "sinan-legacy",
+            title = "Mimar Sinan Tomb",
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/2/2c/Mimar_Sinan_Tomb.jpg",
+            sourceUrl = "https://commons.wikimedia.org/w/index.php?title=File:Mimar_Sinan_Tomb.jpg&oldid=1289199267",
+            creator = "Sahar.Ahmed",
+            licenseId = "CC BY-SA",
+            licenseVersion = "4.0",
+            licenseUrl = BY_SA_URL,
+            attributionText = "Sahar.Ahmed, Mimar Sinan Tomb; CC BY-SA 4.0. 9:16 kadraj için kırpıldı; uyarlama CC BY-SA 4.0 ile paylaşılmalıdır. Kaynak: https://commons.wikimedia.org/w/index.php?title=File:Mimar_Sinan_Tomb.jpg&oldid=1289199267 Lisans: https://creativecommons.org/licenses/by-sa/4.0/",
+            expectedMimeType = "image/jpeg",
+            maxBytes = 4_400_000L,
+            shareAlikeRequired = true,
+            requiredOutputLicense = "CC BY-SA 4.0"
+        )
+    )
+
+    private val byId = assets.associateBy { it.assetId }
+
+    fun find(assetId: String): VideoVisualAssetDescriptor? = byId[assetId]
+}
+
 private fun sha256(value: String): String = sha256(value.toByteArray(Charsets.UTF_8))
 
 private fun sha256(bytes: ByteArray): String =
