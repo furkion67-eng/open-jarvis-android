@@ -342,7 +342,7 @@ class VideoVisualAssetsTest {
             assetId = "asset-one",
             sceneId = "scene-01",
             title = "Example visual",
-            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/a/ab/example.jpg",
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/a/ab/Example.jpg",
             sourceUrl = source,
             creator = "Example Creator",
             licenseId = "CC BY-SA",
