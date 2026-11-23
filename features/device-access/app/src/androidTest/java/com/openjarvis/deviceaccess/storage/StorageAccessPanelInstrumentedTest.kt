@@ -83,16 +83,16 @@ class StorageAccessPanelInstrumentedTest {
             registry.lastGrantedTreeUri() == tree && launchedIntents.isEmpty()
         }
         composeRule.waitUntil(5_000) {
-            runCatching { composeRule.onNodeWithText("report.txt").assertExists() }.isSuccess
+            runCatching { composeRule.onNodeWithText("report.txt", substring = true).assertExists() }.isSuccess
         }
         assertEquals(listOf(tree), registry.grantedTreeUris())
 
         composeRule.onNodeWithText("Bu klasörde dosya ara").performTextInput("report")
-        composeRule.onNodeWithText("report.txt").assertExists()
-        composeRule.onNodeWithText("hidden.log").assertDoesNotExist()
+        composeRule.onNodeWithText("report.txt", substring = true).assertExists()
+        composeRule.onNodeWithText("hidden.log", substring = true).assertDoesNotExist()
         composeRule.onNodeWithText("Bu klasörde dosya ara").performTextClearance()
 
-        composeRule.onNodeWithText("report.txt").performClick()
+        composeRule.onNodeWithText("report.txt", substring = true).performClick()
         assertEquals(1, launchedIntents.size)
         val openIntent = launchedIntents.last()
         assertEquals(Intent.ACTION_VIEW, openIntent.action)
@@ -114,17 +114,17 @@ class StorageAccessPanelInstrumentedTest {
         assertTrue(shareIntent!!.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
         assertEquals(reportUri, shareIntent.clipData?.getItemAt(0)?.uri)
 
-        composeRule.onNodeWithText("archive").performClick()
+        composeRule.onNodeWithText("archive", substring = true).performClick()
         composeRule.waitUntil(5_000) {
-            runCatching { composeRule.onNodeWithText("inside.txt").assertExists() }.isSuccess
+            runCatching { composeRule.onNodeWithText("inside.txt", substring = true).assertExists() }.isSuccess
         }
-        composeRule.onNodeWithText("report.txt").assertDoesNotExist()
+        composeRule.onNodeWithText("report.txt", substring = true).assertDoesNotExist()
 
         composeRule.onNodeWithText("Erişimi kaldır").performClick()
         composeRule.waitUntil(5_000) { registry.grantedTreeUris().isEmpty() }
         assertTrue(registry.lastGrantedTreeUri() == null)
         composeRule.onNodeWithText("Seçilen klasör erişimi kaldırıldı. JARVIS artık bu klasöre erişemez.").assertExists()
-        composeRule.onNodeWithText("inside.txt").assertDoesNotExist()
+        composeRule.onNodeWithText("inside.txt", substring = true).assertDoesNotExist()
     }
 
     @Test
@@ -160,7 +160,7 @@ class StorageAccessPanelInstrumentedTest {
         composeRule.setContent { StorageAccessPanelForTest(testHooks = hooks) }
         composeRule.onNodeWithText("Klasör seç").performClick()
         composeRule.waitUntil(5_000) {
-            runCatching { composeRule.onNodeWithText("report.txt").assertExists() }.isSuccess
+            runCatching { composeRule.onNodeWithText("report.txt", substring = true).assertExists() }.isSuccess
         }
 
         composeRule.onNodeWithText("Silme onayı").performClick()
