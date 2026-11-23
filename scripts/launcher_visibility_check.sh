@@ -18,7 +18,16 @@ launcher_is_resumed_and_focused() {
   # RESUMED is not equivalent to a drawn UI. Android's ActivityRecord exposes
   # reportedDrawn; require an actual first draw before treating the launcher
   # as visible (this catches the prior API 34 ANR-dialog false-positive case).
-  if ! grep -Eq 'reportedDrawn=true' "$activity_dump"; then
+  if ! awk -v component="$component" -v short_component="$short_component" '
+    /^[[:space:]]*\*[[:space:]]*Hist/ {
+      in_target = index($0, component) || index($0, short_component)
+      if (in_target) target_seen=1
+      next
+    }
+    in_target && /reportedDrawn=true/ { drawn=1 }
+    in_target && /reportedDrawn=false/ { drawn=0; draw_state_seen=1 }
+    END { exit !(target_seen && drawn) }
+  ' "$activity_dump"; then
     return 1
   fi
 
