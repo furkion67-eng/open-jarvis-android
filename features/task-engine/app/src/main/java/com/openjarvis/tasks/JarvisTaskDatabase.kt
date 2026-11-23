@@ -1,6 +1,9 @@
 package com.openjarvis.tasks
 
 import android.content.Context
+import android.os.SystemClock
+import android.os.Trace
+import android.util.Log
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -94,19 +97,39 @@ abstract class JarvisTaskDatabase : RoomDatabase() {
         private var instance: JarvisTaskDatabase? = null
 
         fun getInstance(context: Context): JarvisTaskDatabase = instance ?: synchronized(this) {
-            instance ?: Room.databaseBuilder(
-                context.applicationContext,
-                JarvisTaskDatabase::class.java,
-                "jarvis_tasks.db"
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7).build().also { instance = it }
+            instance ?: run {
+                val startedAt = SystemClock.elapsedRealtime()
+                Trace.beginSection("JARVIS.task.database.create")
+                try {
+                    Room.databaseBuilder(
+                        context.applicationContext,
+                        JarvisTaskDatabase::class.java,
+                        "jarvis_tasks.db"
+                    ).addMigrations(
+                        MIGRATION_1_2,
+                        MIGRATION_2_3,
+                        MIGRATION_3_4,
+                        MIGRATION_4_5,
+                        MIGRATION_5_6,
+                        MIGRATION_6_7
+                    ).build().also { instance = it }
+                } finally {
+                    Trace.endSection()
+                    val elapsedMs = SystemClock.elapsedRealtime() - startedAt
+                    if (elapsedMs > 250L) {
+                        Log.w("JARVISStartup", "task.database_create_ms=" + elapsedMs + " budget_ms=250")
+                    }
+                }
+            }
         }
 
-        /** Closes the singleton so instrumentation can verify the file-backed DB after a process-style reopen. */
+        /** Closes the singleton and process bootstrap so file-backed reopen tests use a fresh DAO. */
         internal fun closeInstanceForTesting() {
             synchronized(this) {
                 instance?.close()
                 instance = null
             }
+            JarvisTaskRepository.resetProcessBootstrapForTesting()
         }
     }
 }
