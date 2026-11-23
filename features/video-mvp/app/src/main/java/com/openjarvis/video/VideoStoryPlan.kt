@@ -320,6 +320,13 @@ object VideoStoryPlanBuilder {
         val hook = "Üç eser, tek usta!"
         val scenes = listOf(
             VideoScene(
+                heading = "48 yaşında mimarbaşı",
+                caption = "Prut üzerindeki köprüsüyle dikkat çeken Sinan, 48 yaşındayken mimarbaşılığa getirildi.",
+                sceneId = "sinan-mimarbasi",
+                visualAssetId = "commons-sinan-sculpture",
+                claimIds = listOf("sinan-chief-architect")
+            ),
+            VideoScene(
                 heading = "Çıraklık eseri: Şehzade",
                 caption = "Sinan, 1548'de Şehzade Camii'ni tamamladı; bu yapıyı çıraklık eseri diye anlattı.",
                 sceneId = "sinan-sehzade",
@@ -339,13 +346,6 @@ object VideoStoryPlanBuilder {
                 sceneId = "sinan-selimiye",
                 visualAssetId = "commons-sinan-selimiye-monument",
                 claimIds = listOf("sinan-master")
-            ),
-            VideoScene(
-                heading = "48 yaşında mimarbaşı",
-                caption = "Prut üzerindeki köprüsüyle dikkat çeken Sinan, 48 yaşındayken mimarbaşılığa getirildi.",
-                sceneId = "sinan-mimarbasi",
-                visualAssetId = "commons-sinan-sculpture",
-                claimIds = listOf("sinan-chief-architect")
             ),
             VideoScene(
                 heading = "Süleymaniye'de son iz",
