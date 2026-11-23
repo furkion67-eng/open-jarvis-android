@@ -64,7 +64,7 @@ class JarvisTaskRepositoryBootstrapTest {
     }
 
     @Test
-    fun testResetAllowsAFileBackedDatabaseReopen() = runBlocking {
+    fun resetForTestingAllowsFreshRepositoryBootstrap() = runBlocking {
         val bootstrap = JarvisTaskRepositoryBootstrap<Any>()
         val first = Any()
         val second = Any()
