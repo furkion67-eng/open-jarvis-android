@@ -311,7 +311,7 @@ class VideoArtifactPlayerInstrumentedTest {
             // reopen the same on-disk database before launching a fresh host Activity.
             closeDashboardPlayerHost(playerActivity)
             playerActivity = null
-            JarvisTaskDatabase.closeInstanceForTesting()
+            withContext(Dispatchers.IO) { JarvisTaskDatabase.closeInstanceForTesting() }
             val reopenedDatabase = withContext(Dispatchers.IO) { JarvisTaskDatabase.getInstance(context) }
             val restoredTask = reopenedDatabase.taskDao().findById(createdTaskId)
                 ?: throw AssertionError("The production-created task must survive Room reopen.")
@@ -394,13 +394,13 @@ class VideoArtifactPlayerInstrumentedTest {
             )
         } finally {
             closeDashboardPlayerHost(playerActivity)
-            JarvisTaskDatabase.closeInstanceForTesting()
+            withContext(Dispatchers.IO) { JarvisTaskDatabase.closeInstanceForTesting() }
             runCatching {
                 val cleanupDatabase = withContext(Dispatchers.IO) { JarvisTaskDatabase.getInstance(context) }
                 taskId?.let { cleanupDatabase.taskDao().deleteById(it) }
                 olderArtifactId?.let { cleanupDatabase.taskDao().deleteById(it) }
             }
-            JarvisTaskDatabase.closeInstanceForTesting()
+            withContext(Dispatchers.IO) { JarvisTaskDatabase.closeInstanceForTesting() }
             actionViewMonitor?.let { InstrumentationRegistry.getInstrumentation().removeMonitor(it) }
             listOf(
                 videoUri,
