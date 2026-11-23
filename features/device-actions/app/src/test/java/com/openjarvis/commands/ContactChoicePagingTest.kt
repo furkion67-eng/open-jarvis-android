@@ -75,8 +75,16 @@ class ContactChoicePagingTest {
             ContactChoicePaging.navigate("  SONRAKI   SAYFA. ", 0, candidates.size)
         )
         assertEquals(
+            1,
+            ContactChoicePaging.navigate("  SONRAKİ   SAYFA. ", 0, candidates.size)
+        )
+        assertEquals(
             0,
-            ContactChoicePaging.navigate("  ÖNCEKİ\tSAYFA! ", 1, candidates.size)
+            ContactChoicePaging.navigate("  ÖNCEKİ\\tSAYFA! ", 1, candidates.size)
+        )
+        assertEquals(
+            0,
+            ContactChoicePaging.navigate("  ÖNCEKI\\tSAYFA! ", 1, candidates.size)
         )
         assertEquals(
             1,
