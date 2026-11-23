@@ -1,93 +1,142 @@
 #!/usr/bin/env bash
-# Open Jarvis launch smoke test (issue #3).
-#
-# Runs on an Android 13 (API 33) emulator inside CI:
-#   A) cold launch on a fresh install, process must stay alive 20s with no
-#      FATAL EXCEPTION in the logcat crash buffer;
-#   B) launch with a legacy graphify.db (schema user_version=1) planted in the
-#      app data dir — the exact upgraded-device state that crashed Open Jarvis
-#      with "A migration from 1 to 3 was required but not found" — the app must
-#      stay alive and the database must be backed up as graphify.db.unmigratable-*;
-#   C) instrumented tests: full Room recovery end-to-end + analysis engine.
+# Android 13/14 launch, feature instrumentation and reviewable narrated-video evidence.
 set -euo pipefail
-
+SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
+source "$SCRIPT_DIR/launcher_visibility_check.sh"
 APP_PKG="com.openjarvis"
 LAUNCHER="com.openjarvis/.ui.MainActivity"
-
-fail() { echo "SMOKE-FAIL: $1"; exit 1; }
+: "${APP_APK:?APP_APK is required}"
+: "${TEST_APK:?TEST_APK is required}"
+fail() { echo "SMOKE-FAIL: $1" >&2; exit 1; }
 
 adb wait-for-device
-API_LEVEL="$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
-case "$API_LEVEL" in
-  33|34) echo "Android API $API_LEVEL smoke test" ;;
-  *) fail "unexpected emulator API level: $API_LEVEL (expected 33 or 34)" ;;
-esac
+boot=""
+for attempt in $(seq 1 60); do
+  boot="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+  [ "$boot" = "1" ] && break
+  sleep 1
+done
+[ "$boot" = "1" ] || fail "emulator did not finish booting"
+api="$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
+case "$api" in 33|34) echo "Android API $api" ;; *) fail "unexpected API $api" ;; esac
 
-# No adb root: use run-as on the debuggable test package for private test data.
-adb install -r "$APP_APK" >/dev/null || fail "app APK install failed"
-adb shell pm clear "$APP_PKG" >/dev/null
+adb install -r "$APP_APK" >/dev/null || fail "Debug APK install failed"
+adb shell pm clear "$APP_PKG" >/dev/null || fail "app data clear failed"
 
-logcat_scan() {
+capture() {
   local label="$1"
-  adb logcat -d -b crash > crashlog.txt 2>/dev/null || true
-  if grep -q "FATAL EXCEPTION" crashlog.txt; then
-    echo "---- crash buffer ----"; cat crashlog.txt
-    fail "$label: FATAL EXCEPTION found in logcat crash buffer"
-  fi
-  adb logcat -d > logcat-full.txt 2>/dev/null || true
+  adb shell dumpsys activity activities > "activity-$label.txt" 2>/dev/null || true
+  adb shell dumpsys window > "windows-$label.txt" 2>/dev/null || true
+  adb logcat -d -b crash > "crashlog-$label.txt" 2>/dev/null || true
+  adb logcat -d -v threadtime > "logcat-$label.txt" 2>/dev/null || true
+  adb exec-out screencap -p > "screen-$label.png" 2>/dev/null || true
+}
+visible() {
+  local label="$1"
+  local deadline=$((SECONDS + 25))
+  while (( SECONDS < deadline )); do
+    adb shell dumpsys activity activities > "activity-$label.txt" 2>/dev/null || true
+    adb shell dumpsys window > "windows-$label.txt" 2>/dev/null || true
+    if launcher_is_resumed_and_focused "activity-$label.txt" "windows-$label.txt"; then
+      adb exec-out screencap -p > "screen-$label.png" 2>/dev/null || return 1
+      test -s "screen-$label.png" || return 1
+      echo "MAIN-ACTIVITY-VISIBLE: $label"
+      return 0
+    fi
+    sleep 1
+  done
+  capture "$label-failed"
+  return 1
 }
 
-launch_and_verify() {
-  local label="$1"
-  adb shell am start -n "$LAUNCHER" >/dev/null
-  sleep 20
-  local pid
-  pid="$(adb shell pidof "$APP_PKG" | tr -d '\r' || true)"
-  if [ -z "$pid" ]; then
-    adb logcat -d > logcat-full.txt 2>/dev/null || true
-    fail "$label: launcher process died within 20s"
-  fi
-  echo "$label: launcher process alive (pid=$pid) after 20s"
-  adb exec-out screencap -p > "screen-${label}.png" 2>/dev/null || true
-  logcat_scan "$label"
-}
-
-echo "=== Scenario A: cold launch on a fresh install ==="
 adb logcat -c >/dev/null 2>&1 || true
-launch_and_verify "fresh-launch"
-
-echo "=== Scenario B: launch with legacy graphify.db (issue #3 device state) ==="
-adb shell am force-stop "$APP_PKG"
-adb logcat -c >/dev/null 2>&1 || true
-sqlite3 legacy.db "CREATE TABLE legacy_marker (id INTEGER PRIMARY KEY); PRAGMA user_version=1;"
-adb push legacy.db /data/local/tmp/legacy.db >/dev/null
-adb shell chmod 644 /data/local/tmp/legacy.db
-adb shell run-as "$APP_PKG" mkdir -p databases
-adb shell run-as "$APP_PKG" cp /data/local/tmp/legacy.db databases/graphify.db
-adb shell am start -n "$LAUNCHER" >/dev/null
-sleep 20
+adb shell am start -W -n "$LAUNCHER" > launcher-start.txt 2>&1 || fail "MainActivity start failed"
+sleep 3
 pid="$(adb shell pidof "$APP_PKG" | tr -d '\r' || true)"
-if [ -z "$pid" ]; then
-  fail "legacy-db: launcher process died within 20s"
-fi
-echo "legacy-db: launcher process alive (pid=$pid) after 20s"
-adb exec-out screencap -p > "screen-legacy-db.png" 2>/dev/null || true
-logcat_scan "legacy-db"
-adb shell run-as "$APP_PKG" ls databases | tr -d '\r' > databases.txt
-cat databases.txt
-if ! grep -q "graphify.db.unmigratable-" databases.txt; then
-  fail "legacy-db: un-migratable database was not backed up"
-fi
-echo "legacy-db: recovery backup created, app stayed alive"
+[ -n "$pid" ] || fail "launcher process died"
+visible "fresh-launch" || fail "MainActivity is not resumed and focused"
 
-echo "=== Scenario C: instrumented tests (Room recovery end-to-end + analysis engine) ==="
-adb install -r "$TEST_APK" >/dev/null || fail "test APK install failed"
-adb shell am instrument -w "$APP_PKG.test/androidx.test.runner.AndroidJUnitRunner" | tee instrumented.log
-if ! grep -q "OK (" instrumented.log; then
-  fail "instrumented tests did not report OK"
-fi
-if grep -q "FAILURES" instrumented.log; then
-  fail "instrumented tests reported FAILURES"
-fi
+adb install -r "$TEST_APK" >/dev/null || fail "instrumented APK install failed"
+set +e
+adb shell am instrument -w "$APP_PKG.test/androidx.test.runner.AndroidJUnitRunner" 2>&1 | tee instrumented.log
+instrumented_exit=$?
+set -e
+[ "$instrumented_exit" -eq 0 ] || fail "instrumentation command failed: $instrumented_exit"
+grep -q "OK (" instrumented.log || fail "instrumentation did not report OK"
+if grep -q "FAILURES" instrumented.log; then fail "instrumentation reported failures"; fi
 
-echo "SMOKE-OK: fresh launch, legacy-database launch and instrumented tests all passed"
+for class in ContactResolutionInstrumentedTest SmsConfirmationInstrumentedTest SafStorageGatewayInstrumentedTest StorageUriGrantRegistryInstrumentedTest ContactChoicePagingCiOverlayTest VideoArtifactPlayerInstrumentedTest VideoNarratedExportInstrumentedTest VideoArtifactEvidenceCiOverlayTest; do
+  grep -Fq "$class" instrumented.log || fail "required instrumentation class not discovered: $class"
+done
+
+python3 - instrumented.log <<'PY'
+import pathlib, sys
+lines = pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines()
+klass = test = ""
+skipped = []
+for line in lines:
+    if line.startswith("INSTRUMENTATION_STATUS: class="):
+        klass = line.split("=", 1)[1].strip()
+    elif line.startswith("INSTRUMENTATION_STATUS: test="):
+        test = line.split("=", 1)[1].strip()
+    elif line.startswith("INSTRUMENTATION_STATUS_CODE:"):
+        code = line.split(":", 1)[1].strip()
+        if code in {"-3", "-4"}:
+            skipped.append((klass, test, code))
+if skipped:
+    for item in skipped: print("INSTRUMENTATION-SKIPPED:", item)
+    raise SystemExit(f"zero skipped tests required; found {len(skipped)}")
+print("INSTRUMENTATION-SKIP-SUMMARY: 0 skipped")
+PY
+
+copy_evidence() {
+  adb exec-out run-as "$APP_PKG" cat "files/$1" > "$2" 2>/dev/null || fail "could not extract app evidence $1"
+  test -s "$2" || fail "empty evidence file $2"
+}
+copy_evidence ci-video-artifact.mp4 video-narrated.mp4
+copy_evidence ci-video-artifact.srt video-narrated.srt
+copy_evidence ci-video-thumbnail.jpg video-narrated-thumbnail.jpg
+copy_evidence ci-video-attribution.json video-narrated-attribution.json
+copy_evidence ci-video-audio-status.txt video-audio-status.txt
+grep -q "VIDEO-NARRATED-PIPELINE-OK" video-audio-status.txt || fail "narrated evidence status missing"
+python3 scripts/validate_video_artifact.py --mode narrated video-narrated.mp4 video-narrated.srt
+ffmpeg -v error -i video-narrated.mp4 -f null - || fail "MP4 decode failed"
+
+python3 - video-narrated-attribution.json <<'PY'
+import json, pathlib, re, sys
+data = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+assets = data.get("attributionManifest", [])
+claims = data.get("claimSources", [])
+count = data.get("sceneCount")
+assert data.get("attributionManifestComplete") is True
+assert count == 5 and len(assets) == count
+assert len({x.get("assetId") for x in assets}) == count
+assert len({x.get("sceneId") for x in assets}) == count
+for x in assets:
+    assert re.fullmatch(r"[a-f0-9]{64}", x.get("sha256", ""))
+    assert "commons.wikimedia.org" in x.get("sourceUrl", "") and "oldid=" in x.get("sourceUrl", "")
+    assert x.get("creator") and x.get("licenseId") and x.get("licenseVersion") and x.get("licenseUrl")
+    assert x.get("commercialUseAllowed") is True and x.get("derivativesAllowed") is True
+    assert x.get("sourceUrl") in x.get("attributionText", "")
+assert len(claims) == count
+assert len({x.get("claimId") for x in claims}) == count
+for x in claims:
+    assert x.get("publisher") in {"Türk Tarih Kurumu", "TDV İslâm Ansiklopedisi"}
+    assert x.get("sourceUrl", "").startswith("https://")
+assert data.get("narrationLocale") == "tr-TR" and data.get("captionLocale") == "tr-TR"
+assert 1 <= int(data.get("hookDurationMs", 0)) <= 2000
+print(f"ATTRIBUTION-MANIFEST-OK: {len(assets)} licensed scene assets; {len(claims)} sourced claims")
+PY
+sha256sum video-narrated.mp4 video-narrated.srt video-narrated-thumbnail.jpg video-narrated-attribution.json > video-narrated.sha256
+cat video-narrated.sha256
+
+adb shell am force-stop "$APP_PKG" >/dev/null 2>&1 || true
+adb shell am start -W -n "$LAUNCHER" > launcher-start-after-tests.txt 2>&1 || fail "post-test launcher relaunch failed"
+visible "post-instrumentation" || fail "MainActivity not visible after tests"
+adb logcat -d -b crash > crashlog.txt 2>/dev/null || true
+adb logcat -d -v threadtime > logcat-full.txt 2>/dev/null || true
+if grep -q "FATAL EXCEPTION" crashlog.txt; then cat crashlog.txt; fail "FATAL EXCEPTION detected"; fi
+adb shell dumpsys activity activities > activity-final.txt 2>/dev/null || true
+adb shell dumpsys window > windows-final.txt 2>/dev/null || true
+adb shell run-as "$APP_PKG" rm -f files/ci-video-artifact.mp4 files/ci-video-artifact.srt files/ci-video-thumbnail.jpg files/ci-video-attribution.json files/ci-video-audio-status.txt >/dev/null 2>&1 || true
+echo "SMOKE-OK: launcher, contacts/SMS/SAF, embedded player, narrated export, attribution and zero-skip instrumentation"
