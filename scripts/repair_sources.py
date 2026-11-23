@@ -2879,8 +2879,9 @@ def _install_tts_callback_diagnostics(source):
             "utterance-start thread=",
             "utterance-done thread=",
             "duration_ms=",
-            "android.os.Trace.beginSection",
-            "android.os.Trace.endSection",
+            "import android.os.Trace",
+            "Trace.beginSection",
+            "Trace.endSection",
         )
         missing = [item for item in required if item not in source]
         if missing:
