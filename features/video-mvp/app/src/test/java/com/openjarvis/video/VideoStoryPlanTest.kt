@@ -30,6 +30,44 @@ class VideoStoryPlanTest {
     }
 
     @Test
+    fun mimarSinanCreatesFiveSourceBackedScenesAndFortyFiveSecondDraft() {
+        val plan = VideoStoryPlanBuilder.build("Mimar Sinan")
+        assertEquals(5, plan.scenes.size)
+        assertEquals(45, plan.renderSpec.durationSeconds)
+        assertEquals(720, plan.renderSpec.width)
+        assertEquals(1_280, plan.renderSpec.height)
+        assertEquals(6, plan.captions.size)
+        assertEquals("Üç eser, tek usta!", plan.hookText)
+        assertEquals(0L, plan.captions.first().startMs)
+        assertEquals(2_000L, plan.captions.first().endMs)
+        assertEquals(plan.hookText, plan.captions.first().text)
+        assertTrue(plan.narrationText.startsWith(plan.hookText))
+        assertTrue(plan.narrationText.contains("1548"))
+        assertTrue(plan.narrationText.contains("1557"))
+        assertTrue(plan.narrationText.contains("1588"))
+        assertEquals(5, plan.claimSources.size)
+        assertTrue(plan.claimSources.all {
+            it.sourceUrl == "https://islamansiklopedisi.org.tr/sinan" &&
+                it.publisher == "TDV İslâm Ansiklopedisi"
+        })
+        assertEquals(5, plan.scenes.map { it.visualAssetId }.distinct().size)
+        assertEquals(5, plan.scenes.map { it.sceneId }.distinct().size)
+        assertTrue(plan.scenes.all { it.claimIds.isNotEmpty() && it.visualAssetId != null })
+        assertTrue(plan.sourceLabel.contains("CC BY-SA 4.0"))
+        plan.renderSpec.copy(requireLicensedVisualAssets = false).validate()
+    }
+
+    @Test
+    fun mimarSinanAliasesResolveTheSameCuratedStory() {
+        val canonical = VideoStoryPlanBuilder.build("Mimar Sinan")
+        listOf("Şehzade Camii", "Süleymaniye", "Selimiye").forEach { alias ->
+            val plan = VideoStoryPlanBuilder.build(alias)
+            assertEquals(canonical.title, plan.title)
+            assertEquals(canonical.scenes.map { it.sceneId }, plan.scenes.map { it.sceneId })
+        }
+    }
+
+    @Test
     fun storyQualityRejectsAFirstSceneHeadingThatRepeatsTheSeparateHook() {
         val plan = VideoStoryPlanBuilder.build("İstanbul'un Fethi")
         val repeatedHeading = plan.hookText.removeSuffix("!")
