@@ -18,34 +18,6 @@ data class ContactCandidate(
     val phoneNumbers: List<ContactPhoneOption>
 )
 
-data class ContactCandidatePage(
-    val items: List<ContactCandidate>,
-    val pageIndex: Int,
-    val pageCount: Int
-) {
-    val hasPrevious: Boolean get() = pageIndex > 0
-    val hasNext: Boolean get() = pageIndex + 1 < pageCount
-}
-
-/** Stable, bounded pages for duplicate-name contact choices. */
-object ContactCandidatePager {
-    const val DEFAULT_PAGE_SIZE = 5
-
-    fun page(
-        candidates: List<ContactCandidate>,
-        requestedPage: Int,
-        pageSize: Int = DEFAULT_PAGE_SIZE
-    ): ContactCandidatePage {
-        require(pageSize > 0) { "pageSize must be positive" }
-        if (candidates.isEmpty()) return ContactCandidatePage(emptyList(), 0, 0)
-
-        val pageCount = (candidates.size + pageSize - 1) / pageSize
-        val pageIndex = requestedPage.coerceIn(0, pageCount - 1)
-        val start = pageIndex * pageSize
-        val end = (start + pageSize).coerceAtMost(candidates.size)
-        return ContactCandidatePage(candidates.subList(start, end), pageIndex, pageCount)
-    }
-}
 
 sealed interface ContactLookupResult {
     object PermissionDenied : ContactLookupResult

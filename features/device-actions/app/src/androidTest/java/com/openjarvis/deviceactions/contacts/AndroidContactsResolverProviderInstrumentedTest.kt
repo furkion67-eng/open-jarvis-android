@@ -5,6 +5,7 @@ import android.database.MatrixCursor
 import android.net.Uri
 import android.provider.ContactsContract
 import android.provider.ContactsContract.CommonDataKinds.Phone
+import com.openjarvis.commands.ContactChoicePaging
 import android.test.mock.MockContentProvider
 import android.test.mock.MockContentResolver
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -83,9 +84,9 @@ class AndroidContactsResolverProviderInstrumentedTest {
         val candidates = (result as ContactLookupResult.ChooseContact).candidates
         assertEquals(listOf(10L, 20L, 30L, 40L, 50L, 60L, 70L), candidates.map { it.contactId })
 
-        val first = ContactCandidatePager.page(candidates, requestedPage = 0, pageSize = 3)
-        val second = ContactCandidatePager.page(candidates, requestedPage = 1, pageSize = 3)
-        val last = ContactCandidatePager.page(candidates, requestedPage = 2, pageSize = 3)
+        val first = ContactChoicePaging.page(candidates, requestedPageIndex = 0, pageSize = 3)
+        val second = ContactChoicePaging.page(candidates, requestedPageIndex = 1, pageSize = 3)
+        val last = ContactChoicePaging.page(candidates, requestedPageIndex = 2, pageSize = 3)
         assertEquals(listOf(10L, 20L, 30L), first.items.map { it.contactId })
         assertEquals(listOf(40L, 50L, 60L), second.items.map { it.contactId })
         assertEquals(listOf(70L), last.items.map { it.contactId })

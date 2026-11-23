@@ -1,6 +1,7 @@
 package com.openjarvis.deviceactions.ui
 
 import com.openjarvis.deviceactions.sms.SmsDraftHandoff
+import com.openjarvis.commands.ContactChoicePaging
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -34,7 +35,6 @@ import kotlinx.coroutines.launch
 import com.openjarvis.deviceaccess.capabilities.AndroidCapabilityStatusReader
 import com.openjarvis.deviceactions.contacts.AndroidContactsResolver
 import com.openjarvis.deviceactions.contacts.ContactCandidate
-import com.openjarvis.deviceactions.contacts.ContactCandidatePager
 import com.openjarvis.deviceactions.contacts.ContactLookupResult
 import com.openjarvis.deviceactions.contacts.ContactPhoneOption
 import com.openjarvis.deviceactions.sms.SmsConfirmationGate
@@ -68,7 +68,7 @@ fun SmsComposePanel(
     var selectedPhone by remember { mutableStateOf<ContactPhoneOption?>(null) }
     var status by remember { mutableStateOf("SMS için önce rehberden bir kişi bul.") }
     var showConfirmation by remember { mutableStateOf(false) }
-    var contactPage by remember { mutableStateOf(0) }
+    var contactPageIndex by remember { mutableStateOf(0) }
 
     suspend fun persistSmsOutcome(outcome: SmsSendOutcome) {
         val journalFailed = try {
@@ -102,7 +102,7 @@ fun SmsComposePanel(
 
     fun applyLookup(result: ContactLookupResult) {
         lookupResult = result
-        contactPage = 0
+        contactPageIndex = 0
         selectedContact = null
         selectedPhone = null
         showConfirmation = false
@@ -193,7 +193,7 @@ fun SmsComposePanel(
                 )
                 is ContactLookupResult.ChooseContact -> {
                     Text("Birden fazla kişi eşleşti. Alıcıyı seç:")
-                    val page = ContactCandidatePager.page(result.candidates, contactPage)
+                    val page = ContactChoicePaging.page(result.candidates, contactPageIndex)
                     page.items.forEach { candidate ->
                         Button(
                             onClick = {
@@ -227,12 +227,12 @@ fun SmsComposePanel(
                         ) {
                             TextButton(
                                 enabled = page.hasPrevious,
-                                onClick = { contactPage = page.pageIndex - 1 }
+                                onClick = { contactPageIndex = page.pageIndex - 1 }
                             ) { Text("Önceki") }
                             Text("${page.pageIndex + 1}/${page.pageCount}")
                             TextButton(
                                 enabled = page.hasNext,
-                                onClick = { contactPage = page.pageIndex + 1 }
+                                onClick = { contactPageIndex = page.pageIndex + 1 }
                             ) { Text("Sonraki") }
                         }
                     }

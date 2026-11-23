@@ -98,24 +98,5 @@ class ContactResolutionTest {
         )
     }
 
-    @Test
-    fun candidatePagerReturnsStableBoundedPagesAndClampsRequestedIndex() {
-        val candidates = (1L..7L).map { id ->
-            ContactCandidate(id, "Kişi $id", listOf(ContactPhoneOption("+90 555 000 00" + id)))
-        }
-
-        val first = ContactCandidatePager.page(candidates, requestedPage = 0, pageSize = 3)
-        val second = ContactCandidatePager.page(candidates, requestedPage = 1, pageSize = 3)
-        val last = ContactCandidatePager.page(candidates, requestedPage = 99, pageSize = 3)
-
-        assertEquals(3, first.pageCount)
-        assertEquals(listOf(1L, 2L, 3L), first.items.map { it.contactId })
-        assertTrue(!first.hasPrevious && first.hasNext)
-        assertEquals(listOf(4L, 5L, 6L), second.items.map { it.contactId })
-        assertTrue(second.hasPrevious && second.hasNext)
-        assertEquals(listOf(7L), last.items.map { it.contactId })
-        assertEquals(2, last.pageIndex)
-        assertTrue(last.hasPrevious && !last.hasNext)
-    }
 
 }
