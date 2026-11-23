@@ -4,24 +4,26 @@ import java.io.ByteArrayInputStream
 import java.io.InputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VideoCaptionsContentPolicyTest {
     @Test
     fun acceptsBoundedUtf8SrtAndPreservesTurkishCaptionText() {
-        val srt = "1\\n00:00:00,000 --> 00:00:02,000\\nİstanbul'un fethi başladı.\\n"
+        val srt = "1\n00:00:00,000 --> 00:00:02,000\nİstanbul'un fethi başladı.\n"
 
         val restored = VideoCaptionsContentPolicy.readValidated(
             ByteArrayInputStream(srt.toByteArray(Charsets.UTF_8))
         )
 
         assertEquals(srt, restored)
+        assertTrue("Accepted SRT must retain real line-feed separators.", restored?.contains('\n') == true)
     }
 
     @Test
     fun rejectsBlankAndNonSrtContent() {
         assertNull(
-            VideoCaptionsContentPolicy.readValidated(ByteArrayInputStream("  \\n".toByteArray()))
+            VideoCaptionsContentPolicy.readValidated(ByteArrayInputStream("  \n".toByteArray()))
         )
         assertNull(
             VideoCaptionsContentPolicy.readValidated(ByteArrayInputStream("plain caption without cue".toByteArray()))
@@ -91,7 +93,7 @@ class VideoCaptionsContentPolicyTest {
 
     @Test
     fun exactMaximumSizeIsAcceptedWhenItContainsASrtCue() {
-        val prefix = "1\\n00:00:00,000 --> 00:00:01,000\\n"
+        val prefix = "1\n00:00:00,000 --> 00:00:01,000\n"
         val padding = "a".repeat(64 - prefix.toByteArray(Charsets.UTF_8).size)
         val srt = prefix + padding
 
@@ -101,6 +103,7 @@ class VideoCaptionsContentPolicyTest {
         )
 
         assertEquals(64, result?.toByteArray(Charsets.UTF_8)?.size)
+        assertTrue("Accepted maximum-size SRT must contain real line-feed separators.", result?.contains('\n') == true)
     }
 
     private class CountingInputStream(private val bytes: ByteArray) : InputStream() {
