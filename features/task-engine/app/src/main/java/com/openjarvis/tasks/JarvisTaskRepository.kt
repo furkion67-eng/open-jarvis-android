@@ -161,27 +161,20 @@ class JarvisTaskRepository(
 
     /** Interrupted work is paused, never replayed automatically after process death. */
     suspend fun recoverInterruptedTasks() {
-        val active = dao.findByStatuses(
-            listOf(
+        // The supplied statuses are exactly the state-machine transitions that may become
+        // INTERRUPTED. One SQL update avoids a Room read plus one update per abandoned task.
+        dao.markActiveTasksInterrupted(
+            expectedStatuses = listOf(
                 JarvisTaskStatus.QUEUED.storageValue,
                 JarvisTaskStatus.PLANNING.storageValue,
                 JarvisTaskStatus.RUNNING.storageValue
-            )
+            ),
+            interruptedStatus = JarvisTaskStatus.INTERRUPTED.storageValue,
+            currentStep = "Güvenli kurtarma beklemesi",
+            errorCode = "APP_RESTARTED",
+            errorMessage = "Uygulama yeniden başlatıldı. Yinelenen işlem riski olmaması için görev otomatik yürütülmedi.",
+            updatedAt = System.currentTimeMillis()
         )
-        active.forEach { task ->
-            val status = JarvisTaskStatus.fromStorage(task.status)
-            if (JarvisTaskStateMachine.canTransition(status, JarvisTaskStatus.INTERRUPTED)) {
-                dao.markInterruptedIfCurrent(
-                    id = task.id,
-                    expectedStatus = status.storageValue,
-                    interruptedStatus = JarvisTaskStatus.INTERRUPTED.storageValue,
-                    currentStep = "Güvenli kurtarma beklemesi",
-                    errorCode = "APP_RESTARTED",
-                    errorMessage = "Uygulama yeniden başlatıldı. Yinelenen işlem riski olmaması için görev otomatik yürütülmedi.",
-                    updatedAt = System.currentTimeMillis()
-                )
-            }
-        }
     }
 
     companion object {
