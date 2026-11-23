@@ -40,6 +40,7 @@ import com.openjarvis.tasks.JarvisTaskRepository
 import com.openjarvis.tasks.JarvisTaskStatus
 import com.openjarvis.tasks.VIDEO_TASK_EXECUTION_MODE
 import com.openjarvis.ui.theme.VoidColor
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -56,6 +57,8 @@ fun TaskControlCenter(modifier: Modifier = Modifier) {
         repositoryError = null
         try {
             repository = JarvisTaskRepository.getInstanceOnIo(context.applicationContext)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (error: Exception) {
             repositoryError = error.localizedMessage ?: "Bilinmeyen hata"
         } finally {
