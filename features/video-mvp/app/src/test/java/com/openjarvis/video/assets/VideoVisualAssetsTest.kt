@@ -209,12 +209,34 @@ class VideoVisualAssetsTest {
 
     @Test
     fun everyCuratedAssetBindsItsDownloadToItsPinnedCommonsFilePage() {
-        assertEquals(5, Wikimedia1453AssetCatalog.assets.size)
-        Wikimedia1453AssetCatalog.assets.forEach { asset ->
+        val allAssets = Wikimedia1453AssetCatalog.assets + WikimediaSinanAssetCatalog.assets
+        assertEquals(10, allAssets.size)
+        allAssets.forEach { asset ->
             assertTrue(
                 asset.assetId,
                 VideoAssetLicensePolicy.isDownloadForPinnedSource(asset.sourceUrl, asset.downloadUrl)
             )
+            VideoAssetLicensePolicy.validate(asset)
+        }
+    }
+
+    @Test
+    fun mimarSinanAssetsHaveDistinctScenesHashesAndCommercialShareAlikeTerms() {
+        val assets = WikimediaSinanAssetCatalog.assets
+        assertEquals(5, assets.size)
+        assertEquals(5, assets.map { it.assetId }.distinct().size)
+        assertEquals(5, assets.map { it.sceneId }.distinct().size)
+        assets.forEach { asset ->
+            assertEquals("CC BY-SA", asset.licenseId)
+            assertEquals("4.0", asset.licenseVersion)
+            assertEquals("https://creativecommons.org/licenses/by-sa/4.0/", asset.licenseUrl)
+            assertTrue(asset.commercialUseAllowed)
+            assertTrue(asset.derivativesAllowed)
+            assertTrue(asset.shareAlikeRequired)
+            assertEquals("CC BY-SA 4.0", asset.requiredOutputLicense)
+            assertTrue(asset.attributionText.contains(asset.creator))
+            assertTrue(asset.attributionText.contains(asset.sourceUrl))
+            assertTrue(asset.attributionText.contains(asset.licenseUrl))
         }
     }
 
