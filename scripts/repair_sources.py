@@ -4078,7 +4078,7 @@ panel_block = """
             Spacer(modifier = Modifier.height(16.dp))
             VideoArtifactPlayerPanel(modifier = Modifier.fillMaxWidth())
             Spacer(modifier = Modifier.height(16.dp))
-            val deviceToolsExpanded = androidx.compose.runtime.rememberSaveable {
+            val deviceToolsExpanded = androidx.compose.runtime.saveable.rememberSaveable {
                 androidx.compose.runtime.mutableStateOf(false)
             }
             androidx.compose.material3.TextButton(
