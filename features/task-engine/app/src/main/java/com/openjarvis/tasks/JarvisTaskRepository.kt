@@ -14,6 +14,9 @@ class JarvisTaskRepository(
     private val dao: JarvisTaskDao,
     private val orchestrator: JarvisTaskOrchestrator
 ) {
+    // Each repository owns the recovery gate for its database. Production uses one
+    // process-scoped repository; isolated in-memory test repositories must not share a gate.
+    private val startupRecoveryGate = JarvisStartupRecoveryGate()
     fun observeRecentTasks(limit: Int = 8): Flow<List<JarvisTaskEntity>> = dao.observeRecent(limit)
 
     /** A bounded page of successful tasks with both persisted video and captions URIs. */
@@ -192,10 +195,9 @@ class JarvisTaskRepository(
         private const val MAX_DEVICE_ACTION_EVENTS = 100
         private const val STARTUP_RECOVERY_TRACE_COOKIE = 731
 
-        private val startupRecoveryGate = JarvisStartupRecoveryGate()
         private val repositoryBootstrap = JarvisTaskRepositoryBootstrap<JarvisTaskRepository>()
 
-        fun getInstance(context: Context): JarvisTaskRepository {
+        private fun getInstance(context: Context): JarvisTaskRepository {
             val dao = JarvisTaskDatabase.getInstance(context).taskDao()
             return createWithRegistry(dao, createDefaultRegistry(context.applicationContext))
         }
@@ -220,7 +222,7 @@ class JarvisTaskRepository(
          */
         suspend fun recoverInterruptedTasksOnIo(repository: JarvisTaskRepository) =
             withContext(Dispatchers.IO) {
-                startupRecoveryGate.runOnce {
+                repository.startupRecoveryGate.runOnce {
                     val recoveryStartedAt = SystemClock.elapsedRealtime()
                     if (Build.VERSION.SDK_INT >= 29) {
                         Trace.beginAsyncSection("JARVIS.task.restore", STARTUP_RECOVERY_TRACE_COOKIE)
@@ -244,7 +246,6 @@ class JarvisTaskRepository(
         /** Test-only reset paired with [JarvisTaskDatabase.closeInstanceForTesting]. */
         internal fun resetProcessBootstrapForTesting() {
             repositoryBootstrap.resetForTesting()
-            startupRecoveryGate.resetForTesting()
         }
 
         private inline fun <T> traceSection(name: String, block: () -> T): T {

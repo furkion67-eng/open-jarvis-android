@@ -21,7 +21,9 @@ import com.openjarvis.tasks.JarvisTaskRepository
 import com.openjarvis.tasks.JarvisTaskStatus
 import com.openjarvis.tasks.VIDEO_TASK_EXECUTION_MODE
 import com.openjarvis.tasks.VideoArtifactMetadataCodec
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -103,7 +105,8 @@ class VideoArtifactPlayerInstrumentedTest {
     @Test
     fun productionCreateAcceptExecutorPersistsAndDashboardPlaysOlderArchiveArtifactAfterRoomReopen() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
-        val repository = JarvisTaskRepository.getInstance(context)
+        withContext(Dispatchers.IO) { JarvisTaskDatabase.closeInstanceForTesting() }
+        val repository = JarvisTaskRepository.getInstanceOnIo(context)
         val requestKey = "player-e2e-" + UUID.randomUUID().toString()
         var taskId: String? = null
         var videoUri: Uri? = null
@@ -126,7 +129,7 @@ class VideoArtifactPlayerInstrumentedTest {
             )
             taskId = createdTaskId
 
-            val database = JarvisTaskDatabase.getInstance(context)
+            val database = withContext(Dispatchers.IO) { JarvisTaskDatabase.getInstance(context) }
             val preview = database.taskDao().findById(createdTaskId)
                 ?: throw AssertionError("Production repository must persist the task preview.")
             assertEquals(JarvisTaskStatus.WAITING_FOR_USER.storageValue, preview.status)
@@ -309,7 +312,7 @@ class VideoArtifactPlayerInstrumentedTest {
             closeDashboardPlayerHost(playerActivity)
             playerActivity = null
             JarvisTaskDatabase.closeInstanceForTesting()
-            val reopenedDatabase = JarvisTaskDatabase.getInstance(context)
+            val reopenedDatabase = withContext(Dispatchers.IO) { JarvisTaskDatabase.getInstance(context) }
             val restoredTask = reopenedDatabase.taskDao().findById(createdTaskId)
                 ?: throw AssertionError("The production-created task must survive Room reopen.")
             assertEquals(JarvisTaskStatus.SUCCEEDED.storageValue, restoredTask.status)
@@ -393,7 +396,7 @@ class VideoArtifactPlayerInstrumentedTest {
             closeDashboardPlayerHost(playerActivity)
             JarvisTaskDatabase.closeInstanceForTesting()
             runCatching {
-                val cleanupDatabase = JarvisTaskDatabase.getInstance(context)
+                val cleanupDatabase = withContext(Dispatchers.IO) { JarvisTaskDatabase.getInstance(context) }
                 taskId?.let { cleanupDatabase.taskDao().deleteById(it) }
                 olderArtifactId?.let { cleanupDatabase.taskDao().deleteById(it) }
             }
