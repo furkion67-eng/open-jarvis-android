@@ -3799,6 +3799,41 @@ def task_compose_test_dependencies(s):
 
 edit("app/build.gradle", task_compose_test_dependencies)
 
+def contacts_provider_test_dependencies(s):
+    # The provider-backed ContactsContract test uses AndroidX ProviderTestRule.
+    # Keep this test-only dependency explicit; production has no android.test.mock dependency.
+    if "androidx.test:rules:" in s:
+        return s
+    anchor = "    androidTestImplementation 'androidx.test:runner:1.5.2'"
+    if s.count(anchor) != 1:
+        raise SystemExit("app/build.gradle: AndroidX test runner dependency anchor missing or ambiguous")
+    return s.replace(
+        anchor,
+        anchor + "\\n    androidTestImplementation 'androidx.test:rules:1.5.0'",
+        1
+    )
+
+
+def _contacts_provider_test_dependencies_regression_test():
+    fixture = "dependencies {\\n    androidTestImplementation 'androidx.test:runner:1.5.2'\\n}\\n"
+    once = contacts_provider_test_dependencies(fixture)
+    twice = contacts_provider_test_dependencies(once)
+    if once != twice or once.count("androidx.test:rules:1.5.0") != 1:
+        raise SystemExit("app/build.gradle: Contacts provider test dependency is not idempotent")
+    existing = fixture + "    androidTestImplementation 'androidx.test:rules:1.6.1'\\n"
+    if contacts_provider_test_dependencies(existing) != existing:
+        raise SystemExit("app/build.gradle: an existing AndroidX test rules dependency was duplicated")
+    try:
+        contacts_provider_test_dependencies("dependencies { }")
+    except SystemExit:
+        pass
+    else:
+        raise SystemExit("app/build.gradle: missing test runner anchor was not rejected")
+
+
+_contacts_provider_test_dependencies_regression_test()
+edit("app/build.gradle", contacts_provider_test_dependencies)
+
 
 
 # Issue #8: route typed and recognized Turkish CREATE_VIDEO intents through the durable task gate.
