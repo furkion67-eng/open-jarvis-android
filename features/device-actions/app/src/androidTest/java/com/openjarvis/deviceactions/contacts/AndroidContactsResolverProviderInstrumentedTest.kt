@@ -1,19 +1,21 @@
 package com.openjarvis.deviceactions.contacts
 
+import android.content.ContentProvider
+import android.content.ContentValues
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
 import android.provider.ContactsContract
 import android.provider.ContactsContract.CommonDataKinds.Phone
+import androidx.test.rule.provider.ProviderTestRule
 import com.openjarvis.commands.ContactChoicePaging
-import android.test.mock.MockContentProvider
-import android.test.mock.MockContentResolver
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.Locale
@@ -25,17 +27,19 @@ import com.openjarvis.deviceactions.sms.SmsTransport
 
 @RunWith(AndroidJUnit4::class)
 class AndroidContactsResolverProviderInstrumentedTest {
-    private lateinit var provider: FakeContactsProvider
-    private lateinit var contentResolver: MockContentResolver
+    @Rule
+    @JvmField
+    val providerRule: ProviderTestRule =
+        ProviderTestRule.Builder(FakeContactsProvider::class.java, ContactsContract.AUTHORITY).build()
+
     private val context
         get() = InstrumentationRegistry.getInstrumentation().targetContext
+    private val contentResolver
+        get() = providerRule.resolver
 
     @Before
     fun setUp() {
-        provider = FakeContactsProvider()
-        contentResolver = MockContentResolver().apply {
-            addProvider(ContactsContract.AUTHORITY, provider)
-        }
+        FakeContactsProvider.reset()
     }
 
     @Test
@@ -43,22 +47,22 @@ class AndroidContactsResolverProviderInstrumentedTest {
         val result = resolver(permissionGranted = false).resolve("İpek Yılmaz")
 
         assertTrue(result is ContactLookupResult.PermissionDenied)
-        assertEquals(0, provider.queryCount)
+        assertEquals(0, FakeContactsProvider.queryCount)
     }
 
     @Test
     fun permissionRevokedByProviderDuringQueryReturnsDeniedNotNoMatch() {
-        provider.failure = SecurityException("READ_CONTACTS revoked during query")
+        FakeContactsProvider.failure = SecurityException("READ_CONTACTS revoked during query")
 
         val result = resolver(permissionGranted = true).resolve("İpek Yılmaz")
 
         assertTrue(result is ContactLookupResult.PermissionDenied)
-        assertEquals(1, provider.queryCount)
+        assertEquals(1, FakeContactsProvider.queryCount)
     }
 
     @Test
     fun exactTurkishNameResolvesUniquePhoneThroughContactsContractUriAndProjection() {
-        provider.rows = listOf(
+        FakeContactsProvider.rows = listOf(
             FakePhoneRow(7L, "İpek Yılmaz", "+90 532 111 22 33", "Cep")
         )
 
@@ -66,15 +70,15 @@ class AndroidContactsResolverProviderInstrumentedTest {
 
         assertTrue(result is ContactLookupResult.Unique)
         assertEquals("+90 532 111 22 33", (result as ContactLookupResult.Unique).phone.number)
-        assertEquals(Phone.CONTENT_URI, provider.lastUri)
-        assertTrue(provider.lastSortOrder.orEmpty().contains("DISPLAY_NAME_PRIMARY"))
-        assertTrue(provider.lastProjection.contains(Phone.CONTACT_ID))
-        assertTrue(provider.lastProjection.contains(Phone.NUMBER))
+        assertEquals(Phone.CONTENT_URI, FakeContactsProvider.lastUri)
+        assertTrue(FakeContactsProvider.lastSortOrder.orEmpty().contains("DISPLAY_NAME_PRIMARY"))
+        assertTrue(FakeContactsProvider.lastProjection.contains(Phone.CONTACT_ID))
+        assertTrue(FakeContactsProvider.lastProjection.contains(Phone.NUMBER))
     }
 
     @Test
     fun sameNameContactsAreSortedAndPagedWithoutDroppingCandidates() {
-        provider.rows = listOf(
+        FakeContactsProvider.rows = listOf(
             FakePhoneRow(30L, "Ali Demir", "+90 555 000 0030", "Cep"),
             FakePhoneRow(10L, "Ali Demir", "+90 555 000 0010", "Cep"),
             FakePhoneRow(20L, "Ali Demir", "+90 555 000 0020", "Cep"),
@@ -100,7 +104,7 @@ class AndroidContactsResolverProviderInstrumentedTest {
 
     @Test
     fun oneContactWithMultipleNumbersRequiresExplicitNumberChoice() {
-        provider.rows = listOf(
+        FakeContactsProvider.rows = listOf(
             FakePhoneRow(9L, "Zeynep Kaya", "+90 555 444 44 44", "İş"),
             FakePhoneRow(9L, "Zeynep Kaya", "+90 555 333 33 33", "Cep")
         )
@@ -116,7 +120,7 @@ class AndroidContactsResolverProviderInstrumentedTest {
 
     @Test
     fun selectedProviderContactAndExactMessageRequireOneExplicitConfirmation() {
-        provider.rows = listOf(
+        FakeContactsProvider.rows = listOf(
             FakePhoneRow(9L, "Zeynep Kaya", "+90 555 444 44 44", "İş"),
             FakePhoneRow(9L, "Zeynep Kaya", "+90 555 333 33 33", "Cep")
         )
@@ -160,21 +164,21 @@ class AndroidContactsResolverProviderInstrumentedTest {
 
     @Test
     fun noMatchIsExplicitAfterARealProviderQuery() {
-        provider.rows = listOf(FakePhoneRow(1L, "Ayşe Yılmaz", "+90 555 111 11 11", "Cep"))
+        FakeContactsProvider.rows = listOf(FakePhoneRow(1L, "Ayşe Yılmaz", "+90 555 111 11 11", "Cep"))
 
         val result = resolver().resolve("Mehmet")
 
         assertTrue(result is ContactLookupResult.NoMatch)
-        assertEquals(1, provider.queryCount)
+        assertEquals(1, FakeContactsProvider.queryCount)
     }
 
     @Test
     fun nullProviderCursorAndProviderFailureAreUnavailable() {
-        provider.returnNull = true
+        FakeContactsProvider.returnNull = true
         assertTrue(resolver().resolve("İpek") is ContactLookupResult.Unavailable)
 
-        provider.returnNull = false
-        provider.failure = IllegalStateException("contacts provider unavailable")
+        FakeContactsProvider.returnNull = false
+        FakeContactsProvider.failure = IllegalStateException("contacts provider unavailable")
         assertTrue(resolver().resolve("İpek") is ContactLookupResult.Unavailable)
     }
 
@@ -192,14 +196,28 @@ class AndroidContactsResolverProviderInstrumentedTest {
         val label: String
     )
 
-    private class FakeContactsProvider : MockContentProvider() {
-        var rows: List<FakePhoneRow> = emptyList()
-        var failure: RuntimeException? = null
-        var returnNull: Boolean = false
-        var queryCount: Int = 0
-        var lastUri: Uri? = null
-        var lastSortOrder: String? = null
-        var lastProjection: List<String> = emptyList()
+    class FakeContactsProvider : ContentProvider() {
+        companion object {
+            var rows: List<FakePhoneRow> = emptyList()
+            var failure: RuntimeException? = null
+            var returnNull: Boolean = false
+            var queryCount: Int = 0
+            var lastUri: Uri? = null
+            var lastSortOrder: String? = null
+            var lastProjection: List<String> = emptyList()
+
+            fun reset() {
+                rows = emptyList()
+                failure = null
+                returnNull = false
+                queryCount = 0
+                lastUri = null
+                lastSortOrder = null
+                lastProjection = emptyList()
+            }
+        }
+
+        override fun onCreate(): Boolean = true
 
         override fun query(
             uri: Uri,
@@ -211,11 +229,11 @@ class AndroidContactsResolverProviderInstrumentedTest {
             queryCount += 1
             lastUri = uri
             lastSortOrder = sortOrder
-            lastProjection = projection?.toList().orEmpty()
+            lastProjection = projection?.map { it }.orEmpty()
             failure?.let { throw it }
             if (returnNull) return null
 
-            val columns = projection?.toTypedArray() ?: arrayOf(
+            val columns = projection?.map { it }?.toTypedArray() ?: arrayOf(
                 Phone.CONTACT_ID,
                 ContactsContract.Contacts.DISPLAY_NAME_PRIMARY,
                 Phone.NUMBER,
@@ -242,5 +260,18 @@ class AndroidContactsResolverProviderInstrumentedTest {
             }
             return cursor
         }
+
+        override fun getType(uri: Uri): String? = null
+
+        override fun insert(uri: Uri, values: ContentValues?): Uri? = null
+
+        override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
+
+        override fun update(
+            uri: Uri,
+            values: ContentValues?,
+            selection: String?,
+            selectionArgs: Array<out String>?
+        ): Int = 0
     }
 }
