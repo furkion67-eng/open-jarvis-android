@@ -169,23 +169,32 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
         }
     }
 
-    private fun awaitFirstLaidOutFrame(
+    private fun awaitFirstDrawnFrame(
         activity: Activity,
         launchStartedAt: Long,
         timeoutMs: Long
     ): Long {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val deadline = launchStartedAt + timeoutMs
-        while (SystemClock.elapsedRealtime() < deadline) {
-            var laidOut = false
-            instrumentation.runOnMainSync {
-                val decor = activity.window.decorView
-                laidOut = decor.isShown && decor.isLaidOut && decor.width > 0 && decor.height > 0
+        val drawn = CountDownLatch(1)
+        instrumentation.runOnMainSync {
+            val decor = activity.window.decorView
+            val observer = decor.viewTreeObserver
+            val listener = object : ViewTreeObserver.OnDrawListener {
+                override fun onDraw() {
+                    drawn.countDown()
+                    if (decor.viewTreeObserver.isAlive) {
+                        decor.viewTreeObserver.removeOnDrawListener(this)
+                    }
+                }
             }
-            if (laidOut) return SystemClock.elapsedRealtime() - launchStartedAt
-            SystemClock.sleep(50)
+            observer.addOnDrawListener(listener)
         }
-        throw AssertionError("MainActivity did not produce a laid-out first frame within ${timeoutMs} ms.")
+        val remainingMs = (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+        if (!drawn.await(remainingMs, TimeUnit.MILLISECONDS)) {
+            throw AssertionError("MainActivity did not draw its first frame within ${timeoutMs} ms.")
+        }
+        return SystemClock.elapsedRealtime() - launchStartedAt
     }
 
     private fun awaitDashboardReady(
