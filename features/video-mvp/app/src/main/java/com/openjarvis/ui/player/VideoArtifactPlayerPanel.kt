@@ -34,6 +34,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
@@ -139,6 +140,11 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
     var repositoryError by remember(context) { mutableStateOf<String?>(null) }
     LaunchedEffect(context) {
         try {
+            // Keep the archive's Room bootstrap from competing with the launcher's first
+            // interactive frames. Task controls and video creation use the same two-frame
+            // deferral before entering the process-wide single-flight repository bootstrap.
+            withFrameNanos { }
+            withFrameNanos { }
             repository = JarvisTaskRepository.getInstanceOnIo(context)
         } catch (error: Exception) {
             repositoryError = error.localizedMessage ?: "Yerel görev arşivi açılamadı."
