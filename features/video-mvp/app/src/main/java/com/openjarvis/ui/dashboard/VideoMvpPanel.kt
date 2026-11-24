@@ -21,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -28,6 +29,7 @@ import com.openjarvis.tasks.JarvisTaskEntity
 import com.openjarvis.tasks.JarvisTaskRepository
 import com.openjarvis.tasks.JarvisTaskStatus
 import com.openjarvis.tasks.JarvisTaskCheckpoint
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -50,11 +52,24 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     var repository by remember(context) { mutableStateOf<JarvisTaskRepository?>(null) }
     var repositoryError by remember(context) { mutableStateOf<String?>(null) }
-    LaunchedEffect(context) {
+    var repositoryLoading by remember(context) { mutableStateOf(true) }
+    var repositoryLoadAttempt by remember(context) { mutableStateOf(0) }
+    LaunchedEffect(context, repositoryLoadAttempt) {
+        repositoryLoading = true
+        repositoryError = null
         try {
-            repository = JarvisTaskRepository.getInstanceOnIo(context)
+            // Keep the video panel's initial frame cheap; bootstrap is shared with TaskControlCenter.
+            withFrameNanos { }
+            withFrameNanos { }
+            val sharedRepository = JarvisTaskRepository.getInstanceOnIo(context.applicationContext)
+            JarvisTaskRepository.recoverInterruptedTasksOnIo(sharedRepository)
+            repository = sharedRepository
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (error: Exception) {
             repositoryError = error.localizedMessage ?: "Yerel görev deposu açılamadı."
+        } finally {
+            repositoryLoading = false
         }
     }
     val tasksFlow = remember(repository) {
@@ -78,6 +93,22 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text("Türkçe sesli video üretimi", style = MaterialTheme.typography.titleMedium)
+            if (repository == null) {
+                Text(
+                    text = if (repositoryLoading) {
+                        "Görev hafızası ilk ekran çizildikten sonra hazırlanıyor…"
+                    } else {
+                        "Görev hafızası açılamadı: " + (repositoryError ?: "Bilinmeyen hata")
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (repositoryLoading) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
+                )
+                if (!repositoryLoading) {
+                    TextButton(onClick = { repositoryLoadAttempt++ }) {
+                        Text("Yeniden dene")
+                    }
+                }
+            }
             Text(
                 "JARVIS önce kalıcı bir plan hazırlar. Video yalnızca planı açıkça kabul ettiğinde cihazda üretilir; MP4 ve SRT doğrulanmadan görev tamamlandı sayılmaz.",
                 style = MaterialTheme.typography.bodySmall

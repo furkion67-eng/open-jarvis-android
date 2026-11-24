@@ -60,6 +60,31 @@ interface JarvisTaskDao {
     @Query("SELECT * FROM jarvis_tasks WHERE status IN (:statuses)")
     suspend fun findByStatuses(statuses: List<String>): List<JarvisTaskEntity>
 
+    /**
+     * One atomic startup repair for abandoned active tasks. Only QUEUED, PLANNING and RUNNING
+     * are passed by the repository; user-waiting and terminal tasks are never touched.
+     */
+    @Query("""
+        UPDATE jarvis_tasks
+        SET status = :interruptedStatus,
+            currentStep = :currentStep,
+            progressPercent = 0,
+            approvalGranted = 0,
+            approvalReference = NULL,
+            errorCode = :errorCode,
+            errorMessage = :errorMessage,
+            updatedAt = :updatedAt
+        WHERE status IN (:expectedStatuses)
+    """)
+    suspend fun markActiveTasksInterrupted(
+        expectedStatuses: List<String>,
+        interruptedStatus: String,
+        currentStep: String,
+        errorCode: String,
+        errorMessage: String,
+        updatedAt: Long
+    ): Int
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(task: JarvisTaskEntity)
 
