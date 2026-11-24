@@ -3,7 +3,7 @@ name: JARVIS exact-source Android validation
 on:
   workflow_dispatch:
   pull_request:
-    branches: [ "feature/mainactivity-player-e2e-20261124" ]
+    branches: [ "feature/mainactivity-player-ee4cb4-20261124" ]
 
 permissions:
   contents: read
