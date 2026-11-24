@@ -200,9 +200,27 @@ def _apply_feature_host_patch(project_root: Path, patch_file: Path):
     if postimage_count > 1:
         raise SystemExit("Feature host patch postimage is ambiguous: " + target_relative)
     if preimage_count != 1:
+        anchors = []
+        for index, line in enumerate(current_lines):
+            if any(marker in line for marker in (
+                "graphifyRepoResult",
+                "Yerel hafıza",
+                "JARVIS_DEVICE_FEATURE_PANELS",
+                "VideoArtifactPlayerPanel",
+                "Telefon araçlarını"
+            )):
+                start = max(0, index - 2)
+                end = min(len(current_lines), index + 4)
+                snippet = " / ".join(
+                    str(line_number + 1) + ":" + current_lines[line_number].strip()[:220]
+                    for line_number in range(start, end)
+                )
+                anchors.append(snippet)
+        safe_context = " | ".join(anchors[:5]) if anchors else "<no approved host anchors found>"
         raise SystemExit(
             "Feature host patch requires exactly one preimage; found "
             + str(preimage_count) + " for " + target_relative
+            + "; sanitized target anchors: " + safe_context
         )
 
     forward = _run_feature_host_patch(
