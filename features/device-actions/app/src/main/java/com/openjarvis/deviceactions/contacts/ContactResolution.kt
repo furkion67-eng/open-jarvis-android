@@ -18,6 +18,7 @@ data class ContactCandidate(
     val phoneNumbers: List<ContactPhoneOption>
 )
 
+
 sealed interface ContactLookupResult {
     object PermissionDenied : ContactLookupResult
     object InvalidQuery : ContactLookupResult
@@ -57,13 +58,21 @@ object ContactResolver {
                     .map { ContactPhoneOption(it.number.trim(), it.label?.trim()?.takeIf(String::isNotBlank)) }
                     .distinctBy { normalizePhone(it.number) }
                     .filter { normalizePhone(it.number).isNotBlank() }
-                    .sortedBy { it.label.orEmpty() }
+                    .sortedWith(
+                        compareBy<ContactPhoneOption> { it.label.orEmpty().lowercase(Locale.forLanguageTag("tr-TR")) }
+                            .thenBy { normalizePhone(it.number) }
+                            .thenBy { it.number }
+                    )
                 if (numbers.isEmpty()) null else score to ContactCandidate(contactId, displayName, numbers)
             }
 
         if (ranked.isEmpty()) return ContactLookupResult.NoMatch(query)
         val bestScore = ranked.maxOf { it.first }
         val best = ranked.filter { it.first == bestScore }.map { it.second }
+            .sortedWith(
+                compareBy<ContactCandidate> { ContactNameNormalizer.normalize(it.displayName) }
+                    .thenBy { it.contactId }
+            )
         if (best.size > 1) return ContactLookupResult.ChooseContact(best)
         val candidate = best.single()
         return if (candidate.phoneNumbers.size == 1) {

@@ -9,6 +9,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.PowerManager
+import android.os.Trace
+import android.os.SystemClock
+import android.util.Log
 import android.provider.MediaStore
 import android.provider.Settings
 import android.speech.RecognizerIntent
@@ -25,7 +28,7 @@ class AndroidCapabilityStatusReader(context: Context) {
                 "grantedBefore." + id,
                 granted || preferences.getBoolean("grantedBefore." + id, false)
             )
-            .commit()
+            .apply()
     }
 
     fun recordStoragePickerResult(readGranted: Boolean, writeGranted: Boolean) {
@@ -33,18 +36,31 @@ class AndroidCapabilityStatusReader(context: Context) {
         recordPermissionRequestResult("shared-storage-write", readGranted && writeGranted)
     }
 
-    fun snapshot(): List<CapabilityStatusItem> = buildList {
-        add(runtime("contacts", "Kişiler", Manifest.permission.READ_CONTACTS))
-        add(runtime("sms", "SMS gönderme", Manifest.permission.SEND_SMS))
-        add(cameraStatus())
-        add(microphoneStatus())
-        add(notificationStatus())
-        add(mediaStatus())
-        addAll(storageStatuses())
-        add(overlayStatus())
-        add(accessibilityStatus())
-        add(batteryStatus())
-        add(appLaunchStatus())
+    fun snapshot(): List<CapabilityStatusItem> {
+        Trace.beginSection("JARVIS.capabilities.snapshot")
+        val startedAt = SystemClock.elapsedRealtime()
+        return try {
+            buildList {
+                add(runtime("contacts", "Kişiler", Manifest.permission.READ_CONTACTS))
+                add(runtime("sms", "SMS gönderme", Manifest.permission.SEND_SMS))
+                add(callStatus())
+                add(cameraStatus())
+                add(microphoneStatus())
+                add(notificationStatus())
+                add(mediaStatus())
+                addAll(storageStatuses())
+                add(overlayStatus())
+                add(accessibilityStatus())
+                add(batteryStatus())
+                add(appLaunchStatus())
+            }
+        } finally {
+            Trace.endSection()
+            val elapsedMs = SystemClock.elapsedRealtime() - startedAt
+            if (elapsedMs > 250L) {
+                Log.w("JARVISStartup", "capability.snapshot_ms=" + elapsedMs + " budget_ms=250")
+            }
+        }
     }
 
     private fun runtime(id: String, title: String, permission: String): CapabilityStatusItem {
@@ -52,7 +68,7 @@ class AndroidCapabilityStatusReader(context: Context) {
         val requested = preferences.getBoolean("requested." + id, false)
         val grantedBefore = preferences.getBoolean("grantedBefore." + id, false)
         if (granted) {
-            preferences.edit().putBoolean("grantedBefore." + id, true).commit()
+            preferences.edit().putBoolean("grantedBefore." + id, true).apply()
         }
         val state = CapabilityStatusPolicy.runtimePermission(granted, requested, grantedBefore)
         val detail = when (state) {
@@ -64,6 +80,31 @@ class AndroidCapabilityStatusReader(context: Context) {
         }
         return CapabilityStatusItem(id, title, state, detail)
     }
+
+    private fun callStatus(): CapabilityStatusItem {
+        if (!declaresPermission(Manifest.permission.CALL_PHONE)) {
+            return CapabilityStatusItem(
+                "call-phone",
+                "Doğrudan arama",
+                CapabilityState.NOT_AVAILABLE,
+                CapabilityStatusPolicy.directCallDetail(CapabilityState.NOT_AVAILABLE)
+            )
+        }
+        val permission = runtime(
+            "call-phone",
+            "Doğrudan arama",
+            Manifest.permission.CALL_PHONE
+        )
+        return permission.copy(detail = CapabilityStatusPolicy.directCallDetail(permission.state))
+    }
+
+    private fun declaresPermission(permission: String): Boolean = runCatching {
+        @Suppress("DEPRECATION")
+        appContext.packageManager.getPackageInfo(
+            appContext.packageName,
+            PackageManager.GET_PERMISSIONS
+        ).requestedPermissions?.contains(permission) == true
+    }.getOrDefault(false)
 
     /** Camera capture is delegated to the user's camera app; this app does not silently open a camera. */
     private fun cameraStatus(): CapabilityStatusItem {
@@ -161,7 +202,7 @@ class AndroidCapabilityStatusReader(context: Context) {
         val wasRequested = preferences.getBoolean("requested.media", false)
         val wasGrantedBefore = preferences.getBoolean("grantedBefore.media", false)
         if (granted.isNotEmpty()) {
-            preferences.edit().putBoolean("grantedBefore.media", true).commit()
+            preferences.edit().putBoolean("grantedBefore.media", true).apply()
         }
         val state = CapabilityStatusPolicy.permissionSet(
             grantedCount = granted.size,
@@ -202,7 +243,7 @@ class AndroidCapabilityStatusReader(context: Context) {
             preferences.edit()
                 .putBoolean("grantedBefore.shared-storage-read", readCount > 0 || grantedReadBefore)
                 .putBoolean("grantedBefore.shared-storage-write", writeCount > 0 || grantedWriteBefore)
-                .commit()
+                .apply()
         }
         val readState = CapabilityStatusPolicy.runtimePermission(
             readCount > 0, requestedRead, grantedReadBefore
@@ -244,7 +285,11 @@ class AndroidCapabilityStatusReader(context: Context) {
             "overlay",
             "Diğer uygulamaların üzerinde görünme",
             if (granted) CapabilityState.ENABLED else CapabilityState.REQUIRES_SETTINGS,
-            if (granted) "Üstte görünme izni açık." else "Bu özel izin Android ayarlarından kullanıcı tarafından açılmalı."
+            if (granted) {
+                "Üstte görünme izni açık. Geri almak için Android'in üstte görünme ayarını aç; JARVIS bu özel izni kendi başına kapatamaz."
+            } else {
+                "Bu özel izin Android ayarlarından kullanıcı tarafından açılmalı; aynı ekrandan daha sonra geri alınabilir."
+            }
         )
     }
 
@@ -270,9 +315,9 @@ class AndroidCapabilityStatusReader(context: Context) {
         val state = CapabilityStatusPolicy.accessibilityService(declared, enabled)
         val detail = when (state) {
             CapabilityState.ENABLED ->
-                "JARVIS erişilebilirlik servisi Android ayarlarında kullanıcı tarafından etkinleştirilmiş."
+                "JARVIS erişilebilirlik servisi Android ayarlarında kullanıcı tarafından etkinleştirilmiş. Geri almak için Android Erişilebilirlik ayarlarını aç; JARVIS servisi kendi kendine kapatamaz."
             CapabilityState.REQUIRES_SETTINGS ->
-                "JARVIS erişilebilirlik servisi uygulamada tanımlı; kullanmak için Android Erişilebilirlik ayarlarında kendin etkinleştirmelisin."
+                "JARVIS erişilebilirlik servisi uygulamada tanımlı; kullanmak için Android Erişilebilirlik ayarlarında kendin etkinleştirmelisin. Aynı ekrandan daha sonra kapatabilirsin."
             else ->
                 "Son host manifestinde JARVIS erişilebilirlik servisi tanımlı değil."
         }

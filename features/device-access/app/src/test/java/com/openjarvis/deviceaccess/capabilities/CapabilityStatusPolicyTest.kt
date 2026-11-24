@@ -88,6 +88,27 @@ class CapabilityStatusPolicyTest {
     }
 
     @Test
+    fun directCallStatusExplainsCallPhoneVersusUserCompletedDialerHandoff() {
+        assertTrue(CapabilityStatusPolicy.directCallDetail(CapabilityState.ENABLED).contains("CALL_PHONE"))
+        assertTrue(CapabilityStatusPolicy.directCallDetail(CapabilityState.NOT_REQUESTED).contains("ACTION_DIAL"))
+        assertTrue(CapabilityStatusPolicy.directCallDetail(CapabilityState.DENIED).contains("ACTION_DIAL"))
+        assertTrue(CapabilityStatusPolicy.directCallDetail(CapabilityState.REVOKED).contains("ACTION_DIAL"))
+        assertTrue(CapabilityStatusPolicy.directCallDetail(CapabilityState.NOT_AVAILABLE).contains("ACTION_DIAL"))
+    }
+
+    @Test
+    fun specialCapabilitySettingsRemainAvailableForRevocationWhenEnabled() {
+        assertTrue(CapabilityStatusPolicy.shouldShowSettingsShortcut("overlay", CapabilityState.ENABLED))
+        assertTrue(CapabilityStatusPolicy.shouldShowSettingsShortcut("accessibility", CapabilityState.ENABLED))
+        assertTrue(CapabilityStatusPolicy.shouldShowSettingsShortcut("accessibility", CapabilityState.REQUIRES_SETTINGS))
+        assertTrue(CapabilityStatusPolicy.shouldShowSettingsShortcut("call-phone", CapabilityState.ENABLED))
+        assertFalse(CapabilityStatusPolicy.shouldShowSettingsShortcut("call-phone", CapabilityState.NOT_AVAILABLE))
+        assertFalse(CapabilityStatusPolicy.shouldShowSettingsShortcut("camera", CapabilityState.ENABLED))
+        assertTrue(CapabilityStatusPolicy.shouldShowSettingsShortcut("camera", CapabilityState.DENIED))
+        assertFalse(CapabilityStatusPolicy.shouldShowSettingsShortcut("shared-storage-read", CapabilityState.DENIED))
+    }
+
+    @Test
     fun persistedUriMustStillHaveReadGrant() {
         assertTrue(CapabilityStatusPolicy.persistedReadGrant("content://tree/1", "content://tree/1", true))
         assertFalse(CapabilityStatusPolicy.persistedReadGrant("content://tree/1", "content://tree/1", false))
