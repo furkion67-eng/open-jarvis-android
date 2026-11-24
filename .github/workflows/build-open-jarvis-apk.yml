@@ -1,125 +1,117 @@
-name: Build Open Jarvis APK
+name: JARVIS exact-source Android validation
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main, "feature/approval-toggle", "feature/repair-overlay-input-digest-2026-11-21" ]
   pull_request:
-    branches: [ main ]
+    branches: [ "feature/mainactivity-player-ee4cb4-20261124" ]
 
 permissions:
   contents: read
 
 concurrency:
-  group: open-jarvis-apk-${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: true
+  group: jarvis-exact-source-4fc84ab-${{ github.event_name }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
 
 jobs:
   build:
-    name: Build debug APK
+    name: Debug/Release build and JVM tests
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
+    outputs:
+      artifacts_ready: ${{ steps.verify_apk.outcome == 'success' && steps.build_test_apk.outcome == 'success' }}
     steps:
-      - name: Checkout repository
+      - name: Checkout exact overlay head
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
 
-      - name: Assert exact pushed commit
-        if: github.event_name == 'push'
-        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Assert exact Feature parent and ten-path Infrastructure allowlist
+        env:
+          EXPECTED_FEATURE_SHA: 4fc84ab939721e4fd063ab4c603efedb9c72a7d5
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_BASE: ${{ github.event.pull_request.base.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+            test "$EXPECTED_BASE" = "$EXPECTED_FEATURE_SHA"
+          else
+            test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          fi
+          test "$(git merge-base HEAD "$EXPECTED_FEATURE_SHA")" = "$EXPECTED_FEATURE_SHA"
+          first_overlay_commit="$(git rev-list --reverse "$EXPECTED_FEATURE_SHA"..HEAD | head -n 1)"
+          test -n "$first_overlay_commit"
+          test "$(git rev-parse "$first_overlay_commit^")" = "$EXPECTED_FEATURE_SHA"
+          # The exact ten-path allowlist is the invariant; review commits may be added without changing product scope.
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/build-open-jarvis-apk.yml' \
+            'scripts/smoke_test.sh' \
+            'scripts/launcher_visibility_check.sh' \
+            'scripts/test_launcher_visibility_check.sh' \
+            'scripts/test_video_artifact_contract.py' \
+            'scripts/validate_video_artifact.py' \
+            'scripts/repair_sources.py' \
+            'scripts/test_repair_sources_security.py' \
+            'ci/overlays/androidTest/java/com/openjarvis/commands/ContactChoicePagingCiOverlayTest.kt' \
+            'ci/overlays/androidTest/java/com/openjarvis/video/VideoArtifactEvidenceCiOverlayTest.kt' | LC_ALL=C sort)"
+          actual_paths="$(git diff --name-only "$EXPECTED_FEATURE_SHA"...HEAD | LC_ALL=C sort)"
+          diff -u <(printf '%s\n' "$expected_paths") <(printf '%s\n' "$actual_paths")
+          test "$(printf '%s\n' "$actual_paths" | wc -l | tr -d ' ')" = "10"
+          git diff --check "$EXPECTED_FEATURE_SHA"...HEAD
+          echo "INFRA-ALLOWLIST-OK: exact Feature parent and exactly ten Infrastructure paths"
 
-      - name: Extract source and locate project
+      - name: Install ffmpeg and sqlite3
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1 || ! command -v sqlite3 >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg sqlite3
+          fi
+          ffmpeg -version | head -n 1
+          ffprobe -version | head -n 1
+          sqlite3 --version
+
+      - name: Run Infrastructure script self-tests
+        run: |
+          set -euo pipefail
+          bash -n scripts/smoke_test.sh scripts/launcher_visibility_check.sh scripts/test_launcher_visibility_check.sh
+          bash scripts/test_launcher_visibility_check.sh
+          python3 -m py_compile scripts/repair_sources.py scripts/add_startup_diagnostics.py scripts/test_video_artifact_contract.py scripts/validate_video_artifact.py scripts/test_repair_sources_security.py
+          python3 scripts/test_video_artifact_contract.py
+          python3 scripts/test_repair_sources_security.py
+
+      - name: Extract source and install CI-only instrumentation overlays
         id: source
         run: |
+          set -euo pipefail
           unzip -q "open-jarvis-apk-build-ready(2).zip" -d source
           SETTINGS_FILE="$(find source -maxdepth 5 \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
           test -n "$SETTINGS_FILE"
           PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
           test -d "$PROJECT_DIR/app"
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-          echo "Project directory: $PROJECT_DIR"
-          # Fix the launcher component: MainActivity is in com.openjarvis.ui,
-          # while the Gradle namespace/applicationId is com.openjarvis.
-          python3 - "$PROJECT_DIR/app/src/main/AndroidManifest.xml" <<'PY'
-          import pathlib, sys
-          p = pathlib.Path(sys.argv[1])
-          s = p.read_text()
-          s = s.replace('android:name=".MainActivity"', 'android:name=".ui.MainActivity"')
-          s = s.replace('android:parentActivityName=".MainActivity"', 'android:parentActivityName=".ui.MainActivity"')
-          p.write_text(s)
-          PY
           python3 scripts/repair_sources.py "$PROJECT_DIR"
-          # Avoid constructing AgentCore during launcher startup: it eagerly opens
-          # encrypted provider preferences and is not used by MainActivity's dashboard.
-          python3 - "$PROJECT_DIR/app/src/main/java/com/openjarvis/ui/MainActivity.kt" <<'PY'
-          import pathlib, sys
-          p = pathlib.Path(sys.argv[1])
-          s = p.read_text()
-          s = s.replace('import com.openjarvis.agent.AgentCore\n', '')
-          s = s.replace('import com.openjarvis.agent.AgentState\n', '')
-          s = s.replace('    private lateinit var agentCore: AgentCore\n', '')
-          s = s.replace('        agentCore = AgentCore(this)\n', '')
-          s = s.replace('                val agentState by agentCore.state.collectAsState()\n', '')
-          # Defer Room repository construction into a guarded Compose state.
-          # A database initialization exception must not terminate MainActivity.
-          s = s.replace('    private lateinit var graphifyRepo: GraphifyRepository\n', '')
-          s = s.replace('        graphifyRepo = GraphifyRepository(this)\n', '')
-          s = s.replace(
-              '                val context = LocalContext.current\n',
-              '                val context = LocalContext.current\n                val graphifyRepoResult = remember { runCatching { GraphifyRepository(applicationContext) } }\n'
-          )
-          s = s.replace(
-              '                        graphifyRepo = graphifyRepo,\n',
-              '                        graphifyRepo = graphifyRepoResult.getOrThrow(),\n'
-          )
-          # If repository creation fails, show a recoverable diagnostic screen.
-          s = s.replace(
-              '                } else {\n                    DashboardScreen(',
-              '''                } else if (graphifyRepoResult.isFailure) {
-                      androidx.compose.material3.Surface(modifier = Modifier.fillMaxSize()) {
-                          androidx.compose.material3.Text(
-                              text = "Open Jarvis could not initialize local storage.\\n" +
-                                  (graphifyRepoResult.exceptionOrNull()?.message ?: "Unknown startup error"),
-                              modifier = Modifier.padding(24.dp)
-                          )
-                      }
-                  } else {
-                      DashboardScreen('''
-          )
-          p.write_text(s)
-          # Keep the launcher/dashboard alive if the local Room database cannot
-          # be opened (for example, an older on-device schema or corrupt DB).
-          dashboard = p.parent / "dashboard" / "DashboardScreen.kt"
-          ds = dashboard.read_text()
-          ds = ds.replace(
-              "        recentTasks = graphifyRepo.getRecentTasks(10)\\n        mostUsedApps = graphifyRepo.getMostUsedApps(4)",
-              """        try {
-                  recentTasks = graphifyRepo.getRecentTasks(10)
-                  mostUsedApps = graphifyRepo.getMostUsedApps(4)
-              } catch (e: Exception) {
-                  android.util.Log.e("OpenJarvis", "Dashboard database load failed", e)
-                  recentTasks = emptyList()
-                  mostUsedApps = emptyList()
-              }"""
-          )
-          dashboard.write_text(ds)
-          PY
           python3 scripts/add_startup_diagnostics.py "$PROJECT_DIR"
-          ls -la "$PROJECT_DIR"
+          mkdir -p "$PROJECT_DIR/app/src/androidTest/java/com/openjarvis/commands"
+          mkdir -p "$PROJECT_DIR/app/src/androidTest/java/com/openjarvis/video"
+          cp ci/overlays/androidTest/java/com/openjarvis/commands/ContactChoicePagingCiOverlayTest.kt "$PROJECT_DIR/app/src/androidTest/java/com/openjarvis/commands/"
+          cp ci/overlays/androidTest/java/com/openjarvis/video/VideoArtifactEvidenceCiOverlayTest.kt "$PROJECT_DIR/app/src/androidTest/java/com/openjarvis/video/"
+          test -s "$PROJECT_DIR/app/src/androidTest/java/com/openjarvis/commands/ContactChoicePagingCiOverlayTest.kt"
+          test -s "$PROJECT_DIR/app/src/androidTest/java/com/openjarvis/video/VideoArtifactEvidenceCiOverlayTest.kt"
 
-      - name: Audit declared Android permissions (no permission changes)
+      - name: Audit declared Android permissions without changing them
         working-directory: ${{ steps.source.outputs.project_dir }}
         run: |
           python3 - <<'PY'
           import xml.etree.ElementTree as ET
-          p = 'app/src/main/AndroidManifest.xml'
-          root = ET.parse(p).getroot()
+          root = ET.parse('app/src/main/AndroidManifest.xml').getroot()
           ns = '{http://schemas.android.com/apk/res/android}'
-          print('===== Declared permissions (preserved as approved) =====')
+          print('===== Declared permissions (audit only) =====')
           for node in root.findall('uses-permission'):
               print(node.get(ns + 'name'))
-          print('===== Services and protection =====')
-          for node in root.findall('./application/service'):
-              print(node.get(ns + 'name'), 'permission=', node.get(ns + 'permission'))
           PY
 
       - name: Set up JDK 17
@@ -133,43 +125,28 @@ jobs:
         with:
           packages: platform-tools
 
-      - name: Install Android SDK
-        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
+      - name: Install Android SDK platforms and build tools
+        run: sdkmanager "platforms;android-33" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.2'
 
-      - name: Enable AndroidX
+      - name: Enable AndroidX in extracted project
         working-directory: ${{ steps.source.outputs.project_dir }}
         run: |
           touch gradle.properties
           printf '\nandroid.useAndroidX=true\nandroid.enableJetifier=true\n' >> gradle.properties
-          cat gradle.properties
 
-      - name: Capture failing Kotlin source context
-        if: always()
-        working-directory: ${{ steps.source.outputs.project_dir }}
-        run: |
-          echo "===== AgentCore.kt ====="
-          sed -n '285,330p' app/src/main/java/com/openjarvis/agent/AgentCore.kt || true
-          echo "===== MCPClient.kt ====="
-          sed -n '1,155p' app/src/main/java/com/openjarvis/mcp/MCPClient.kt || true
-          echo "===== AutomationManager.kt ====="
-          sed -n '180,235p' app/src/main/java/com/openjarvis/automation/AutomationManager.kt || true
-          echo "===== AutomationDB.kt ====="
-          sed -n '1,100p' app/src/main/java/com/openjarvis/automation/AutomationDB.kt || true
-          echo "===== TaskNodeDao.kt ====="
-          sed -n '1,80p' app/src/main/java/com/openjarvis/graphify/nodes/TaskNodeDao.kt || true
-
-      - name: Build debug APK
+      - name: Build Debug APK
         working-directory: ${{ steps.source.outputs.project_dir }}
         env:
           GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=1g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1
         run: gradle --no-daemon --max-workers=1 --stacktrace assembleDebug
 
       - name: Verify Debug APK signature, package metadata and checksum
+        id: verify_apk
         working-directory: ${{ steps.source.outputs.project_dir }}
         run: |
           set -euo pipefail
@@ -180,48 +157,53 @@ jobs:
           sha256sum "$APK" > "$APK.sha256"
           cat "$APK.sha256"
 
-      - name: Run Debug and Release JVM tests and build instrumented test APK
+      - name: Build instrumented test APK
+        id: build_test_apk
         working-directory: ${{ steps.source.outputs.project_dir }}
         env:
           GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=1g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1
-        run: gradle --no-daemon --max-workers=1 --stacktrace testDebugUnitTest testReleaseUnitTest assembleDebugAndroidTest
+        run: gradle --no-daemon --max-workers=1 --stacktrace assembleDebugAndroidTest
 
-      - name: Upload unit test results
-        if: always()
+      - name: Run Debug JVM tests independently
+        if: always() && steps.source.outcome == 'success'
+        working-directory: ${{ steps.source.outputs.project_dir }}
+        env:
+          GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=1g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1
+        run: gradle --no-daemon --max-workers=1 --stacktrace testDebugUnitTest
+
+      - name: Run Release JVM tests independently
+        if: always() && steps.source.outcome == 'success'
+        working-directory: ${{ steps.source.outputs.project_dir }}
+        env:
+          GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=1g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1
+        run: gradle --no-daemon --max-workers=1 --stacktrace testReleaseUnitTest
+
+      - name: Upload Debug/Release XML and HTML reports
+        if: always() && steps.source.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: Open-Jarvis-Unit-Test-Results
-          path: ${{ steps.source.outputs.project_dir }}/app/build/reports/tests/
+          name: JARVIS-Unit-Test-Reports
+          path: |
+            ${{ steps.source.outputs.project_dir }}/app/build/test-results/
+            ${{ steps.source.outputs.project_dir }}/app/build/reports/tests/
+            video-contract-test-report.txt
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 14
 
       - name: Upload instrumented test APK
+        if: always() && steps.build_test_apk.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: Open-Jarvis-Test-APK
+          name: JARVIS-Instrumented-Test-APK
           path: ${{ steps.source.outputs.project_dir }}/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14
 
-      - name: Package patched source for diagnostics
-        if: always()
-        working-directory: ${{ steps.source.outputs.project_dir }}
-        run: |
-          zip -qr "$GITHUB_WORKSPACE/open-jarvis-patched-source.zip" . -x '*/build/*' '*/.gradle/*'
-
-      - name: Upload patched source diagnostics
-        if: always()
+      - name: Upload Debug APK and checksum
+        if: always() && steps.verify_apk.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: Open-Jarvis-Source-Debug
-          path: open-jarvis-patched-source.zip
-          if-no-files-found: warn
-          retention-days: 2
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Open-Jarvis-APK
+          name: JARVIS-Debug-APK
           path: |
             ${{ steps.source.outputs.project_dir }}/app/build/outputs/apk/debug/app-debug.apk
             ${{ steps.source.outputs.project_dir }}/app/build/outputs/apk/debug/app-debug.apk.sha256
@@ -229,72 +211,90 @@ jobs:
           retention-days: 14
 
   smoke-test:
-    name: Emulator launch and instrumentation (API ${{ matrix.api-level }})
+    name: Android ${{ matrix.api-level }} instrumentation and evidence
     runs-on: ubuntu-latest
     needs: build
+    if: always() && needs.build.outputs.artifacts_ready == 'true'
     strategy:
       fail-fast: false
       matrix:
         api-level: [33, 34]
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
-      - name: Checkout repository
+      - name: Checkout exact Infrastructure overlay
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
 
-      - name: Download app APK
+      - name: Download Debug APK
         uses: actions/download-artifact@v4
         with:
-          name: Open-Jarvis-APK
+          name: JARVIS-Debug-APK
           path: apk
 
       - name: Download instrumented test APK
         uses: actions/download-artifact@v4
         with:
-          name: Open-Jarvis-Test-APK
+          name: JARVIS-Instrumented-Test-APK
           path: apk-tests
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Enable KVM access
+      - name: Install ffmpeg
         run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          ls -la /dev/kvm
-
-      - name: Ensure sqlite3 is available
-        run: |
-          if ! command -v sqlite3 >/dev/null 2>&1; then
-            sudo apt-get update && sudo apt-get install -y sqlite3
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
           fi
-          sqlite3 --version
 
-      - name: Boot Android 13 emulator and run launch smoke scenarios
+      - name: Boot Android emulator and run acceptance smoke
         uses: reactivecircus/android-emulator-runner@v2
         env:
           APP_APK: apk/app-debug.apk
           TEST_APK: apk-tests/app-debug-androidTest.apk
+          ANDROID_I_WANT_MY_TCG: "yes"
         with:
           api-level: ${{ matrix.api-level }}
           target: google_apis
           arch: x86_64
+          cores: 4
+          ram-size: 4096M
+          heap-size: 512M
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swangle -no-snapshot -noaudio -no-boot-anim -camera-back none
+          pre-emulator-launch-script: |
+            mkdir -p "$HOME/.android" && printf '%s\n' 'Vulkan = off' 'GLDirectMem = on' > "$HOME/.android/advancedFeatures.ini" && cat "$HOME/.android/advancedFeatures.ini"
           script: bash scripts/smoke_test.sh
 
-      - name: Upload smoke-test evidence
+      - name: Upload API ${{ matrix.api-level }} screenshots, logs and video review bundle
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Open-Jarvis-Smoke-Test-API-${{ matrix.api-level }}
+          name: JARVIS-API-${{ matrix.api-level }}-Acceptance-Evidence
           path: |
             screen-*.png
-            crashlog.txt
+            activity-*.txt
+            windows-*.txt
+            launcher-start*.txt
+            processes-*.txt
+            process-list-*.txt
+            input-*.txt
+            cpuinfo-*.txt
+            meminfo-*.txt
+            gfxinfo-*.txt
+            lastanr-*.txt
+            dropbox-*.txt
+            focus-summary-*.txt
+            pid-*.txt
+            thread-dump-*.txt
+            crashlog*.txt
+            logcat*.txt
             logcat-full.txt
             instrumented.log
-            databases.txt
+            video-narrated.mp4
+            video-narrated.srt
+            video-narrated-thumbnail.jpg
+            video-narrated-attribution.json
+            video-narrated.sha256
+            video-audio-status.txt
           if-no-files-found: warn
-          retention-days: 7
-
+          retention-days: 14
