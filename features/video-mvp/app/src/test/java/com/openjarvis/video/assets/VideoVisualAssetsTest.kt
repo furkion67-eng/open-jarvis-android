@@ -109,7 +109,7 @@ class VideoVisualAssetsTest {
     @Test
     fun thumbnailRequiresMatchingOriginalSourceBytesAndSha1() {
         val svg = "<svg xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M0 0\"/></svg>".toByteArray()
-        val png = byteArrayOf(137, 80, 78, 71, 13, 10, 26, 10).map { it.toByte() }.toByteArray()
+        val png = byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)
         val source = descriptor().copy(
             downloadUrl = "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Example.jpg/1280px-Example.jpg.png",
             expectedMimeType = "image/png",
@@ -122,7 +122,10 @@ class VideoVisualAssetsTest {
         val resolved = VideoVisualAssetResolver(MemoryCache(), downloader, clock = { now })
             .resolveAll(listOf(source)).single()
         assertEquals(sha1(svg), resolved.attribution.sourceUploadSha1)
-        assertEquals("image/png", resolved.file.let { "image/png" })
+        assertTrue(
+            resolved.file.readBytes().take(8).map { it.toInt() and 0xff } ==
+                listOf(137, 80, 78, 71, 13, 10, 26, 10)
+        )
         assertEquals(1, downloader.calls)
     }
 
