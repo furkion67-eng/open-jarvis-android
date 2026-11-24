@@ -2,8 +2,6 @@
 from pathlib import Path
 import hashlib
 import re
-import shutil
-import subprocess
 import sys
 import tempfile
 
@@ -91,21 +89,6 @@ def _repair_input_digest_regression_test():
 
 _repair_input_digest_regression_test()
 
-def _run_feature_host_patch(project_root: Path, payload: bytes, *, dry_run: bool, reverse: bool):
-    command = ["patch", "--batch", "--fuzz=0", "-p1", "--force"]
-    if dry_run:
-        command.append("--dry-run")
-    command.append("--reverse" if reverse else "--forward")
-    return subprocess.run(
-        command,
-        cwd=project_root,
-        input=payload,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False
-    )
-
-
 def _feature_host_patch_target(payload: bytes) -> str:
     try:
         text = payload.decode("utf-8")
@@ -136,6 +119,12 @@ def _feature_host_patch_hunk_lines(payload: bytes):
     if len(starts) != 1:
         raise SystemExit("Feature host patch must contain exactly one reviewable hunk")
 
+    header = re.match(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@", lines[starts[0]])
+    if not header:
+        raise SystemExit("Feature host patch has an invalid unified-diff hunk header")
+    declared_old_count = int(header.group(1) or "1")
+    declared_new_count = int(header.group(2) or "1")
+
     old_lines = []
     new_lines = []
     for line in lines[starts[0] + 1:]:
@@ -154,6 +143,12 @@ def _feature_host_patch_hunk_lines(payload: bytes):
             raise SystemExit("Feature host patch contains an unsupported unified-diff line")
     if not old_lines or not new_lines:
         raise SystemExit("Feature host patch hunk must have non-empty preimage and postimage")
+    if len(old_lines) != declared_old_count or len(new_lines) != declared_new_count:
+        raise SystemExit(
+            "Feature host patch hunk line counts do not match its header: "
+            + str(len(old_lines)) + "/" + str(len(new_lines))
+            + " vs " + str(declared_old_count) + "/" + str(declared_new_count)
+        )
     return old_lines, new_lines
 
 
@@ -183,20 +178,19 @@ def _apply_feature_host_patch(project_root: Path, patch_file: Path):
         raise SystemExit("Feature host patch target is missing or is a symlink: " + target_relative)
 
     old_lines, new_lines = _feature_host_patch_hunk_lines(payload)
-    current_lines = target.read_text(encoding="utf-8").splitlines()
+    current_text = target.read_text(encoding="utf-8")
+    current_lines = current_text.splitlines()
     preimage_count = _count_exact_sequence(current_lines, old_lines)
     postimage_count = _count_exact_sequence(current_lines, new_lines)
 
-    # Require a unique exact postimage for idempotent skip, or a unique exact preimage
-    # before applying. This prevents GNU patch from choosing an arbitrary duplicate anchor.
+    # Exact, unique line-sequence replacement deliberately ignores diff line numbers.
+    # The extracted host may insert earlier imports or declarations, so line offsets in a
+    # reviewed template are advisory; unique full preimage/postimage checks are mandatory.
     if postimage_count == 1:
-        already_applied = _run_feature_host_patch(
-            project_root, payload, dry_run=True, reverse=True
-        )
-        if already_applied.returncode == 0:
-            print("Feature host patch already applied: " + target_relative)
-            return
-        raise SystemExit("Feature host patch postimage exists but reverse validation failed: " + target_relative)
+        if preimage_count != 0:
+            raise SystemExit("Feature host patch has a mixed old/new state: " + target_relative)
+        print("Feature host patch already applied: " + target_relative)
+        return
     if postimage_count > 1:
         raise SystemExit("Feature host patch postimage is ambiguous: " + target_relative)
     if preimage_count != 1:
@@ -224,32 +218,19 @@ def _apply_feature_host_patch(project_root: Path, patch_file: Path):
             + "; expected preimage: " + " | ".join(repr(line) for line in old_lines)
         )
 
-    forward = _run_feature_host_patch(
-        project_root, payload, dry_run=True, reverse=False
-    )
-    if forward.returncode != 0:
-        detail = (forward.stderr or forward.stdout).decode("utf-8", errors="replace").strip()
-        raise SystemExit(
-            "Feature host patch preimage mismatch; refusing fuzzy/partial application for "
-            + target_relative + ": " + detail
-        )
+    old_block = "\n".join(old_lines)
+    new_block = "\n".join(new_lines)
+    if current_text.count(old_block) != 1:
+        raise SystemExit("Feature host patch text preimage is not unique: " + target_relative)
+    updated_text = current_text.replace(old_block, new_block, 1)
+    target.write_text(updated_text, encoding="utf-8")
 
-    applied = _run_feature_host_patch(
-        project_root, payload, dry_run=False, reverse=False
-    )
-    if applied.returncode != 0:
-        detail = (applied.stderr or applied.stdout).decode("utf-8", errors="replace").strip()
-        raise SystemExit("Feature host patch application failed for " + target_relative + ": " + detail)
-
-    verified_lines = target.read_text(encoding="utf-8").splitlines()
-    if _count_exact_sequence(verified_lines, new_lines) != 1:
-        raise SystemExit("Feature host patch postimage is not unique after application: " + target_relative)
-    verified = _run_feature_host_patch(
-        project_root, payload, dry_run=True, reverse=True
-    )
-    if verified.returncode != 0:
-        detail = (verified.stderr or verified.stdout).decode("utf-8", errors="replace").strip()
-        raise SystemExit("Feature host patch postimage verification failed for " + target_relative + ": " + detail)
+    verified_text = target.read_text(encoding="utf-8")
+    verified_lines = verified_text.splitlines()
+    if _count_exact_sequence(verified_lines, new_lines) != 1 or _count_exact_sequence(verified_lines, old_lines) != 0:
+        raise SystemExit("Feature host patch postimage verification failed: " + target_relative)
+    if verified_text.count(new_block) != 1:
+        raise SystemExit("Feature host patch text postimage is not unique: " + target_relative)
     print("Applied Feature host patch: " + target_relative)
 
 
@@ -274,22 +255,18 @@ def _apply_feature_host_patches(project_root: Path, features_root: Path):
 
     if not patch_files:
         raise SystemExit("Feature host patch directory exists but contains no .patch templates")
-    if shutil.which("patch") is None:
-        raise SystemExit("The GNU patch utility is required to apply Feature host patch templates")
-
     for patch_file in patch_files:
         _apply_feature_host_patch(project_root, patch_file)
 
 
 def _feature_host_patch_regression_test():
-    if shutil.which("patch") is None:
-        raise SystemExit("The GNU patch utility is required for host patch regression tests")
     with tempfile.TemporaryDirectory() as temporary_directory:
         temporary_root = Path(temporary_directory)
         project = temporary_root / "host"
         target = project / "app/src/main/java/Example.kt"
         target.parent.mkdir(parents=True)
-        target.write_text("class Example {\n}\n", encoding="utf-8")
+        prefix = "\n".join("// filler " + str(index) for index in range(1200))
+        target.write_text(prefix + "\nclass Example {\n}\n", encoding="utf-8")
 
         features = temporary_root / "features"
         patch_file = features / "host-integration/patches/app/src/main/java/Example.kt.patch"
@@ -305,16 +282,30 @@ def _feature_host_patch_regression_test():
         )
         patch_file.write_text(valid_patch, encoding="utf-8")
         _apply_feature_host_patch(project, patch_file)
-        expected = "class Example {\n    fun added() = Unit\n}\n"
+        expected = prefix + "\nclass Example {\n    fun added() = Unit\n}\n"
         if target.read_text(encoding="utf-8") != expected:
-            raise SystemExit("Feature host patch regression failed to apply its expected postimage")
+            raise SystemExit("Feature host patch regression failed to apply an offset preimage")
 
         # A second pass must recognize the exact postimage and make no further change.
         _apply_feature_host_patch(project, patch_file)
         if target.read_text(encoding="utf-8") != expected:
             raise SystemExit("Feature host patch regression duplicated an already-applied patch")
 
-        # A changed/unknown preimage must fail closed rather than applying with fuzz.
+        # Duplicate preimages and unknown preimages must both fail closed.
+        duplicate_project = temporary_root / "duplicate-host"
+        duplicate_target = duplicate_project / "app/src/main/java/Example.kt"
+        duplicate_target.parent.mkdir(parents=True)
+        duplicate_target.write_text(
+            prefix + "\nclass Example {\n}\n\nclass Example {\n}\n",
+            encoding="utf-8"
+        )
+        try:
+            _apply_feature_host_patch(duplicate_project, patch_file)
+        except SystemExit:
+            pass
+        else:
+            raise SystemExit("Feature host patch regression accepted duplicate preimages")
+
         invalid_patch = valid_patch.replace(" class Example {", " class Different {")
         patch_file.write_text(invalid_patch, encoding="utf-8")
         try:
@@ -323,6 +314,9 @@ def _feature_host_patch_regression_test():
             pass
         else:
             raise SystemExit("Feature host patch regression accepted an unknown preimage")
+
+
+_feature_host_patch_regression_test()
 
 
 _feature_host_patch_regression_test()
