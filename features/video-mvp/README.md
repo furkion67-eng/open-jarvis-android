@@ -2,7 +2,7 @@
 
 Current renderer/content-pipeline contract:
 
-- A render request is accepted only when a researched story pack exists. The supported packs are **İstanbul'un Fethi: 1453** and **Mimar Sinan: Üç eser, tek usta**; unsupported topics fail closed instead of receiving generic filler or invented facts.
+- A render request is accepted only when a researched story pack exists. The supported packs are **İstanbul'un Fethi: 1453** and **Mimar Sinan: Süleymaniye yedi yılda**; unsupported topics fail closed instead of receiving generic filler or invented facts.
 - The five scenes use five distinct Wikimedia Commons assets with pinned file-page revisions. Every descriptor records the creator, exact license/version, license URL, source revision URL and attribution text. The resolver rejects missing/unknown licenses, NC/ND terms, unverified source revisions, non-HTTPS or non-Wikimedia downloads, unexpected MIME types, oversized/invalid images and duplicate image hashes.
 - The 1453 pack uses Public Domain Mark 1.0 and CC BY-SA 4.0 assets. The Mimar Sinan pack uses five distinct CC BY-SA 4.0 images. CC BY-SA adaptations must be distributed under CC BY-SA 4.0; this obligation is carried in the typed attribution manifest and the generated credits. Attribution includes the creator, license, source revision and 9:16 crop note.
 - Visual assets are fetched over HTTPS from Wikimedia Commons, cached under the app cache directory for at most 30 days, and bounded to 10 entries / 24 MB. Expired, corrupt and excess entries are removed. A valid cache entry can be reused offline; without a valid cache, network failure stops rendering. There is no procedural visual fallback for production story renders.
@@ -34,10 +34,11 @@ The script avoids a definitive ship count or route. The TDV sources note that th
 
 ## Mimar Sinan research pack
 
-The Mimar Sinan script is based on Selçuk Mülâyim's TDV İslâm Ansiklopedisi entry “Sinan”:
+The Mimar Sinan script uses Selçuk Mülâyim's TDV İslâm Ansiklopedisi entries “Sinan” and “Süleymaniye Camii ve Külliyesi”:
 - https://islamansiklopedisi.org.tr/sinan
+- https://islamansiklopedisi.org.tr/suleymaniye-camii-ve-kulliyesi
 
-The five scene claims are limited to the entry's statements about Şehzade Camii (1548, “çıraklık”), Süleymaniye (seven-year construction and 1557 completion, “kalfalık”), Selimiye in Edirne as Sinan's greatest work, his appointment as chief architect at age 48, and his death in 1588 / burial in the Süleymaniye complex.
+The five scene claims are limited to the sources' statements about Şehzade Camii (1548, “çıraklık”), Süleymaniye Camii's opening on 15 October 1557, seven years after its foundation ceremony (“kalfalık”), Selimiye in Edirne as Sinan's greatest work, his appointment as chief architect at age 48, and his death in 1588 / burial in the Süleymaniye complex. The first-two-second hook is now the concrete payoff “Süleymaniye yedi yılda!” rather than a generic slogan.
 
 | Scene | Creator | License | Pinned source |
 |---|---|---|---|
