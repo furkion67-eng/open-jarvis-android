@@ -38,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -57,6 +58,9 @@ fun DeviceCapabilityStatusPanel(modifier: Modifier = Modifier) {
         refreshing = true
         try {
             items = withContext(Dispatchers.IO) { reader.snapshot() }
+        } catch (cancelled: CancellationException) {
+            // A collapsed/unmounted phone-tools section must cancel its snapshot read.
+            throw cancelled
         } catch (error: Exception) {
             actionStatus = "Android izin durumu okunamadı: " +
                 (error.localizedMessage ?: "bilinmeyen hata")

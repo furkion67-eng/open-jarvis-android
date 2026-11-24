@@ -28,6 +28,8 @@ class JarvisTaskPersistenceInstrumentedTest {
 
     @Before
     fun setUp() {
+        // Each in-memory database gets a fresh process recovery gate.
+        JarvisTaskRepository.resetProcessBootstrapForTesting()
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         database = Room.inMemoryDatabaseBuilder(context, JarvisTaskDatabase::class.java)
             .allowMainThreadQueries()
@@ -40,6 +42,43 @@ class JarvisTaskPersistenceInstrumentedTest {
     @After
     fun tearDown() {
         database.close()
+    }
+
+
+    @Test
+    fun taskSubmissionWaitsForStartupRecoveryBeforeInsertingNewTask() = runBlocking {
+        val now = System.currentTimeMillis()
+        dao.insert(
+            JarvisTaskEntity(
+                id = "abandoned-before-submit",
+                goal = "Önceki süreçte yarım kalan görev",
+                status = JarvisTaskStatus.QUEUED.storageValue,
+                currentStep = "Önceki yürütme",
+                progressPercent = 73,
+                approvalGranted = true,
+                approvalReference = "stale-approval",
+                createdAt = now,
+                updatedAt = now,
+                idempotencyKey = "abandoned-before-submit-key"
+            )
+        )
+
+        // No explicit recovery call: createTask must pass the process recovery gate first.
+        val newTaskId = repository.createTask("Yeni yerel plan", "submit-after-recovery")
+        val abandoned = dao.findById("abandoned-before-submit")!!
+        val submitted = dao.findById(newTaskId)!!
+
+        assertEquals(JarvisTaskStatus.INTERRUPTED.storageValue, abandoned.status)
+        assertEquals(0, abandoned.progressPercent)
+        assertFalse(abandoned.approvalGranted)
+        assertNull(abandoned.approvalReference)
+        assertEquals("APP_RESTARTED", abandoned.errorCode)
+
+        // The new request is inserted only after recovery and remains a user-reviewed plan.
+        assertEquals(JarvisTaskStatus.WAITING_FOR_USER.storageValue, submitted.status)
+        assertEquals(JarvisTaskCheckpoint.PLAN_CREATED, submitted.checkpoint)
+        assertNull(submitted.planAcceptedAt)
+        assertNotEquals(JarvisTaskStatus.INTERRUPTED.storageValue, submitted.status)
     }
 
     @Test
@@ -166,6 +205,63 @@ class JarvisTaskPersistenceInstrumentedTest {
         assertEquals(0, recovered.progressPercent)
         assertEquals(now, recovered.planAcceptedAt)
         assertFalse(recovered.status == JarvisTaskStatus.SUCCEEDED.storageValue)
+    }
+
+    @Test
+    fun recoveryBulkMarksOnlyAbandonedActiveStatesAndClearsApproval() = runBlocking {
+        val now = System.currentTimeMillis()
+        val activeStatuses = listOf(
+            JarvisTaskStatus.QUEUED,
+            JarvisTaskStatus.PLANNING,
+            JarvisTaskStatus.RUNNING
+        )
+
+        activeStatuses.forEachIndexed { index, status ->
+            dao.insert(
+                JarvisTaskEntity(
+                    id = "startup-active-" + index,
+                    goal = "Abandoned " + status.storageValue,
+                    status = status.storageValue,
+                    currentStep = "Önceki yürütme",
+                    progressPercent = 75,
+                    approvalGranted = true,
+                    approvalReference = "stale-approval-" + index,
+                    createdAt = now,
+                    updatedAt = now,
+                    idempotencyKey = "startup-active-key-" + index
+                )
+            )
+        }
+        dao.insert(
+            JarvisTaskEntity(
+                id = "startup-waiting-user",
+                goal = "Plan incelemesi bekliyor",
+                status = JarvisTaskStatus.WAITING_FOR_USER.storageValue,
+                currentStep = "Planı gözden geçir",
+                progressPercent = 0,
+                createdAt = now,
+                updatedAt = now,
+                idempotencyKey = "startup-waiting-user-key"
+            )
+        )
+
+        repository.recoverInterruptedTasks()
+
+        activeStatuses.indices.forEach { index ->
+            val recovered = dao.findById("startup-active-" + index)!!
+            assertEquals(JarvisTaskStatus.INTERRUPTED.storageValue, recovered.status)
+            assertEquals("Güvenli kurtarma beklemesi", recovered.currentStep)
+            assertEquals(0, recovered.progressPercent)
+            assertFalse(recovered.approvalGranted)
+            assertNull(recovered.approvalReference)
+            assertEquals("APP_RESTARTED", recovered.errorCode)
+            assertTrue(recovered.errorMessage!!.contains("otomatik yürütülmedi"))
+        }
+
+        val waiting = dao.findById("startup-waiting-user")!!
+        assertEquals(JarvisTaskStatus.WAITING_FOR_USER.storageValue, waiting.status)
+        assertEquals("Planı gözden geçir", waiting.currentStep)
+        assertNull(waiting.errorCode)
     }
 
     @Test
