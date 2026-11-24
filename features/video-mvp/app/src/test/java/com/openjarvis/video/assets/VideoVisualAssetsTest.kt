@@ -143,6 +143,11 @@ class VideoVisualAssetsTest {
             "not-a-timestamp",
             valid.uploadTimestamp
         ))
+        assertFalse(VideoAssetLicensePolicy.isValidUploadEvidence(
+            valid.expectedUploadSha1,
+            "2099-01-01T00:00:00Z",
+            "2098-01-01T00:00:00Z"
+        ))
     }
 
     @Test
