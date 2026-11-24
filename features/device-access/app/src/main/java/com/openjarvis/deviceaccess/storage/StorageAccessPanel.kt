@@ -42,9 +42,39 @@ import kotlinx.coroutines.withContext
 /** User-selected shared-storage browser; no silent whole-device scan. */
 @Composable
 fun StorageAccessPanel(modifier: Modifier = Modifier) {
+    StorageAccessPanelContent(modifier, testHooks = null)
+}
+
+internal data class StorageAccessPanelTestHooks(
+    val grantRegistry: StorageUriGrantRegistry,
+    val gateway: SafStorageGateway,
+    val listChildren: (Uri, String) -> List<SafStorageGateway.Entry>,
+    val launchTreePicker: ((onResult: (Uri?, Int) -> Unit) -> Unit)? = null,
+    val launchIntent: ((Intent) -> Unit)? = null
+)
+
+@Composable
+internal fun StorageAccessPanelForTest(
+    modifier: Modifier = Modifier,
+    testHooks: StorageAccessPanelTestHooks
+) {
+    StorageAccessPanelContent(modifier, testHooks)
+}
+
+@Composable
+private fun StorageAccessPanelContent(
+    modifier: Modifier,
+    testHooks: StorageAccessPanelTestHooks?
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val grantRegistry = remember(context) { StorageUriGrantRegistry(context) }
+    val grantRegistry = remember(context, testHooks) {
+        testHooks?.grantRegistry ?: StorageUriGrantRegistry(context)
+    }
+    val gateway = remember(context, testHooks) {
+        testHooks?.gateway ?: SafStorageGateway(context)
+    }
+    val launchIntent: (Intent) -> Unit = testHooks?.launchIntent ?: { context.startActivity(it) }
     var savedGrantUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var treeUriText by rememberSaveable { mutableStateOf<String?>(null) }
     var parentDocumentId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -64,12 +94,10 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
     var status by rememberSaveable { mutableStateOf("Henüz klasör erişimi verilmedi.") }
     var loading by remember { mutableStateOf(false) }
 
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val data = result.data
-        val uri = data?.data
-        if (result.resultCode == Activity.RESULT_OK && uri != null) {
+    val onTreePickerResult: (Uri?, Int) -> Unit = { uri, returnedFlags ->
+        if (uri != null) {
             try {
-                grantRegistry.persistPickerResult(uri, data?.flags ?: 0)
+                grantRegistry.persistPickerResult(uri, returnedFlags)
                 treeUriText = uri.toString()
                 parentDocumentId = DocumentsContract.getTreeDocumentId(uri)
                 status = "Seçilen klasör izni kaydedildi; uygulama yeniden açıldığında tekrar kontrol edilecek."
@@ -81,7 +109,15 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
             } catch (error: Exception) {
                 status = "Klasör izni kaydedilemedi: " + (error.message ?: "bilinmeyen hata")
             }
-        } else if (result.resultCode != Activity.RESULT_OK) {
+        } else {
+            status = "Klasör seçimi iptal edildi."
+        }
+    }
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            onTreePickerResult(result.data?.data, result.data?.flags ?: 0)
+        } else {
             status = "Klasör seçimi iptal edildi."
         }
     }
@@ -107,7 +143,7 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
                     scope.launch {
                         try {
                             val targetName = withContext(Dispatchers.IO) {
-                                SafStorageGateway(context).displayName(targetParent)
+                                gateway.displayName(targetParent)
                             }
                             pendingTransfer = PendingStorageTransfer(
                                 preview = StorageTransferPreview(
@@ -176,7 +212,8 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
             loading = true
             try {
                 val loaded = withContext(Dispatchers.IO) {
-                    SafStorageGateway(context).listChildren(selectedTree, selectedParent)
+                    testHooks?.listChildren?.invoke(selectedTree, selectedParent)
+                        ?: gateway.listChildren(selectedTree, selectedParent)
                 }
                 entries = loaded
                 status = loaded.size.toString() + " öğe listelendi."
@@ -213,7 +250,12 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
                             putExtra(DocumentsContract.EXTRA_INITIAL_URI, treeUri)
                         }
                     }
-                    picker.launch(request)
+                    val testPicker = testHooks?.launchTreePicker
+                    if (testPicker != null) {
+                        testPicker(onTreePickerResult)
+                    } else {
+                        picker.launch(request)
+                    }
                 }) {
                     Text(if (treeUri == null) "Klasör seç" else "Başka klasör seç")
                 }
@@ -291,7 +333,7 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
                             try {
                                 withContext(Dispatchers.IO) {
                                     val parent = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentDocumentId!!)
-                                    SafStorageGateway(context).createDirectory(parent, name)
+                                    gateway.createDirectory(parent, name)
                                 }
                                 folderName = ""
                                 status = "Klasör oluşturuldu."
@@ -325,8 +367,7 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
                             try {
                                 withContext(Dispatchers.IO) {
                                     val parent = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentDocumentId!!)
-                                    val gateway = SafStorageGateway(context)
-                                    val created = gateway.createFile(parent, "text/plain", name)
+                                                                        val created = gateway.createFile(parent, "text/plain", name)
                                     gateway.write(created, bytes)
                                 }
                                 newFileName = ""
@@ -357,7 +398,7 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
                                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                     }
                                     try {
-                                        context.startActivity(view)
+                                        launchIntent(view)
                                     } catch (_: Exception) {
                                         status = "Bu dosya türünü açabilecek uygulama bulunamadı."
                                     }
@@ -379,7 +420,7 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
                                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                             }
                                             try {
-                                                context.startActivity(Intent.createChooser(share, "Dosyayı paylaş"))
+                                                launchIntent(Intent.createChooser(share, "Dosyayı paylaş"))
                                             } catch (_: Exception) {
                                                 status = "Dosya paylaşım uygulaması bulunamadı."
                                             }
@@ -437,8 +478,7 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
                                 scope.launch {
                                     try {
                                         withContext(Dispatchers.IO) {
-                                            val gateway = SafStorageGateway(context)
-                                            val currentName = gateway.displayName(entry.uri)
+                                                                                        val currentName = gateway.displayName(entry.uri)
                                             val preview = StorageRenamePreview(
                                                 uri = entry.uri.toString(),
                                                 originalName = entry.name,
@@ -493,8 +533,7 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
                                 scope.launch {
                                     try {
                                         withContext(Dispatchers.IO) {
-                                            val gateway = SafStorageGateway(context)
-                                            val sourceUri = Uri.parse(preview.sourceUri)
+                                                                                        val sourceUri = Uri.parse(preview.sourceUri)
                                             val targetParent = Uri.parse(preview.targetParentUri)
                                             val currentSourceName = gateway.displayName(sourceUri)
                                             val currentTargetName = gateway.displayName(targetParent)
@@ -555,8 +594,7 @@ fun StorageAccessPanel(modifier: Modifier = Modifier) {
                         scope.launch {
                             try {
                                 withContext(Dispatchers.IO) {
-                                    val gateway = SafStorageGateway(context)
-                                    val confirmation = gateway.confirmDeletion(entry.uri, typedDeleteName)
+                                                                        val confirmation = gateway.confirmDeletion(entry.uri, typedDeleteName)
                                     gateway.delete(entry.uri, confirmation)
                                 }
                                 selectedForDeletion = null
