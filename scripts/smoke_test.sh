@@ -21,7 +21,20 @@ api="$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
 case "$api" in 33|34) echo "Android API $api" ;; *) fail "unexpected API $api" ;; esac
 
 adb install -r "$APP_APK" >/dev/null || fail "Debug APK install failed"
-adb shell pm clear "$APP_PKG" >/dev/null || fail "app data clear failed"
+# Clear data only after the package is stopped. On a heavily loaded emulator,
+# do not race a delayed clearApplicationUserData callback with the fresh launch.
+adb shell am force-stop "$APP_PKG" >/dev/null 2>&1 || true
+clear_output="$(adb shell pm clear "$APP_PKG" 2>&1)" || fail "app data clear command failed"
+printf '%s\n' "$clear_output"
+printf '%s\n' "$clear_output" | grep -Fq "Success" || fail "app data clear did not report Success"
+app_pid=""
+for attempt in $(seq 1 10); do
+  app_pid="$(adb shell pidof "$APP_PKG" 2>/dev/null | tr -d '\r' || true)"
+  [ -z "$app_pid" ] && break
+  sleep 1
+done
+[ -z "$app_pid" ] || fail "app process remained alive after force-stop and data clear"
+echo "APP-DATA-CLEAR-COMPLETE"
 
 capture() {
   local label="$1"
