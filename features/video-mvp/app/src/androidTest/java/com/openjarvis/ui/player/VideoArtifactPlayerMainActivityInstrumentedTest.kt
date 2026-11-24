@@ -1,9 +1,11 @@
 package com.openjarvis.ui.player
 
 import android.app.Activity
+import android.app.Application
 import android.app.Instrumentation
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
 import android.view.View
@@ -32,6 +34,7 @@ import org.json.JSONArray
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Product-level player acceptance on the real extracted-host MainActivity.
@@ -53,20 +56,59 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
         var captionsUri: String? = null
         var thumbnailUri: String? = null
         var monitor: Instrumentation.ActivityMonitor? = null
+        var firstDrawCallbacks: Application.ActivityLifecycleCallbacks? = null
+        val firstFrameElapsedMs = AtomicLong(-1L)
+        val firstFrameDrawn = CountDownLatch(1)
+        val application = context as Application
 
         try {
             withContext(Dispatchers.IO) { JarvisTaskDatabase.closeInstanceForTesting() }
             val launchStartedAt = SystemClock.elapsedRealtime()
+            firstDrawCallbacks = object : Application.ActivityLifecycleCallbacks {
+                override fun onActivityCreated(created: Activity, savedInstanceState: Bundle?) {
+                    if (created !is MainActivity) return
+                    // Register during Activity creation, before startActivitySync returns and
+                    // before the first window traversal. Do not invalidate the view: that would
+                    // measure a synthetic later draw rather than the actual cold-start frame.
+                    val decor = created.window.decorView
+                    val observer = decor.viewTreeObserver
+                    check(observer.isAlive) { "MainActivity decor ViewTreeObserver is not alive at creation." }
+                    observer.addOnDrawListener(object : ViewTreeObserver.OnDrawListener {
+                        override fun onDraw() {
+                            firstFrameElapsedMs.compareAndSet(
+                                -1L,
+                                SystemClock.elapsedRealtime() - launchStartedAt
+                            )
+                            firstFrameDrawn.countDown()
+                            if (decor.viewTreeObserver.isAlive) {
+                                decor.viewTreeObserver.removeOnDrawListener(this)
+                            }
+                        }
+                    })
+                }
+
+                override fun onActivityStarted(created: Activity) = Unit
+                override fun onActivityResumed(created: Activity) = Unit
+                override fun onActivityPaused(created: Activity) = Unit
+                override fun onActivityStopped(created: Activity) = Unit
+                override fun onActivitySaveInstanceState(created: Activity, outState: Bundle) = Unit
+                override fun onActivityDestroyed(created: Activity) = Unit
+            }
+            application.registerActivityLifecycleCallbacks(requireNotNull(firstDrawCallbacks))
             monitor = instrumentation.addMonitor(IntentFilter(Intent.ACTION_VIEW), null, false)
             activity = instrumentation.startActivitySync(
                 Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
 
-            val firstFrameMs = awaitFirstDrawnFrame(
-                activity = activity!!,
-                launchStartedAt = launchStartedAt,
-                timeoutMs = DASHBOARD_READY_BUDGET_MS
+            val firstFrameRemainingMs = (
+                launchStartedAt + DASHBOARD_READY_BUDGET_MS - SystemClock.elapsedRealtime()
+            ).coerceAtLeast(0L)
+            assertTrue(
+                "MainActivity did not draw its first frame within " + DASHBOARD_READY_BUDGET_MS + " ms.",
+                firstFrameDrawn.await(firstFrameRemainingMs, TimeUnit.MILLISECONDS)
             )
+            val firstFrameMs = firstFrameElapsedMs.get()
+            assertTrue("The first MainActivity frame timestamp must be captured.", firstFrameMs >= 0L)
             val dashboardReadyMs = awaitDashboardReady(
                 instrumentation = instrumentation,
                 activity = activity!!,
@@ -149,6 +191,7 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
                 }
             }
             monitor?.let { instrumentation.removeMonitor(it) }
+            firstDrawCallbacks?.let(application::unregisterActivityLifecycleCallbacks)
 
             withContext(Dispatchers.IO) {
                 JarvisTaskDatabase.closeInstanceForTesting()
@@ -162,35 +205,6 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
                 }
             }
         }
-    }
-
-    private fun awaitFirstDrawnFrame(
-        activity: Activity,
-        launchStartedAt: Long,
-        timeoutMs: Long
-    ): Long {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val deadline = launchStartedAt + timeoutMs
-        val drawn = CountDownLatch(1)
-        instrumentation.runOnMainSync {
-            val decor = activity.window.decorView
-            val observer = decor.viewTreeObserver
-            val listener = object : ViewTreeObserver.OnDrawListener {
-                override fun onDraw() {
-                    drawn.countDown()
-                    if (decor.viewTreeObserver.isAlive) {
-                        decor.viewTreeObserver.removeOnDrawListener(this)
-                    }
-                }
-            }
-            observer.addOnDrawListener(listener)
-            decor.invalidate()
-        }
-        val remainingMs = (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
-        if (!drawn.await(remainingMs, TimeUnit.MILLISECONDS)) {
-            throw AssertionError("MainActivity did not draw its first frame within ${timeoutMs} ms.")
-        }
-        return SystemClock.elapsedRealtime() - launchStartedAt
     }
 
     private fun awaitDashboardReady(
