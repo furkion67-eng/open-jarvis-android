@@ -92,7 +92,7 @@ def _repair_input_digest_regression_test():
 _repair_input_digest_regression_test()
 
 def _run_feature_host_patch(project_root: Path, payload: bytes, *, dry_run: bool, reverse: bool):
-    command = ["patch", "--batch", "--fuzz=0", "-p1"]
+    command = ["patch", "--batch", "--fuzz=0", "-p1", "--force"]
     if dry_run:
         command.append("--dry-run")
     command.append("--reverse" if reverse else "--forward")
