@@ -10,6 +10,7 @@ import java.net.URI
 import java.net.URLDecoder
 import java.net.URL
 import java.security.MessageDigest
+import java.time.Instant
 import java.util.Locale
 import java.util.Properties
 
@@ -29,7 +30,13 @@ data class VideoVisualAssetDescriptor(
     val commercialUseAllowed: Boolean = true,
     val derivativesAllowed: Boolean = true,
     val shareAlikeRequired: Boolean = false,
-    val requiredOutputLicense: String? = null
+    val requiredOutputLicense: String? = null,
+    val expectedUploadSha1: String = "",
+    val pinnedPageRevisionTimestamp: String = "",
+    val uploadTimestamp: String = "",
+    val sourceVerificationUrl: String? = null,
+    val sourceVerificationMimeType: String = expectedMimeType,
+    val sourceVerificationMaxBytes: Long = maxBytes
 )
 
 data class VideoAssetAttribution(
@@ -38,6 +45,9 @@ data class VideoAssetAttribution(
     val assetId: String,
     val sha256: String,
     val sourceUrl: String,
+    val sourceUploadSha1: String,
+    val pinnedPageRevisionTimestamp: String,
+    val uploadTimestamp: String,
     val creator: String,
     val licenseId: String,
     val licenseVersion: String,
@@ -55,6 +65,7 @@ data class VideoAssetAttribution(
         if (sceneIndex < 0 || sceneId.isBlank() || assetId.isBlank() ||
             !sha256.matches(Regex("[a-f0-9]{64}")) ||
             !VideoAssetLicensePolicy.isPinnedCommonsSource(sourceUrl) ||
+            !VideoAssetLicensePolicy.isValidUploadEvidence(sourceUploadSha1, pinnedPageRevisionTimestamp, uploadTimestamp) ||
             creator.isBlank() || licenseId.isBlank() || licenseVersion.isBlank() ||
             attributionText.isBlank() ||
             !attributionText.contains(creator) ||
@@ -85,7 +96,9 @@ data class ResolvedSceneVisual(
 data class DownloadedVisualAsset(
     val bytes: ByteArray,
     val mimeType: String,
-    val finalUrl: String
+    val finalUrl: String,
+    val sourceVerificationBytes: ByteArray? = null,
+    val sourceVerificationMimeType: String? = null
 )
 
 data class CachedVisualAsset(
@@ -163,6 +176,13 @@ object VideoAssetLicensePolicy {
             rule.outputLicense == requiredOutputLicense
     }
 
+    fun isValidUploadEvidence(expectedSha1: String, pinnedPageRevisionTimestamp: String, uploadTimestamp: String): Boolean {
+        if (!expectedSha1.matches(Regex("[a-f0-9]{40}"))) return false
+        val pinned = runCatching { Instant.parse(pinnedPageRevisionTimestamp) }.getOrNull() ?: return false
+        val uploaded = runCatching { Instant.parse(uploadTimestamp) }.getOrNull() ?: return false
+        return !uploaded.isAfter(pinned)
+    }
+
     fun validate(descriptor: VideoVisualAssetDescriptor) {
         require(descriptor.assetId.matches(Regex("[a-z0-9][a-z0-9-]{4,79}"))) {
             "Görsel varlık kimliği geçersiz."
@@ -181,6 +201,16 @@ object VideoAssetLicensePolicy {
         }
         require(isDownloadForPinnedSource(descriptor.sourceUrl, descriptor.downloadUrl)) {
             "İndirilen dosyanın adı sabitlenmiş Wikimedia kaynak sayfasındaki dosyayla eşleşmiyor."
+        }
+        require(isValidUploadEvidence(descriptor.expectedUploadSha1, descriptor.pinnedPageRevisionTimestamp, descriptor.uploadTimestamp)) {
+            "Sabit Commons sayfa revizyonuna ait özgün yükleme SHA-1 kanıtı eksik veya tarih sırası geçersiz."
+        }
+        val verificationUrl = descriptor.sourceVerificationUrl ?: descriptor.downloadUrl
+        require(isOriginalDownloadUrl(verificationUrl) && isDownloadForPinnedSource(descriptor.sourceUrl, verificationUrl)) {
+            "Özgün dosya doğrulama adresi sabitlenmiş Commons dosyasına bağlı değil."
+        }
+        require(descriptor.sourceVerificationMimeType in setOf("image/jpeg", "image/png", "image/svg+xml") && descriptor.sourceVerificationMaxBytes in 1_024L..5_000_000L) {
+            "Özgün dosya doğrulama biçimi veya boyut sınırı geçersiz."
         }
         require(descriptor.expectedMimeType in ALLOWED_IMAGE_MIME_TYPES) {
             "Görsel biçimi desteklenmiyor."
@@ -287,6 +317,13 @@ object VideoAssetLicensePolicy {
             uri.rawFragment == null
     }
 
+    internal fun isOriginalDownloadUrl(value: String): Boolean {
+        val uri = runCatching { URI(value) }.getOrNull() ?: return false
+        return uri.scheme == "https" && uri.host == "upload.wikimedia.org" &&
+            uri.rawUserInfo == null && (uri.port == -1 || uri.port == 443) &&
+            uri.path.startsWith("/wikipedia/commons/") && !uri.path.contains("/thumb/") && uri.rawFragment == null
+    }
+
     internal fun isValidCacheMetadata(value: String, retrievedAtEpochMs: Long): Boolean {
         val entries = value.split(';')
         if (entries.size != 4) return false
@@ -356,7 +393,11 @@ class VideoVisualAssetResolver(
                 descriptor.sourceUrl,
                 descriptor.creator,
                 descriptor.licenseId,
-                descriptor.licenseVersion
+                descriptor.licenseVersion,
+                descriptor.expectedUploadSha1,
+                descriptor.pinnedPageRevisionTimestamp,
+                descriptor.uploadTimestamp,
+                descriptor.sourceVerificationUrl.orEmpty()
             ).joinToString("|")
         )
         val cached = cache.read(cacheKey, now) ?: run {
@@ -394,6 +435,9 @@ class VideoVisualAssetResolver(
             assetId = descriptor.assetId,
             sha256 = cached.sha256,
             sourceUrl = descriptor.sourceUrl,
+            sourceUploadSha1 = descriptor.expectedUploadSha1,
+            pinnedPageRevisionTimestamp = descriptor.pinnedPageRevisionTimestamp,
+            uploadTimestamp = descriptor.uploadTimestamp,
             creator = descriptor.creator,
             licenseId = descriptor.licenseId,
             licenseVersion = descriptor.licenseVersion,
@@ -424,6 +468,15 @@ class VideoVisualAssetResolver(
         }
         require(downloaded.bytes.isNotEmpty() && downloaded.bytes.size.toLong() <= descriptor.maxBytes) {
             "Görsel boş veya izin verilen boyut sınırını aşıyor."
+        }
+        require((descriptor.sourceVerificationUrl == null) == (downloaded.sourceVerificationBytes == null)) {
+            "Sabit kaynak dosyasının doğrulama baytları eksik veya beklenmedik."
+        }
+        val sourceBytes = downloaded.sourceVerificationBytes ?: downloaded.bytes
+        val sourceMime = downloaded.sourceVerificationMimeType ?: downloaded.mimeType
+        require(sourceMime == descriptor.sourceVerificationMimeType && sourceBytes.isNotEmpty() &&
+            sourceBytes.size.toLong() <= descriptor.sourceVerificationMaxBytes && sha1(sourceBytes) == descriptor.expectedUploadSha1) {
+            "İndirilen özgün dosya, sabit Commons yükleme SHA-1 değeriyle eşleşmiyor."
         }
         val signatureValid = when (downloaded.mimeType) {
             "image/jpeg" -> downloaded.bytes.size >= 3 &&
