@@ -12,6 +12,24 @@ interface JarvisTaskDao {
     @Query("SELECT * FROM jarvis_tasks ORDER BY updatedAt DESC LIMIT :limit")
     fun observeRecent(limit: Int): Flow<List<JarvisTaskEntity>>
 
+    /** Paginated archive of only verified video task rows; URI validation remains in the player. */
+    @Query("""
+        SELECT * FROM jarvis_tasks
+        WHERE status = :succeededStatus
+          AND videoUri LIKE 'content://%'
+          AND captionsUri LIKE 'content://%'
+        ORDER BY updatedAt DESC, id DESC
+        LIMIT :limit OFFSET :offset
+    """)
+    fun observeSuccessfulVideoArtifacts(
+        succeededStatus: String,
+        limit: Int,
+        offset: Int
+    ): Flow<List<JarvisTaskEntity>>
+
+    @Query("SELECT * FROM jarvis_tasks WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<JarvisTaskEntity?>
+
     @Query("SELECT * FROM jarvis_device_action_events ORDER BY createdAt DESC LIMIT :limit")
     fun observeRecentDeviceActionEvents(limit: Int): Flow<List<DeviceActionEventEntity>>
 
