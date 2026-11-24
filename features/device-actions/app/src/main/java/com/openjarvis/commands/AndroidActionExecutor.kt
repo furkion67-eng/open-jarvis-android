@@ -129,7 +129,13 @@ class AndroidActionExecutor(private val context: Context) {
         val dispatcher = createAndroidSmsDispatcher(context, gate)
         outcomeScope.launch {
             // A process-reopened pending attempt is UNKNOWN, never replayed as a new send.
-            repeat(dispatcher.recoveredUnknownCount) {
+            val recoveredUnknownCount = try {
+                dispatcher.recoverPendingAttempts()
+            } catch (error: Exception) {
+                onResult(Result.failure(error))
+                return@launch
+            }
+            repeat(recoveredUnknownCount) {
                 persistOutcome(DeviceActionOutcomeCode.UNKNOWN)
             }
             dispatcher.dispatch(confirmation) { outcome ->
