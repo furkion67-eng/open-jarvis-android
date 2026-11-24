@@ -16,6 +16,7 @@ import android.telephony.SmsManager
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -56,10 +57,16 @@ private class AndroidSmsSender(context: Context) : SmsTransport {
     }
 
     private suspend fun sendOnIo(draft: SmsDraft, callback: (SmsSendOutcome) -> Unit) {
-        try {
-            recoverPendingAttempts()
-        } catch (error: Exception) {
-            deliver(callback, SmsSendOutcome.Unknown("Önceki SMS denemeleri kurtarılamadı; yeni gönderim başlatılmadı: " + (error.localizedMessage ?: "kayıt hatası")))
+        val recoveryResult = runSmsJournalOperation { recoverPendingAttempts() }
+        if (recoveryResult.isFailure) {
+            val error = recoveryResult.exceptionOrNull()
+            deliver(
+                callback,
+                SmsSendOutcome.Unknown(
+                    "Önceki SMS denemeleri kurtarılamadı; yeni gönderim başlatılmadı: " +
+                        (error?.localizedMessage ?: "kayıt hatası")
+                )
+            )
             return
         }
         if (appContext.checkSelfPermission(Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
@@ -70,11 +77,21 @@ private class AndroidSmsSender(context: Context) : SmsTransport {
             deliver(callback, SmsSendOutcome.Unsupported)
             return
         }
-        val manager = try { SmsManager.getDefault() } catch (_: Exception) {
-            deliver(callback, SmsSendOutcome.Unsupported); return
+        val manager = try {
+            SmsManager.getDefault()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            deliver(callback, SmsSendOutcome.Unsupported)
+            return
         }
-        val parts = try { manager.divideMessage(draft.exactMessage) } catch (error: Exception) {
-            deliver(callback, SmsSendOutcome.Failed(error.message ?: "SMS bölümlendirilemedi.")); return
+        val parts = try {
+            manager.divideMessage(draft.exactMessage)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            deliver(callback, SmsSendOutcome.Failed(error.message ?: "SMS bölümlendirilemedi."))
+            return
         }
         if (parts.isNullOrEmpty()) {
             deliver(callback, SmsSendOutcome.Failed("SMS içeriği boş veya geçersiz.")); return
@@ -82,13 +99,18 @@ private class AndroidSmsSender(context: Context) : SmsTransport {
 
         val journalId = UUID.randomUUID().toString()
         var journalStarted = false
-        try {
-            journalIo.begin(journalId, parts.size)
-            journalStarted = true
-        } catch (error: Exception) {
-            deliver(callback, SmsSendOutcome.Failed(error.message ?: "SMS deneme kaydı yazılamadı; mesaj gönderilmedi."))
+        val beginResult = runSmsJournalOperation { journalIo.begin(journalId, parts.size) }
+        if (beginResult.isFailure) {
+            val error = beginResult.exceptionOrNull()
+            deliver(
+                callback,
+                SmsSendOutcome.Failed(
+                    error?.message ?: "SMS deneme kaydı yazılamadı; mesaj gönderilmedi."
+                )
+            )
             return
         }
+        journalStarted = true
 
         val finished = AtomicBoolean(false)
         val registered = AtomicBoolean(false)
@@ -107,15 +129,32 @@ private class AndroidSmsSender(context: Context) : SmsTransport {
                 val callbackResultCode = resultCode
                 ioScope.launch {
                     try {
-                        when (val state = callbackRecorderIo.record(partIndex, callbackResultCode)) {
-                            SmsSendState.SENT -> finish(SmsSendOutcome.Sent)
-                            SmsSendState.FAILED -> finish(SmsSendOutcome.Failed("Android SMS callback başarısız (kod $callbackResultCode)."))
-                            SmsSendState.UNKNOWN -> finish(SmsSendOutcome.Unknown("SMS sonucu bilinmiyor; otomatik tekrar yapılmadı."))
-                            SmsSendState.PENDING -> Unit
+                        val recordResult = runSmsJournalOperation {
+                            callbackRecorderIo.record(partIndex, callbackResultCode)
                         }
-                    } catch (error: Exception) {
-                        runCatching { callbackRecorderIo.markUnknown() }
-                        finish(SmsSendOutcome.Unknown("SMS callback kalıcı kaydı başarısız: " + (error.localizedMessage ?: "kayıt hatası")))
+                        if (recordResult.isFailure) {
+                            val error = recordResult.exceptionOrNull()
+                            // Keep the attempt conservative if the callback journal cannot be
+                            // updated. Any still-PENDING record becomes UNKNOWN on process recovery.
+                            runSmsJournalOperation { callbackRecorderIo.markUnknown() }
+                            finish(
+                                SmsSendOutcome.Unknown(
+                                    "SMS callback kalıcı kaydı başarısız: " +
+                                        (error?.localizedMessage ?: "kayıt hatası")
+                                )
+                            )
+                        } else {
+                            when (recordResult.getOrThrow()) {
+                                SmsSendState.SENT -> finish(SmsSendOutcome.Sent)
+                                SmsSendState.FAILED -> finish(
+                                    SmsSendOutcome.Failed("Android SMS callback başarısız (kod $callbackResultCode).")
+                                )
+                                SmsSendState.UNKNOWN -> finish(
+                                    SmsSendOutcome.Unknown("SMS sonucu bilinmiyor; otomatik tekrar yapılmadı.")
+                                )
+                                SmsSendState.PENDING -> Unit
+                            }
+                        }
                     } finally {
                         pendingResult.finish()
                     }
@@ -134,8 +173,11 @@ private class AndroidSmsSender(context: Context) : SmsTransport {
         }
         timeout = Runnable {
             ioScope.launch {
-                val state = runCatching { callbackRecorderIo.markUnknown() }.getOrDefault(SmsSendState.UNKNOWN)
-                if (state == SmsSendState.UNKNOWN) finish(SmsSendOutcome.Unknown("SMS callback zaman aşımına uğradı; SENT işaretlenmedi."))
+                val markUnknownResult = runSmsJournalOperation { callbackRecorderIo.markUnknown() }
+                val state = markUnknownResult.getOrNull() ?: SmsSendState.UNKNOWN
+                if (state == SmsSendState.UNKNOWN) {
+                    finish(SmsSendOutcome.Unknown("SMS callback zaman aşımına uğradı; SENT işaretlenmedi."))
+                }
             }
         }
 
@@ -165,14 +207,27 @@ private class AndroidSmsSender(context: Context) : SmsTransport {
             } else {
                 manager.sendMultipartTextMessage(draft.phoneNumber, null, ArrayList(parts), sentIntents, null)
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: SecurityException) {
-            val persisted = if (journalStarted) runCatching { journalIo.markFailed(journalId) }.getOrNull() else null
-            finish(if (journalStarted && persisted == SmsSendState.FAILED) SmsSendOutcome.PermissionDenied
-                else SmsSendOutcome.Unknown("SMS izni veya deneme sonucu doğrulanamadı; otomatik tekrar yapılmadı."))
+            val persisted = if (journalStarted) {
+                runSmsJournalOperation { journalIo.markFailed(journalId) }.getOrNull()
+            } else null
+            finish(
+                if (journalStarted && persisted == SmsSendState.FAILED) SmsSendOutcome.PermissionDenied
+                else SmsSendOutcome.Unknown("SMS izni veya deneme sonucu doğrulanamadı; otomatik tekrar yapılmadı.")
+            )
         } catch (error: Exception) {
-            val persisted = if (journalStarted) runCatching { journalIo.markFailed(journalId) }.getOrNull() else null
-            finish(if (journalStarted && persisted == SmsSendState.FAILED) SmsSendOutcome.Failed(error.message ?: "SMS başlatılamadı.")
-                else SmsSendOutcome.Unknown("SMS başlatma sonucu kalıcı olarak doğrulanamadı; otomatik tekrar yapılmadı."))
+            val persisted = if (journalStarted) {
+                runSmsJournalOperation { journalIo.markFailed(journalId) }.getOrNull()
+            } else null
+            finish(
+                if (journalStarted && persisted == SmsSendState.FAILED) {
+                    SmsSendOutcome.Failed(error.message ?: "SMS başlatılamadı.")
+                } else {
+                    SmsSendOutcome.Unknown("SMS başlatma sonucu kalıcı olarak doğrulanamadı; otomatik tekrar yapılmadı.")
+                }
+            )
         }
     }
 
