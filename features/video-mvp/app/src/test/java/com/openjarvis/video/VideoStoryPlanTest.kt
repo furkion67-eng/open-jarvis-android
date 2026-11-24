@@ -37,7 +37,7 @@ class VideoStoryPlanTest {
         assertEquals(720, plan.renderSpec.width)
         assertEquals(1_280, plan.renderSpec.height)
         assertEquals(6, plan.captions.size)
-        assertEquals("Üç eser, tek usta!", plan.hookText)
+        assertEquals("Süleymaniye yedi yılda!", plan.hookText)
         assertEquals("sinan-mimarbasi", plan.scenes.first().sceneId)
         assertEquals("commons-sinan-sculpture", plan.scenes.first().visualAssetId)
         assertEquals(0L, plan.captions.first().startMs)
@@ -45,10 +45,16 @@ class VideoStoryPlanTest {
         assertEquals(plan.hookText, plan.captions.first().text)
         assertTrue(plan.narrationText.startsWith(plan.hookText))
         assertTrue(plan.narrationText.contains("1548"))
-        assertTrue(plan.narrationText.contains("1557"))
+        assertTrue(plan.narrationText.contains("15 Ekim 1557"))
         assertTrue(plan.narrationText.contains("1588"))
         assertEquals(5, plan.claimSources.size)
-        assertTrue(plan.claimSources.all {
+        val suleymaniyeClaim = plan.claimSources.single { it.claimId == "sinan-journeyman" }
+        assertEquals(
+            "https://islamansiklopedisi.org.tr/suleymaniye-camii-ve-kulliyesi",
+            suleymaniyeClaim.sourceUrl
+        )
+        assertTrue(suleymaniyeClaim.supportedClaim.contains("15 Ekim 1557"))
+        assertTrue(plan.claimSources.filterNot { it.claimId == "sinan-journeyman" }.all {
             it.sourceUrl == "https://islamansiklopedisi.org.tr/sinan" &&
                 it.publisher == "TDV İslâm Ansiklopedisi"
         })
