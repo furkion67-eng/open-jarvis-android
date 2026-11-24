@@ -10,8 +10,8 @@ root = Path(sys.argv[1])
 
 def _repair_input_digest(script_path: Path, features_root: Path) -> str:
     """
-    Fingerprint the repair program and every feature source/resource it overlays.
-    A script-only marker can incorrectly skip a repair after Kotlin/resources change.
+    Fingerprint the repair program, feature source/resources, and host patch templates.
+    A stale marker must never skip a changed Kotlin/resource/host integration patch.
     """
     digest = hashlib.sha256()
     digest.update(script_path.read_bytes())
@@ -24,7 +24,13 @@ def _repair_input_digest(script_path: Path, features_root: Path) -> str:
             if not source.is_file():
                 continue
             relative = source.relative_to(features_root)
-            if source.suffix != ".kt" and "res" not in relative.parts and source.name != "AndroidManifest.xml":
+            is_host_patch = relative.parts[:2] == ("host-integration", "patches")
+            if (
+                source.suffix != ".kt"
+                and "res" not in relative.parts
+                and source.name != "AndroidManifest.xml"
+                and not is_host_patch
+            ):
                 continue
             digest.update(relative.as_posix().encode("utf-8"))
             digest.update(b"\\0")
@@ -72,8 +78,250 @@ def _repair_input_digest_regression_test():
         if before_auxiliary_change == _repair_input_digest(script, features):
             raise SystemExit("repair input digest ignored a changed auxiliary product repair script")
 
+        host_patch = features / "host-integration/patches/app/src/main/java/Example.kt.patch"
+        host_patch.parent.mkdir(parents=True)
+        host_patch.write_bytes(b"host-patch-v1")
+        before_host_patch_change = _repair_input_digest(script, features)
+        host_patch.write_bytes(b"host-patch-v2")
+        if before_host_patch_change == _repair_input_digest(script, features):
+            raise SystemExit("repair input digest ignored a changed Feature host patch template")
+
 
 _repair_input_digest_regression_test()
+
+def _feature_host_patch_target(payload: bytes) -> str:
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise SystemExit("Feature host patch is not UTF-8: " + str(error))
+
+    diff_headers = re.findall(r"(?m)^diff --git a/(.+?) b/(.+)$", text)
+    old_headers = re.findall(r"(?m)^--- a/(.+)$", text)
+    new_headers = re.findall(r"(?m)^\+\+\+ b/(.+)$", text)
+    if len(diff_headers) != 1 or len(old_headers) != 1 or len(new_headers) != 1:
+        raise SystemExit("Feature host patch must change exactly one existing file")
+    old_path, new_path = diff_headers[0]
+    if old_path != new_path or old_headers[0] != old_path or new_headers[0] != new_path:
+        raise SystemExit("Feature host patch path headers are inconsistent")
+
+    path = Path(new_path)
+    if path.is_absolute() or ".." in path.parts or "\\" in new_path:
+        raise SystemExit("Feature host patch contains an unsafe target path")
+    if not new_path.startswith("app/src/main/"):
+        raise SystemExit("Feature host patch target is outside the approved host app source scope")
+    return new_path
+
+
+def _feature_host_patch_hunk_lines(payload: bytes):
+    text = payload.decode("utf-8")
+    lines = text.splitlines()
+    starts = [index for index, line in enumerate(lines) if line.startswith("@@ ")]
+    if len(starts) != 1:
+        raise SystemExit("Feature host patch must contain exactly one reviewable hunk")
+
+    header = re.match(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@", lines[starts[0]])
+    if not header:
+        raise SystemExit("Feature host patch has an invalid unified-diff hunk header")
+    declared_old_count = int(header.group(1) or "1")
+    declared_new_count = int(header.group(2) or "1")
+
+    old_lines = []
+    new_lines = []
+    for line in lines[starts[0] + 1:]:
+        if line.startswith("@@ ") or line.startswith("diff --git "):
+            break
+        if line.startswith("\\ No newline at end of file"):
+            continue
+        if line.startswith(" "):
+            old_lines.append(line[1:])
+            new_lines.append(line[1:])
+        elif line.startswith("-"):
+            old_lines.append(line[1:])
+        elif line.startswith("+"):
+            new_lines.append(line[1:])
+        else:
+            raise SystemExit("Feature host patch contains an unsupported unified-diff line")
+    if not old_lines or not new_lines:
+        raise SystemExit("Feature host patch hunk must have non-empty preimage and postimage")
+    if len(old_lines) != declared_old_count or len(new_lines) != declared_new_count:
+        raise SystemExit(
+            "Feature host patch hunk line counts do not match its header: "
+            + str(len(old_lines)) + "/" + str(len(new_lines))
+            + " vs " + str(declared_old_count) + "/" + str(declared_new_count)
+        )
+    return old_lines, new_lines
+
+
+def _count_exact_sequence(lines, expected):
+    if not expected or len(expected) > len(lines):
+        return 0
+    return sum(
+        1 for index in range(len(lines) - len(expected) + 1)
+        if lines[index:index + len(expected)] == expected
+    )
+
+
+def _apply_feature_host_patch(project_root: Path, patch_file: Path):
+    if patch_file.is_symlink() or not patch_file.is_file() or patch_file.suffix != ".patch":
+        raise SystemExit("Feature host patch template is not a regular .patch file: " + str(patch_file))
+    payload = patch_file.read_bytes()
+    if not payload:
+        raise SystemExit("Feature host patch template is empty: " + str(patch_file))
+
+    target_relative = _feature_host_patch_target(payload)
+    target = project_root / target_relative
+    try:
+        target.resolve().relative_to(project_root.resolve())
+    except ValueError:
+        raise SystemExit("Feature host patch target escapes the extracted project root")
+    if target.is_symlink() or not target.is_file():
+        raise SystemExit("Feature host patch target is missing or is a symlink: " + target_relative)
+
+    old_lines, new_lines = _feature_host_patch_hunk_lines(payload)
+    current_text = target.read_text(encoding="utf-8")
+    current_lines = current_text.splitlines()
+    preimage_count = _count_exact_sequence(current_lines, old_lines)
+    postimage_count = _count_exact_sequence(current_lines, new_lines)
+
+    # Exact, unique line-sequence replacement deliberately ignores diff line numbers.
+    # The extracted host may insert earlier imports or declarations, so line offsets in a
+    # reviewed template are advisory; unique full preimage/postimage checks are mandatory.
+    if postimage_count == 1:
+        if preimage_count != 0:
+            raise SystemExit("Feature host patch has a mixed old/new state: " + target_relative)
+        print("Feature host patch already applied: " + target_relative)
+        return
+    if postimage_count > 1:
+        raise SystemExit("Feature host patch postimage is ambiguous: " + target_relative)
+    if preimage_count != 1:
+        anchors = []
+        for index, line in enumerate(current_lines):
+            if any(marker in line for marker in (
+                "graphifyRepoResult",
+                "Yerel hafıza",
+                "JARVIS_DEVICE_FEATURE_PANELS",
+                "VideoArtifactPlayerPanel",
+                "Telefon araçlarını"
+            )):
+                start = max(0, index - 2)
+                end = min(len(current_lines), index + 4)
+                snippet = " / ".join(
+                    str(line_number + 1) + ":" + repr(current_lines[line_number][:220])
+                    for line_number in range(start, end)
+                )
+                anchors.append(snippet)
+        safe_context = " | ".join(anchors[:5]) if anchors else "<no approved host anchors found>"
+        raise SystemExit(
+            "Feature host patch requires exactly one preimage; found "
+            + str(preimage_count) + " for " + target_relative
+            + "; sanitized target anchors: " + safe_context
+            + "; expected preimage: " + " | ".join(repr(line) for line in old_lines)
+        )
+
+    old_block = "\n".join(old_lines)
+    new_block = "\n".join(new_lines)
+    if current_text.count(old_block) != 1:
+        raise SystemExit("Feature host patch text preimage is not unique: " + target_relative)
+    updated_text = current_text.replace(old_block, new_block, 1)
+    target.write_text(updated_text, encoding="utf-8")
+
+    verified_text = target.read_text(encoding="utf-8")
+    verified_lines = verified_text.splitlines()
+    if _count_exact_sequence(verified_lines, new_lines) != 1 or _count_exact_sequence(verified_lines, old_lines) != 0:
+        raise SystemExit("Feature host patch postimage verification failed: " + target_relative)
+    if verified_text.count(new_block) != 1:
+        raise SystemExit("Feature host patch text postimage is not unique: " + target_relative)
+    print("Applied Feature host patch: " + target_relative)
+
+
+def _apply_feature_host_patches(project_root: Path, features_root: Path):
+    patch_root = features_root / "host-integration" / "patches"
+    if not patch_root.exists():
+        print("No Feature host patch templates present; skipping host patch application")
+        return
+    if patch_root.is_symlink() or not patch_root.is_dir():
+        raise SystemExit("Feature host patch directory is not a regular directory")
+
+    candidates = sorted(patch_root.rglob("*"), key=lambda item: item.as_posix())
+    patch_files = []
+    for candidate in candidates:
+        if candidate.is_symlink():
+            raise SystemExit("Symlink in Feature host patch directory is not allowed: " + str(candidate))
+        if candidate.is_dir():
+            continue
+        if not candidate.is_file() or candidate.suffix != ".patch":
+            raise SystemExit("Unsupported file in Feature host patch directory: " + str(candidate))
+        patch_files.append(candidate)
+
+    if not patch_files:
+        raise SystemExit("Feature host patch directory exists but contains no .patch templates")
+    for patch_file in patch_files:
+        _apply_feature_host_patch(project_root, patch_file)
+
+
+def _feature_host_patch_regression_test():
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        temporary_root = Path(temporary_directory)
+        project = temporary_root / "host"
+        target = project / "app/src/main/java/Example.kt"
+        target.parent.mkdir(parents=True)
+        prefix = "\n".join("// filler " + str(index) for index in range(1200))
+        target.write_text(prefix + "\nclass Example {\n}\n", encoding="utf-8")
+
+        features = temporary_root / "features"
+        patch_file = features / "host-integration/patches/app/src/main/java/Example.kt.patch"
+        patch_file.parent.mkdir(parents=True)
+        valid_patch = (
+            "diff --git a/app/src/main/java/Example.kt b/app/src/main/java/Example.kt\n"
+            "--- a/app/src/main/java/Example.kt\n"
+            "+++ b/app/src/main/java/Example.kt\n"
+            "@@ -1,2 +1,3 @@\n"
+            " class Example {\n"
+            "+    fun added() = Unit\n"
+            " }\n"
+        )
+        patch_file.write_text(valid_patch, encoding="utf-8")
+        _apply_feature_host_patch(project, patch_file)
+        expected = prefix + "\nclass Example {\n    fun added() = Unit\n}\n"
+        if target.read_text(encoding="utf-8") != expected:
+            raise SystemExit("Feature host patch regression failed to apply an offset preimage")
+
+        # A second pass must recognize the exact postimage and make no further change.
+        _apply_feature_host_patch(project, patch_file)
+        if target.read_text(encoding="utf-8") != expected:
+            raise SystemExit("Feature host patch regression duplicated an already-applied patch")
+
+        # Duplicate preimages and unknown preimages must both fail closed.
+        duplicate_project = temporary_root / "duplicate-host"
+        duplicate_target = duplicate_project / "app/src/main/java/Example.kt"
+        duplicate_target.parent.mkdir(parents=True)
+        duplicate_target.write_text(
+            prefix + "\nclass Example {\n}\n\nclass Example {\n}\n",
+            encoding="utf-8"
+        )
+        try:
+            _apply_feature_host_patch(duplicate_project, patch_file)
+        except SystemExit:
+            pass
+        else:
+            raise SystemExit("Feature host patch regression accepted duplicate preimages")
+
+        invalid_patch = valid_patch.replace(" class Example {", " class Different {")
+        patch_file.write_text(invalid_patch, encoding="utf-8")
+        try:
+            _apply_feature_host_patch(project, patch_file)
+        except SystemExit:
+            pass
+        else:
+            raise SystemExit("Feature host patch regression accepted an unknown preimage")
+
+
+_feature_host_patch_regression_test()
+
+
+_feature_host_patch_regression_test()
+
+
 repair_script_path = Path(__file__).resolve()
 feature_sources_root = repair_script_path.parent.parent / "features"
 repair_digest = _repair_input_digest(repair_script_path, feature_sources_root)
@@ -4803,7 +5051,7 @@ def _repair_main_activity_bootstrap(source):
                     child + '        text = "Yerel hafıza hazırlanıyor…",',
                     child + "        modifier = Modifier.padding(24.dp)",
                     child + "    )",
-                    child + "} ",
+                    child + "}",
                     indent + "} else if (graphifyRepoResult.isFailure) {"
                 ))
                 source = source[:match.start()] + loading_branch + source[match.end():]
@@ -4822,7 +5070,7 @@ def _repair_main_activity_bootstrap(source):
                     child + '        text = "Yerel hafıza hazırlanıyor…",',
                     child + "        modifier = Modifier.padding(24.dp)",
                     child + "    )",
-                    child + "} ",
+                    child + "}",
                     indent + "} else if (graphifyRepoResult.isFailure) {",
                     child + "androidx.compose.material3.Surface(modifier = Modifier.fillMaxSize()) {",
                     child + "    androidx.compose.material3.Text(",
@@ -4830,7 +5078,7 @@ def _repair_main_activity_bootstrap(source):
                     child + '            (graphifyRepoResult.exceptionOrNull()?.message ?: "Unknown startup error"),',
                     child + "        modifier = Modifier.padding(24.dp)",
                     child + "    )",
-                    child + "} ",
+                    child + "}",
                     indent + "} else {",
                     child + "DashboardScreen("
                 ))
@@ -5235,6 +5483,8 @@ def _voice_sms_coordinator_handoff_regression_test():
 
 _voice_sms_coordinator_handoff_regression_test()
 print("Verified voice SMS router-to-coordinator-to-ContactsContract handoff and confirmation-before-transport contract")
+
+_apply_feature_host_patches(root, feature_sources_root)
 
 repair_marker.write_text(repair_digest + "\n", encoding="utf-8")
 print("OPEN_JARVIS_REPAIR_IDEMPOTENT_MARKER_WRITTEN")
