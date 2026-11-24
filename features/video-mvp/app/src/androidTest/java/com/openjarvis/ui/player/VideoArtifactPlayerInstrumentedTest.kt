@@ -1,12 +1,18 @@
 package com.openjarvis.ui.player
 
+import android.app.Instrumentation
+import android.content.ContentValues
 import android.content.Intent
+import android.content.IntentFilter
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
+import android.os.Environment
 import android.os.SystemClock
+import android.provider.MediaStore
 import android.view.View
 import android.view.ViewGroup
+import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.VideoView
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -95,7 +101,7 @@ class VideoArtifactPlayerInstrumentedTest {
     }
 
     @Test
-    fun productionCreateAcceptExecutorPersistsAndDashboardPlaysSameArtifactAfterRoomReopen() = runBlocking {
+    fun productionCreateAcceptExecutorPersistsAndDashboardPlaysOlderArchiveArtifactAfterRoomReopen() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
         val repository = JarvisTaskRepository.getInstance(context)
         val requestKey = "player-e2e-" + UUID.randomUUID().toString()
@@ -103,7 +109,12 @@ class VideoArtifactPlayerInstrumentedTest {
         var videoUri: Uri? = null
         var captionsUri: Uri? = null
         var thumbnailUri: Uri? = null
+        var olderArtifactId: String? = null
+        var olderVideoUri: Uri? = null
+        var olderCaptionsUri: Uri? = null
+        var olderThumbnailUri: Uri? = null
         var playerActivity: DashboardPlayerTestActivity? = null
+        var actionViewMonitor: Instrumentation.ActivityMonitor? = null
 
         try {
             // Use the production repository and its registered VideoStoryTaskExecutor. The plan
@@ -221,6 +232,65 @@ class VideoArtifactPlayerInstrumentedTest {
             )
             assertTrue("The persisted MP4/SRT pair must pass the same validator used by the Dashboard.", initialAvailability is PlaybackAvailability.Ready)
 
+            // Duplicate the real renderer-produced bytes into distinct app-owned MediaStore
+            // rows. This creates a genuinely older, independently playable archive item without
+            // fabricating an MP4 fixture or invoking the renderer twice.
+            val olderId = "older-archive-" + UUID.randomUUID()
+            olderArtifactId = olderId
+            olderVideoUri = copyContentUriToMediaStore(
+                context,
+                persistedVideoUri,
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                "jarvis-older-" + UUID.randomUUID() + ".mp4",
+                "video/mp4",
+                Environment.DIRECTORY_MOVIES + "/JARVIS"
+            )
+            olderCaptionsUri = copyContentUriToMediaStore(
+                context,
+                persistedCaptionsUri,
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                "jarvis-older-" + UUID.randomUUID() + ".srt",
+                "application/x-subrip",
+                Environment.DIRECTORY_DOWNLOADS + "/JARVIS"
+            )
+            olderThumbnailUri = copyContentUriToMediaStore(
+                context,
+                persistedThumbnailUri,
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                "jarvis-older-" + UUID.randomUUID() + ".jpg",
+                "image/jpeg",
+                Environment.DIRECTORY_PICTURES + "/JARVIS"
+            )
+            val olderMetadataJson = VideoArtifactMetadataCodec.encode(
+                metadata.copy(thumbnailUri = requireNotNull(olderThumbnailUri).toString())
+            )
+            val olderArtifact = completed.copy(
+                id = olderId,
+                goal = "Older archive acceptance fixture",
+                outputSummary = "Older archive acceptance fixture",
+                artifactRefs = JSONArray()
+                    .put(olderVideoUri.toString())
+                    .put(olderCaptionsUri.toString())
+                    .put(olderThumbnailUri.toString())
+                    .toString(),
+                createdAt = completed.createdAt - 1L,
+                updatedAt = completed.updatedAt - 1L,
+                idempotencyKey = requestKey + "-older",
+                videoUri = olderVideoUri.toString(),
+                captionsUri = olderCaptionsUri.toString(),
+                videoArtifactMetadataJson = olderMetadataJson
+            )
+            database.taskDao().insert(olderArtifact)
+            assertTrue(
+                "The duplicated older MP4/SRT pair must pass the production player validator.",
+                VideoArtifactPlaybackValidator.inspect(
+                    context,
+                    olderVideoUri.toString(),
+                    olderCaptionsUri.toString(),
+                    olderMetadataJson
+                ) is PlaybackAvailability.Ready
+            )
+
             // Render the production player in an isolated test host. MainActivity's explicit
             // Accessibility/Overlay gate is validated separately by the launcher test; this
             // test must not bypass or auto-grant those production capabilities.
@@ -262,6 +332,15 @@ class VideoArtifactPlayerInstrumentedTest {
             assertEquals(metadata.attributionManifest.first().licenseUrl, restoredMetadata.attributionManifest.first().licenseUrl)
             assertEquals(metadata.attributionManifest.first().cacheMetadata, restoredMetadata.attributionManifest.first().cacheMetadata)
 
+            val restoredOlder = reopenedDatabase.taskDao().findById(requireNotNull(olderArtifactId))
+                ?: throw AssertionError("The older archive artifact must survive Room reopen.")
+            assertEquals(olderVideoUri.toString(), restoredOlder.videoUri)
+            assertEquals(olderCaptionsUri.toString(), restoredOlder.captionsUri)
+            assertEquals(
+                olderThumbnailUri.toString(),
+                VideoArtifactMetadataCodec.decode(restoredOlder.videoArtifactMetadataJson)?.thumbnailUri
+            )
+
             val reopenedAvailability = VideoArtifactPlaybackValidator.inspect(
                 context,
                 restoredTask.videoUri,
@@ -270,22 +349,45 @@ class VideoArtifactPlayerInstrumentedTest {
             )
             assertTrue("The restored URI pair must remain playable after Room reopen.", reopenedAvailability is PlaybackAvailability.Ready)
 
+            val instrumentation = InstrumentationRegistry.getInstrumentation()
+            actionViewMonitor = instrumentation.addMonitor(
+                IntentFilter(Intent.ACTION_VIEW),
+                null,
+                false
+            )
             playerActivity = launchDashboardPlayerHost()
             val restoredPlayer = awaitDashboardPlayer(playerActivity!!, persistedVideoUri.toString())
             assertEquals(videoUri.toString(), restoredPlayer.tag)
 
-            // Start the exact VideoView created by VideoArtifactPlayerPanel. Do not construct
-            // another player or reset its URI: the Dashboard must play the persisted task URI.
-            InstrumentationRegistry.getInstrumentation().runOnMainSync {
-                val player = findVideoView(playerActivity!!.window.decorView)
-                    ?: throw AssertionError("The embedded dashboard VideoView must exist.")
-                assertEquals(persistedVideoUri.toString(), player.tag)
-                player.start()
-            }
+            // Select the older archive row through its accessible Compose button. The selected
+            // item must bind its own distinct MediaStore URI to the production embedded VideoView.
+            awaitAccessibleTextAndClick(
+                playerActivity!!,
+                "Older archive acceptance fixture",
+                requireEnabled = true
+            )
+            val exactOlderVideoUri = requireNotNull(olderVideoUri).toString()
+            val olderPlayer = awaitDashboardPlayer(playerActivity!!, exactOlderVideoUri)
+            assertEquals(exactOlderVideoUri, olderPlayer.tag)
+
+            // The selected older artifact must remain selected after Activity recreation.
+            val selectedOlderActivity = playerActivity!!
+            instrumentation.runOnMainSync { selectedOlderActivity.recreate() }
+            playerActivity = awaitDashboardPlayerHost(previous = selectedOlderActivity)
+            val recreatedOlderPlayer = awaitDashboardPlayer(playerActivity!!, exactOlderVideoUri)
+            assertEquals(exactOlderVideoUri, recreatedOlderPlayer.tag)
+
+            // The Oynat control is enabled only after the actual VideoView onPrepared callback.
+            // Clicking it must advance the selected older URI inside JARVIS, not launch ACTION_VIEW.
+            awaitAccessibleTextAndClick(playerActivity!!, "Oynat", requireEnabled = true)
             val playbackProgressMs = awaitPlaybackProgress(playerActivity!!)
             assertTrue(
-                "The production Dashboard player must advance the same executor-produced MediaStore URI after Room reopen.",
-                playbackProgressMs > 0
+                "The selected older archive item's embedded player must advance beyond 500 ms.",
+                playbackProgressMs >= 500
+            )
+            assertFalse(
+                "Selecting or playing an archived video must never launch an external ACTION_VIEW player.",
+                instrumentation.checkMonitorHit(requireNotNull(actionViewMonitor), 1)
             )
         } finally {
             closeDashboardPlayerHost(playerActivity)
@@ -293,9 +395,18 @@ class VideoArtifactPlayerInstrumentedTest {
             runCatching {
                 val cleanupDatabase = JarvisTaskDatabase.getInstance(context)
                 taskId?.let { cleanupDatabase.taskDao().deleteById(it) }
+                olderArtifactId?.let { cleanupDatabase.taskDao().deleteById(it) }
             }
             JarvisTaskDatabase.closeInstanceForTesting()
-            listOf(videoUri, captionsUri, thumbnailUri).forEach { uri ->
+            actionViewMonitor?.let { InstrumentationRegistry.getInstrumentation().removeMonitor(it) }
+            listOf(
+                videoUri,
+                captionsUri,
+                thumbnailUri,
+                olderVideoUri,
+                olderCaptionsUri,
+                olderThumbnailUri
+            ).forEach { uri ->
                 if (uri != null) runCatching { context.contentResolver.delete(uri, null, null) }
             }
         }
@@ -386,6 +497,81 @@ class VideoArtifactPlayerInstrumentedTest {
             SystemClock.sleep(100)
         }
         throw AssertionError("The production embedded player did not begin playback after the user play action.")
+    }
+
+    private fun copyContentUriToMediaStore(
+        context: android.content.Context,
+        source: Uri,
+        collection: Uri,
+        displayName: String,
+        mimeType: String,
+        relativePath: String
+    ): Uri {
+        val resolver = context.contentResolver
+        val destination = requireNotNull(
+            resolver.insert(
+                collection,
+                ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+                    put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+            )
+        ) { "A second app-owned MediaStore artifact could not be created." }
+
+        try {
+            requireNotNull(resolver.openInputStream(source)) {
+                "The source artifact could not be read for the archive acceptance fixture."
+            }.use { sourceStream ->
+                requireNotNull(resolver.openOutputStream(destination, "w")) {
+                    "The destination MediaStore artifact could not be opened."
+                }.use { destinationStream ->
+                    sourceStream.copyTo(destinationStream)
+                }
+            }
+            val finalized = resolver.update(
+                destination,
+                ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
+                null,
+                null
+            )
+            check(finalized == 1) { "The copied MediaStore artifact was not finalized." }
+            requireNotNull(resolver.openFileDescriptor(destination, "r")) {
+                "The copied MediaStore artifact is not readable after finalization."
+            }.use { }
+            return destination
+        } catch (error: Exception) {
+            resolver.delete(destination, null, null)
+            throw error
+        }
+    }
+
+    private fun awaitAccessibleTextAndClick(
+        activity: DashboardPlayerTestActivity,
+        text: String,
+        requireEnabled: Boolean
+    ) {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val deadline = SystemClock.elapsedRealtime() + 30_000L
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (activity.isFinishing || DashboardPlayerTestActivity.current !== activity) {
+                throw AssertionError("The embedded-player Activity changed while waiting for: " + text)
+            }
+            val root = instrumentation.uiAutomation.rootInActiveWindow
+            val matches = root?.findAccessibilityNodeInfosByText(text).orEmpty()
+            for (match in matches) {
+                var clickable: AccessibilityNodeInfo? = match
+                while (clickable != null && !clickable.isClickable) {
+                    clickable = clickable.parent
+                }
+                if (clickable != null && (!requireEnabled || clickable.isEnabled)) {
+                    if (clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return
+                }
+            }
+            SystemClock.sleep(100)
+        }
+        throw AssertionError("Could not find and click enabled Compose control: " + text)
     }
 
     private fun findVideoView(view: View): VideoView? {

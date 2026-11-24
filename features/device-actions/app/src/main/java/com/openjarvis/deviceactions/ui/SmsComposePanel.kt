@@ -1,12 +1,14 @@
 package com.openjarvis.deviceactions.ui
 
+import com.openjarvis.deviceactions.sms.SmsDraftHandoff
+import com.openjarvis.commands.ContactChoicePaging
+
 import android.Manifest
-import android.content.Intent
-import android.net.Uri
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -24,6 +26,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -65,6 +68,7 @@ fun SmsComposePanel(
     var selectedPhone by remember { mutableStateOf<ContactPhoneOption?>(null) }
     var status by remember { mutableStateOf("SMS için önce rehberden bir kişi bul.") }
     var showConfirmation by remember { mutableStateOf(false) }
+    var contactPageIndex by remember { mutableStateOf(0) }
 
     suspend fun persistSmsOutcome(outcome: SmsSendOutcome) {
         val journalFailed = try {
@@ -98,6 +102,7 @@ fun SmsComposePanel(
 
     fun applyLookup(result: ContactLookupResult) {
         lookupResult = result
+        contactPageIndex = 0
         selectedContact = null
         selectedPhone = null
         showConfirmation = false
@@ -151,6 +156,7 @@ fun SmsComposePanel(
                         selectedContact = null
                         selectedPhone = null
                         lookupResult = null
+                        contactPageIndex = 0
                         showConfirmation = false
                     }
                     nameQuery = value
@@ -187,7 +193,8 @@ fun SmsComposePanel(
                 )
                 is ContactLookupResult.ChooseContact -> {
                     Text("Birden fazla kişi eşleşti. Alıcıyı seç:")
-                    result.candidates.forEach { candidate ->
+                    val page = ContactChoicePaging.page(result.candidates, contactPageIndex)
+                    page.items.forEach { candidate ->
                         Button(
                             onClick = {
                                 if (SmsSelectionInvalidationPolicy.recipientChanged(
@@ -211,6 +218,23 @@ fun SmsComposePanel(
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) { Text(candidate.displayName + " · " + candidate.phoneNumbers.size + " numara") }
+                    }
+                    if (page.pageCount > 1) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextButton(
+                                enabled = page.hasPrevious,
+                                onClick = { contactPageIndex = page.pageIndex - 1 }
+                            ) { Text("Önceki") }
+                            Text("${page.pageIndex + 1}/${page.pageCount}")
+                            TextButton(
+                                enabled = page.hasNext,
+                                onClick = { contactPageIndex = page.pageIndex + 1 }
+                            ) { Text("Sonraki") }
+                        }
                     }
                 }
                 is ContactLookupResult.ChooseNumber -> {
@@ -271,10 +295,7 @@ fun SmsComposePanel(
                 TextButton(
                     enabled = message.isNotBlank(),
                     onClick = {
-                        val handoff = Intent(
-                            Intent.ACTION_SENDTO,
-                            Uri.parse("smsto:" + Uri.encode(phone.number))
-                        ).putExtra("sms_body", message)
+                        val handoff = SmsDraftHandoff.createIntent(phone.number, message)
                         try {
                             context.startActivity(handoff)
                             status = "SMS uygulamasında taslak açıldı. JARVIS bunu gönderildi olarak işaretlemez; son gönderme işlemi SMS uygulamasında sana aittir."
@@ -283,7 +304,7 @@ fun SmsComposePanel(
                                     DeviceActionOutcomeJournal.record(
                                         context,
                                         DeviceActionType.SMS,
-                                        DeviceActionOutcomeCode.DRAFT
+                                        SmsDraftHandoff.outcomeCode
                                     )
                                 } catch (cancelled: CancellationException) {
                                     throw cancelled

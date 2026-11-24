@@ -1,18 +1,23 @@
 package com.openjarvis.deviceactions.contacts
 
 import android.Manifest
+import android.content.ContentResolver
 import android.content.Context
 import android.content.pm.PackageManager
 import android.provider.ContactsContract
 import android.provider.ContactsContract.CommonDataKinds.Phone
 
-class AndroidContactsResolver(context: Context) {
+class AndroidContactsResolver(
+    context: Context,
+    private val contentResolver: ContentResolver = context.applicationContext.contentResolver,
+    hasReadContactsPermission: () -> Boolean = {
+        context.applicationContext.checkSelfPermission(Manifest.permission.READ_CONTACTS) ==
+            PackageManager.PERMISSION_GRANTED
+    }
+) {
     private val appContext = context.applicationContext
     private val useCase = ContactLookupUseCase(
-        hasReadContactsPermission = {
-            appContext.checkSelfPermission(Manifest.permission.READ_CONTACTS) ==
-                PackageManager.PERMISSION_GRANTED
-        },
+        hasReadContactsPermission = hasReadContactsPermission,
         loadPhoneRows = ::queryPhoneRows
     )
 
@@ -27,7 +32,7 @@ class AndroidContactsResolver(context: Context) {
             Phone.LABEL
         )
         val rows = mutableListOf<ContactPhoneRecord>()
-        appContext.contentResolver.query(
+        contentResolver.query(
             Phone.CONTENT_URI,
             projection,
             null,
