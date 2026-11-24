@@ -38,6 +38,7 @@ import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Product-level player acceptance on the real extracted-host MainActivity.
@@ -53,7 +54,7 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
     fun realMainActivityShowsDashboardAndPlaysProductionArchiveArtifactInApp() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext.applicationContext
-        var activity: Activity? = null
+        val activityRef = AtomicReference<Activity?>()
         var taskId: String? = null
         var videoUri: String? = null
         var captionsUri: String? = null
@@ -70,6 +71,7 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
             firstDrawCallbacks = object : Application.ActivityLifecycleCallbacks {
                 override fun onActivityCreated(created: Activity, savedInstanceState: Bundle?) {
                     if (created !is MainActivity) return
+                    activityRef.set(created)
                     // Register during Activity creation, before startActivitySync returns and
                     // before the first window traversal. Do not invalidate the view: that would
                     // measure a synthetic later draw rather than the actual cold-start frame.
@@ -99,8 +101,10 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
             }
             application.registerActivityLifecycleCallbacks(requireNotNull(firstDrawCallbacks))
             monitor = instrumentation.addMonitor(IntentFilter(Intent.ACTION_VIEW), null, false)
-            activity = instrumentation.startActivitySync(
-                Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            activityRef.set(
+                instrumentation.startActivitySync(
+                    Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
             )
 
             val firstFrameRemainingMs = (
@@ -114,7 +118,7 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
             assertTrue("The first MainActivity frame timestamp must be captured.", firstFrameMs >= 0L)
             val dashboardReadyMs = awaitDashboardReady(
                 instrumentation = instrumentation,
-                activity = activity!!,
+                activity = requireNotNull(activityRef.get()),
                 launchStartedAt = launchStartedAt,
                 timeoutMs = DASHBOARD_READY_BUDGET_MS
             )
@@ -124,7 +128,7 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
             assertTrue("The Dashboard must become usable within 20 seconds.", dashboardReadyMs <= DASHBOARD_READY_BUDGET_MS)
             assertTrue(
                 "The real MainActivity must own window focus after Dashboard readiness.",
-                hasWindowFocusOnMain(instrumentation, activity!!)
+                hasWindowFocusOnMain(instrumentation, requireNotNull(activityRef.get()))
             )
             Log.i(
                 ACCEPTANCE_TAG,
@@ -181,7 +185,7 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
                 taskGoal = goal,
                 timeoutMs = 30_000L
             )
-            awaitVideoView(activity!!, requireNotNull(videoUri), timeoutMs = 30_000L)
+            awaitVideoView(requireNotNull(activityRef.get()), requireNotNull(videoUri), timeoutMs = 30_000L)
             awaitAccessibleTextAndClick(
                 instrumentation = instrumentation,
                 text = "Oynat",
@@ -190,7 +194,7 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
 
             val playedMs = awaitPlaybackProgress(
                 instrumentation = instrumentation,
-                activity = activity!!,
+                activity = requireNotNull(activityRef.get()),
                 expectedUri = requireNotNull(videoUri),
                 timeoutMs = 30_000L
             )
@@ -201,8 +205,44 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
             )
             assertNotNull("The renderer's captions URI must remain persisted with the artifact.", captionsUri)
             assertNotNull("The renderer's thumbnail URI must remain persisted with the artifact.", thumbnailUri)
+
+            // Recreate the real host Activity after playback. The archive selection is
+            // rememberSaveable and the artifact is durable in Room; the new Activity must
+            // revalidate the same content URI and play it again without ACTION_VIEW.
+            val activityBeforeRecreate = requireNotNull(activityRef.get())
+            instrumentation.runOnMainSync { activityBeforeRecreate.recreate() }
+            val recreatedActivity = awaitRecreatedMainActivity(
+                instrumentation = instrumentation,
+                activityRef = activityRef,
+                previous = activityBeforeRecreate,
+                timeoutMs = 20_000L
+            )
+            assertTrue(
+                "The recreated MainActivity must regain window focus.",
+                hasWindowFocusOnMain(instrumentation, recreatedActivity)
+            )
+            awaitVideoView(recreatedActivity, requireNotNull(videoUri), timeoutMs = 30_000L)
+            awaitAccessibleTextAndClick(
+                instrumentation = instrumentation,
+                text = "Oynat",
+                timeoutMs = 30_000L
+            )
+            val replayedMs = awaitPlaybackProgress(
+                instrumentation = instrumentation,
+                activity = recreatedActivity,
+                expectedUri = requireNotNull(videoUri),
+                timeoutMs = 30_000L
+            )
+            assertTrue(
+                "The persisted archive artifact must play again after MainActivity recreation.",
+                replayedMs >= 500
+            )
+            assertFalse(
+                "Reopening the persisted artifact must remain inside JARVIS after Activity recreation.",
+                instrumentation.checkMonitorHit(requireNotNull(monitor), 1)
+            )
         } finally {
-            activity?.let { launched ->
+            activityRef.get()?.let { launched ->
                 instrumentation.runOnMainSync {
                     if (!launched.isFinishing) launched.finish()
                 }
@@ -222,6 +262,25 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
                 }
             }
         }
+    }
+
+    private fun awaitRecreatedMainActivity(
+        instrumentation: Instrumentation,
+        activityRef: AtomicReference<Activity?>,
+        previous: Activity,
+        timeoutMs: Long
+    ): Activity {
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val current = activityRef.get()
+            if (current != null && current !== previous && !current.isFinishing &&
+                hasWindowFocusOnMain(instrumentation, current)
+            ) {
+                return current
+            }
+            SystemClock.sleep(100)
+        }
+        throw AssertionError("MainActivity did not recreate and regain focus within ${timeoutMs} ms.")
     }
 
     private fun hasWindowFocusOnMain(instrumentation: Instrumentation, activity: Activity): Boolean {
