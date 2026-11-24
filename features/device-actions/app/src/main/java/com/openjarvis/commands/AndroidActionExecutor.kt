@@ -14,10 +14,12 @@ import com.openjarvis.deviceactions.sms.ConfirmedSmsAction
 import com.openjarvis.deviceactions.sms.SmsConfirmationGate
 import com.openjarvis.deviceactions.sms.SmsSendOutcome
 import com.openjarvis.deviceactions.sms.createAndroidSmsDispatcher
+import com.openjarvis.deviceactions.sms.recoverPendingSmsAttemptsOrReport
 import com.openjarvis.deviceactions.sms.toDeviceActionOutcomeCode
 import com.openjarvis.tasks.DeviceActionOutcomeCode
 import com.openjarvis.tasks.DeviceActionOutcomeJournal
 import com.openjarvis.tasks.DeviceActionType
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -38,12 +40,16 @@ class AndroidActionExecutor(private val context: Context) {
     private val outcomeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private suspend fun persistOutcome(code: DeviceActionOutcomeCode) {
-        runCatching {
+        try {
             DeviceActionOutcomeJournal.record(
                 context.applicationContext,
                 DeviceActionType.SMS,
                 code
             )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Outcome journaling is best-effort here; cancellation is never swallowed.
         }
     }
 
@@ -129,12 +135,9 @@ class AndroidActionExecutor(private val context: Context) {
         val dispatcher = createAndroidSmsDispatcher(context, gate)
         outcomeScope.launch {
             // A process-reopened pending attempt is UNKNOWN, never replayed as a new send.
-            val recoveredUnknownCount = try {
-                dispatcher.recoverPendingAttempts()
-            } catch (error: Exception) {
+            val recoveredUnknownCount = recoverPendingSmsAttemptsOrReport(dispatcher) { error ->
                 onResult(Result.failure(error))
-                return@launch
-            }
+            } ?: return@launch
             repeat(recoveredUnknownCount) {
                 persistOutcome(DeviceActionOutcomeCode.UNKNOWN)
             }
