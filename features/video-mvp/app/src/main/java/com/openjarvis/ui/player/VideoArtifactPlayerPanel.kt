@@ -45,6 +45,7 @@ import com.openjarvis.tasks.JarvisTaskRepository
 import com.openjarvis.tasks.JarvisTaskStatus
 import com.openjarvis.tasks.VideoArtifactMetadata
 import com.openjarvis.tasks.VideoArtifactMetadataCodec
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
@@ -146,6 +147,10 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
             withFrameNanos { }
             withFrameNanos { }
             repository = JarvisTaskRepository.getInstanceOnIo(context)
+        } catch (cancelled: CancellationException) {
+            // Leaving the Dashboard must cancel the deferred bootstrap; do not turn
+            // lifecycle cancellation into a visible repository failure.
+            throw cancelled
         } catch (error: Exception) {
             repositoryError = error.localizedMessage ?: "Yerel görev arşivi açılamadı."
         }
