@@ -212,7 +212,7 @@ def _apply_feature_host_patch(project_root: Path, patch_file: Path):
                 start = max(0, index - 2)
                 end = min(len(current_lines), index + 4)
                 snippet = " / ".join(
-                    str(line_number + 1) + ":" + current_lines[line_number].strip()[:220]
+                    str(line_number + 1) + ":" + repr(current_lines[line_number][:220])
                     for line_number in range(start, end)
                 )
                 anchors.append(snippet)
@@ -221,6 +221,7 @@ def _apply_feature_host_patch(project_root: Path, patch_file: Path):
             "Feature host patch requires exactly one preimage; found "
             + str(preimage_count) + " for " + target_relative
             + "; sanitized target anchors: " + safe_context
+            + "; expected preimage: " + " | ".join(repr(line) for line in old_lines)
         )
 
     forward = _run_feature_host_patch(
