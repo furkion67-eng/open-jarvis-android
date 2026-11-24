@@ -1,7 +1,13 @@
 package com.openjarvis.tasks
 
 import android.content.Context
+import android.os.Build
+import android.os.SystemClock
+import android.os.Trace
+import android.util.Log
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 class JarvisTaskRepository(
@@ -9,6 +15,19 @@ class JarvisTaskRepository(
     private val orchestrator: JarvisTaskOrchestrator
 ) {
     fun observeRecentTasks(limit: Int = 8): Flow<List<JarvisTaskEntity>> = dao.observeRecent(limit)
+
+    /** A bounded page of successful tasks with both persisted video and captions URIs. */
+    fun observeSuccessfulVideoArtifacts(
+        limit: Int = 9,
+        offset: Int = 0
+    ): Flow<List<JarvisTaskEntity>> = dao.observeSuccessfulVideoArtifacts(
+        succeededStatus = JarvisTaskStatus.SUCCEEDED.storageValue,
+        limit = limit.coerceIn(1, 51),
+        offset = offset.coerceAtLeast(0)
+    )
+
+    /** Keeps a selected archive item observable while the user changes archive pages. */
+    fun observeTaskById(id: String): Flow<JarvisTaskEntity?> = dao.observeById(id)
 
     /**
      * Persist a typed device-action result with a fixed summary. Arbitrary caller text is not
@@ -167,10 +186,56 @@ class JarvisTaskRepository(
 
     companion object {
         private const val MAX_DEVICE_ACTION_EVENTS = 100
+        private const val STARTUP_RECOVERY_TRACE_COOKIE = 731
+
+        private val startupRecoveryGate = JarvisStartupRecoveryGate()
 
         fun getInstance(context: Context): JarvisTaskRepository {
             val dao = JarvisTaskDatabase.getInstance(context).taskDao()
             return createWithRegistry(dao, createDefaultRegistry(context.applicationContext))
+        }
+
+        /**
+         * Dashboard bootstrap must not construct/open Room on the main thread.
+         * The first process-level load also marks abandoned active tasks INTERRUPTED;
+         * this is a state repair only and never replays an executor.
+         */
+        suspend fun getInstanceOnIo(context: Context): JarvisTaskRepository = withContext(Dispatchers.IO) {
+            val repository = traceSection("JARVIS.task.repository.open") {
+                getInstance(context.applicationContext)
+            }
+            startupRecoveryGate.runOnce {
+                val recoveryStartedAt = SystemClock.elapsedRealtime()
+                if (Build.VERSION.SDK_INT >= 29) {
+                    Trace.beginAsyncSection("JARVIS.task.restore", STARTUP_RECOVERY_TRACE_COOKIE)
+                }
+                try {
+                    repository.recoverInterruptedTasks()
+                } finally {
+                    if (Build.VERSION.SDK_INT >= 29) {
+                        Trace.endAsyncSection("JARVIS.task.restore", STARTUP_RECOVERY_TRACE_COOKIE)
+                    }
+                    val elapsedMs = SystemClock.elapsedRealtime() - recoveryStartedAt
+                    if (elapsedMs > 250L) {
+                        Log.w("JARVISStartup", "task.restore_ms=" + elapsedMs + " budget_ms=250")
+                    }
+                }
+            }
+            repository
+        }
+
+        private inline fun <T> traceSection(name: String, block: () -> T): T {
+            Trace.beginSection(name)
+            val startedAt = SystemClock.elapsedRealtime()
+            return try {
+                block()
+            } finally {
+                Trace.endSection()
+                val elapsedMs = SystemClock.elapsedRealtime() - startedAt
+                if (elapsedMs > 250L) {
+                    Log.w("JARVISStartup", name + "_ms=" + elapsedMs + " budget_ms=250")
+                }
+            }
         }
 
         /** The production repository and end-to-end tests share this exact capability/executor registration. */

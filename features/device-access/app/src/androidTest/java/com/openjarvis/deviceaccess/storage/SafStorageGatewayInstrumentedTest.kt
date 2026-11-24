@@ -289,6 +289,61 @@ class SafStorageGatewayInstrumentedTest {
         assertEquals("Only the first authorized chunk may be copied", 4, output.size())
     }
 
+    @Test
+    fun readStopsBeforeNextChunkWhenPersistedGrantIsRevoked() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val tree = Uri.parse("content://jarvis.fake.documents/tree/root")
+        val source = DocumentsContract.buildDocumentUriUsingTree(tree, "root:revoked-read.bin")
+        var currentGrants = listOf(snapshot(tree, read = true, write = false))
+        val input = object : ByteArrayInputStream(ByteArray(32) { it.toByte() }) {
+            var readCalls = 0
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                readCalls++
+                val count = super.read(buffer, offset, minOf(length, 4))
+                if (readCalls == 1 && count > 0) currentGrants = emptyList()
+                return count
+            }
+        }
+        val gateway = SafStorageGateway(
+            context,
+            { currentGrants },
+            FakeSafDocumentOperations(),
+            { input }
+        )
+
+        val error = runCatching { gateway.read(source, maxBytes = 32) }.exceptionOrNull()
+
+        assertTrue("A revoked grant must stop the next bounded read", error is SecurityException)
+        assertEquals("No second chunk may be read after revocation", 1, input.readCalls)
+    }
+
+    @Test
+    fun readRequestsOnlyOneOverflowProbeBeyondItsConfiguredLimit() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val tree = Uri.parse("content://jarvis.fake.documents/tree/root")
+        val source = DocumentsContract.buildDocumentUriUsingTree(tree, "root:oversized-read.bin")
+        val grants = listOf(snapshot(tree, read = true, write = false))
+        val input = object : ByteArrayInputStream(ByteArray(10) { it.toByte() }) {
+            val requestedLengths = mutableListOf<Int>()
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                requestedLengths += length
+                return super.read(buffer, offset, length)
+            }
+        }
+        val gateway = SafStorageGateway(
+            context,
+            { grants },
+            FakeSafDocumentOperations(),
+            { input }
+        )
+
+        val error = runCatching { gateway.read(source, maxBytes = 8) }.exceptionOrNull()
+
+        assertTrue("Oversized content must fail closed", error is IOException)
+        assertEquals("Only the configured limit plus one probe byte may be requested", listOf(9), input.requestedLengths)
+        assertEquals("The stream must not be consumed beyond the single overflow probe", 1, input.available())
+    }
+
     private fun snapshot(tree: Uri, read: Boolean, write: Boolean) = StorageGrantSnapshot(
         uri = tree.toString(),
         authority = tree.authority,
