@@ -5,6 +5,7 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
+import android.os.Looper
 import android.provider.ContactsContract
 import android.provider.ContactsContract.CommonDataKinds.Phone
 import androidx.test.rule.provider.ProviderTestRule
@@ -19,6 +20,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.Locale
+import kotlinx.coroutines.runBlocking
 import com.openjarvis.deviceactions.sms.ConfirmedSmsDispatcher
 import com.openjarvis.deviceactions.sms.SmsConfirmationGate
 import com.openjarvis.deviceactions.sms.SmsPermission
@@ -74,6 +76,14 @@ class AndroidContactsResolverProviderInstrumentedTest {
         assertTrue(FakeContactsProvider.lastSortOrder.orEmpty().contains("DISPLAY_NAME_PRIMARY"))
         assertTrue(FakeContactsProvider.lastProjection.contains(Phone.CONTACT_ID))
         assertTrue(FakeContactsProvider.lastProjection.contains(Phone.NUMBER))
+    }
+
+    @Test
+    fun contactLookupRunnerQueriesProviderOffMainLooper() = runBlocking {
+        FakeContactsProvider.rows = listOf(FakePhoneRow(7L, "İpek Yılmaz", "+90 532 111 22 33", "Cep"))
+        val result = ContactLookupRunner(resolver()).resolve("İpek Yılmaz")
+        assertTrue(result is ContactLookupResult.Unique)
+        assertTrue("ContactsContract provider queries must not run on the Android main looper.", FakeContactsProvider.queryLooper !== Looper.getMainLooper())
     }
 
     @Test
@@ -205,6 +215,7 @@ class AndroidContactsResolverProviderInstrumentedTest {
             var lastUri: Uri? = null
             var lastSortOrder: String? = null
             var lastProjection: List<String> = emptyList()
+            var queryLooper: Looper? = null
 
             fun reset() {
                 rows = emptyList()
@@ -214,6 +225,7 @@ class AndroidContactsResolverProviderInstrumentedTest {
                 lastUri = null
                 lastSortOrder = null
                 lastProjection = emptyList()
+                queryLooper = null
             }
         }
 
@@ -227,6 +239,7 @@ class AndroidContactsResolverProviderInstrumentedTest {
             sortOrder: String?
         ): Cursor? {
             queryCount += 1
+            queryLooper = Looper.myLooper()
             lastUri = uri
             lastSortOrder = sortOrder
             lastProjection = projection?.map { it }.orEmpty()
