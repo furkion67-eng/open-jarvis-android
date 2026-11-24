@@ -666,12 +666,24 @@ class WikimediaCommonsVisualAssetDownloader : VideoVisualAssetDownloader {
             descriptor,
             requireOriginal = false
         )
+        // Re-check the original after the thumbnail request to close a file-replacement race.
+        val originalAfterThumbnail = fetch(
+            originalUrl,
+            descriptor.sourceVerificationMimeType,
+            descriptor.sourceVerificationMaxBytes,
+            descriptor,
+            requireOriginal = true
+        )
+        if (sha1(originalAfterThumbnail.bytes) != descriptor.expectedUploadSha1 ||
+            sha1(originalAfterThumbnail.bytes) != sha1(original.bytes)) {
+            throw IOException("Commons özgün dosyası küçük resim alınırken değişti; görsel reddedildi.")
+        }
         return DownloadedVisualAsset(
             bytes = visual.bytes,
             mimeType = visual.mimeType,
             finalUrl = visual.finalUrl,
-            sourceVerificationBytes = original.bytes,
-            sourceVerificationMimeType = original.mimeType
+            sourceVerificationBytes = originalAfterThumbnail.bytes,
+            sourceVerificationMimeType = originalAfterThumbnail.mimeType
         )
     }
 
