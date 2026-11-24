@@ -15,10 +15,12 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.openjarvis.tasks.JarvisTaskDatabase
 import com.openjarvis.tasks.JarvisTaskRepository
 import com.openjarvis.tasks.JarvisTaskStatus
+import com.openjarvis.tasks.VideoArtifactMetadataCodec
 import com.openjarvis.ui.MainActivity
 import com.openjarvis.tasks.VIDEO_TASK_EXECUTION_MODE
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -26,6 +28,7 @@ import org.junit.runner.RunWith
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import java.util.UUID
 
 /**
@@ -46,6 +49,7 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
         var taskId: String? = null
         var videoUri: String? = null
         var captionsUri: String? = null
+        var thumbnailUri: String? = null
         var monitor: Instrumentation.ActivityMonitor? = null
 
         try {
@@ -101,7 +105,14 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
             assertTrue(completed.videoArtifactMetadataJson.isNotBlank())
             videoUri = completed.videoUri
             captionsUri = completed.captionsUri
-            val metadata = completed.videoArtifactMetadataJson
+            val metadata = VideoArtifactMetadataCodec.decode(completed.videoArtifactMetadataJson)
+            assertNotNull("Typed renderer metadata must be persisted with the task.", metadata)
+            assertTrue(requireNotNull(metadata).isValid())
+            assertTrue(requireNotNull(metadata).attributionManifestComplete)
+            assertEquals("tr-TR", requireNotNull(metadata).narrationLocale)
+            thumbnailUri = requireNotNull(metadata).thumbnailUri
+            assertTrue(thumbnailUri.orEmpty().startsWith("content://"))
+            assertEquals(3, JSONArray(completed.artifactRefs).length())
             val goal = completed.goal
 
             awaitAccessibleText(
@@ -135,7 +146,7 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
                 instrumentation.checkMonitorHit(requireNotNull(monitor), 1)
             )
             assertNotNull("The renderer's captions URI must remain persisted with the artifact.", captionsUri)
-            assertNotNull("The renderer's typed metadata must remain persisted with the artifact.", metadata)
+            assertNotNull("The renderer's thumbnail URI must remain persisted with the artifact.", thumbnailUri)
         } finally {
             activity?.let { launched ->
                 instrumentation.runOnMainSync {
@@ -150,7 +161,7 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
                 taskId?.let { cleanupDatabase.taskDao().deleteById(it) }
                 JarvisTaskDatabase.closeInstanceForTesting()
             }
-            listOf(videoUri, captionsUri).forEach { value ->
+            listOf(videoUri, captionsUri, thumbnailUri).forEach { value ->
                 if (!value.isNullOrBlank()) {
                     runCatching { context.contentResolver.delete(android.net.Uri.parse(value), null, null) }
                 }
