@@ -284,18 +284,18 @@ def _feature_host_patch_regression_test():
     with tempfile.TemporaryDirectory() as temporary_directory:
         temporary_root = Path(temporary_directory)
         project = temporary_root / "host"
-        target = project / "app/src/main/java/Example.kt"
+        target = project / "app/src/main/java/com/openjarvis/ui/MainActivity.kt"
         target.parent.mkdir(parents=True)
         prefix = "\n".join("// filler " + str(index) for index in range(1200))
         target.write_text(prefix + "\nclass Example {\n}\n", encoding="utf-8")
 
         features = temporary_root / "features"
-        patch_file = features / "host-integration/patches/app/src/main/java/Example.kt.patch"
+        patch_file = features / "host-integration/patches/app/src/main/java/com/openjarvis/ui/MainActivity.kt.patch"
         patch_file.parent.mkdir(parents=True)
         valid_patch = (
-            "diff --git a/app/src/main/java/Example.kt b/app/src/main/java/Example.kt\n"
-            "--- a/app/src/main/java/Example.kt\n"
-            "+++ b/app/src/main/java/Example.kt\n"
+            "diff --git a/app/src/main/java/com/openjarvis/ui/MainActivity.kt b/app/src/main/java/com/openjarvis/ui/MainActivity.kt\n"
+            "--- a/app/src/main/java/com/openjarvis/ui/MainActivity.kt\n"
+            "+++ b/app/src/main/java/com/openjarvis/ui/MainActivity.kt\n"
             "@@ -1,2 +1,3 @@\n"
             " class Example {\n"
             "+    fun added() = Unit\n"
@@ -314,7 +314,7 @@ def _feature_host_patch_regression_test():
 
         # Duplicate preimages and unknown preimages must both fail closed.
         duplicate_project = temporary_root / "duplicate-host"
-        duplicate_target = duplicate_project / "app/src/main/java/Example.kt"
+        duplicate_target = duplicate_project / "app/src/main/java/com/openjarvis/ui/MainActivity.kt"
         duplicate_target.parent.mkdir(parents=True)
         duplicate_target.write_text(
             prefix + "\nclass Example {\n}\n\nclass Example {\n}\n",
