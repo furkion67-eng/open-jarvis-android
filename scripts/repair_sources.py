@@ -114,7 +114,7 @@ def _feature_host_patch_target(payload: bytes) -> str:
 
     diff_headers = re.findall(r"(?m)^diff --git a/(.+?) b/(.+)$", text)
     old_headers = re.findall(r"(?m)^--- a/(.+)$", text)
-    new_headers = re.findall(r"(?m)^\\+\\+\\+ b/(.+)$", text)
+    new_headers = re.findall(r"(?m)^\+\+\+ b/(.+)$", text)
     if len(diff_headers) != 1 or len(old_headers) != 1 or len(new_headers) != 1:
         raise SystemExit("Feature host patch must change exactly one existing file")
     old_path, new_path = diff_headers[0]
@@ -127,6 +127,43 @@ def _feature_host_patch_target(payload: bytes) -> str:
     if not new_path.startswith("app/src/main/"):
         raise SystemExit("Feature host patch target is outside the approved host app source scope")
     return new_path
+
+
+def _feature_host_patch_hunk_lines(payload: bytes):
+    text = payload.decode("utf-8")
+    lines = text.splitlines()
+    starts = [index for index, line in enumerate(lines) if line.startswith("@@ ")]
+    if len(starts) != 1:
+        raise SystemExit("Feature host patch must contain exactly one reviewable hunk")
+
+    old_lines = []
+    new_lines = []
+    for line in lines[starts[0] + 1:]:
+        if line.startswith("@@ ") or line.startswith("diff --git "):
+            break
+        if line.startswith("\\ No newline at end of file"):
+            continue
+        if line.startswith(" "):
+            old_lines.append(line[1:])
+            new_lines.append(line[1:])
+        elif line.startswith("-"):
+            old_lines.append(line[1:])
+        elif line.startswith("+"):
+            new_lines.append(line[1:])
+        else:
+            raise SystemExit("Feature host patch contains an unsupported unified-diff line")
+    if not old_lines or not new_lines:
+        raise SystemExit("Feature host patch hunk must have non-empty preimage and postimage")
+    return old_lines, new_lines
+
+
+def _count_exact_sequence(lines, expected):
+    if not expected or len(expected) > len(lines):
+        return 0
+    return sum(
+        1 for index in range(len(lines) - len(expected) + 1)
+        if lines[index:index + len(expected)] == expected
+    )
 
 
 def _apply_feature_host_patch(project_root: Path, patch_file: Path):
@@ -145,14 +182,28 @@ def _apply_feature_host_patch(project_root: Path, patch_file: Path):
     if target.is_symlink() or not target.is_file():
         raise SystemExit("Feature host patch target is missing or is a symlink: " + target_relative)
 
-    # Check the reverse first: an exact postimage is an idempotent skip. Otherwise require
-    # a zero-fuzz forward dry-run before changing the extracted host source.
-    already_applied = _run_feature_host_patch(
-        project_root, payload, dry_run=True, reverse=True
-    )
-    if already_applied.returncode == 0:
-        print("Feature host patch already applied: " + target_relative)
-        return
+    old_lines, new_lines = _feature_host_patch_hunk_lines(payload)
+    current_lines = target.read_text(encoding="utf-8").splitlines()
+    preimage_count = _count_exact_sequence(current_lines, old_lines)
+    postimage_count = _count_exact_sequence(current_lines, new_lines)
+
+    # Require a unique exact postimage for idempotent skip, or a unique exact preimage
+    # before applying. This prevents GNU patch from choosing an arbitrary duplicate anchor.
+    if postimage_count == 1:
+        already_applied = _run_feature_host_patch(
+            project_root, payload, dry_run=True, reverse=True
+        )
+        if already_applied.returncode == 0:
+            print("Feature host patch already applied: " + target_relative)
+            return
+        raise SystemExit("Feature host patch postimage exists but reverse validation failed: " + target_relative)
+    if postimage_count > 1:
+        raise SystemExit("Feature host patch postimage is ambiguous: " + target_relative)
+    if preimage_count != 1:
+        raise SystemExit(
+            "Feature host patch requires exactly one preimage; found "
+            + str(preimage_count) + " for " + target_relative
+        )
 
     forward = _run_feature_host_patch(
         project_root, payload, dry_run=True, reverse=False
@@ -171,6 +222,9 @@ def _apply_feature_host_patch(project_root: Path, patch_file: Path):
         detail = (applied.stderr or applied.stdout).decode("utf-8", errors="replace").strip()
         raise SystemExit("Feature host patch application failed for " + target_relative + ": " + detail)
 
+    verified_lines = target.read_text(encoding="utf-8").splitlines()
+    if _count_exact_sequence(verified_lines, new_lines) != 1:
+        raise SystemExit("Feature host patch postimage is not unique after application: " + target_relative)
     verified = _run_feature_host_patch(
         project_root, payload, dry_run=True, reverse=True
     )
