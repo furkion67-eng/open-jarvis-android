@@ -320,6 +320,13 @@ object VideoStoryPlanBuilder {
         val hook = "Süleymaniye yedi yılda!"
         val scenes = listOf(
             VideoScene(
+                heading = "Kalfalık eseri: Süleymaniye",
+                caption = "Temel töreninden yedi yıl sonra, 15 Ekim 1557'de açıldı. Sinan bu yapıyı kalfalık eseri olarak tanımladı.",
+                sceneId = "sinan-suleymaniye",
+                visualAssetId = "commons-sinan-suleymaniye-exterior",
+                claimIds = listOf("sinan-journeyman")
+            ),
+            VideoScene(
                 heading = "48 yaşında mimarbaşı",
                 caption = "Prut üzerindeki köprüsüyle dikkat çeken Sinan, 48 yaşındayken mimarbaşılığa getirildi.",
                 sceneId = "sinan-mimarbasi",
@@ -332,13 +339,6 @@ object VideoStoryPlanBuilder {
                 sceneId = "sinan-sehzade",
                 visualAssetId = "commons-sinan-sehzade-minarets",
                 claimIds = listOf("sinan-apprentice")
-            ),
-            VideoScene(
-                heading = "Kalfalık eseri: Süleymaniye",
-                caption = "Cami, temel atıldıktan yedi yıl sonra 15 Ekim 1557'de açıldı. Sinan, onu kalfalık eseri saydı.",
-                sceneId = "sinan-suleymaniye",
-                visualAssetId = "commons-sinan-suleymaniye-exterior",
-                claimIds = listOf("sinan-journeyman")
             ),
             VideoScene(
                 heading = "Ustalık eseri: Selimiye",
