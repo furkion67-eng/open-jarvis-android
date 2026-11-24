@@ -5,6 +5,7 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
+import android.os.Looper
 import android.provider.ContactsContract
 import android.provider.ContactsContract.CommonDataKinds.Phone
 import androidx.test.rule.provider.ProviderTestRule
@@ -12,6 +13,7 @@ import com.openjarvis.commands.ContactChoicePaging
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -19,6 +21,8 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.runBlocking
 import com.openjarvis.deviceactions.sms.ConfirmedSmsDispatcher
 import com.openjarvis.deviceactions.sms.SmsConfirmationGate
 import com.openjarvis.deviceactions.sms.SmsPermission
@@ -74,6 +78,29 @@ class AndroidContactsResolverProviderInstrumentedTest {
         assertTrue(FakeContactsProvider.lastSortOrder.orEmpty().contains("DISPLAY_NAME_PRIMARY"))
         assertTrue(FakeContactsProvider.lastProjection.contains(Phone.CONTACT_ID))
         assertTrue(FakeContactsProvider.lastProjection.contains(Phone.NUMBER))
+    }
+
+    @Test
+    fun contactLookupRunnerInvokesContentResolverOffMainThreadWhenCalledFromMain() {
+        FakeContactsProvider.rows = listOf(FakePhoneRow(7L, "İpek Yılmaz", "+90 532 111 22 33", "Cep"))
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val mainThread = AtomicReference<Thread>()
+        val queryThread = AtomicReference<Thread>()
+        var result: ContactLookupResult? = null
+
+        instrumentation.runOnMainSync {
+            mainThread.set(Thread.currentThread())
+            runBlocking {
+                val resolver = resolver().apply {
+                    queryThreadObserverForTest = { queryThread.set(it) }
+                }
+                result = ContactLookupRunner(resolver).resolve("İpek Yılmaz")
+            }
+        }
+
+        assertTrue(result is ContactLookupResult.Unique)
+        assertNotSame("Contacts lookup must leave the actual Android main thread.", mainThread.get(), queryThread.get())
+        assertTrue("The query-boundary thread must be captured.", queryThread.get() != null)
     }
 
     @Test
@@ -182,6 +209,20 @@ class AndroidContactsResolverProviderInstrumentedTest {
         assertTrue(resolver().resolve("İpek") is ContactLookupResult.Unavailable)
     }
 
+    @Test
+    fun productionConstructorPathHasNoTestObserverAndStillResolvesNormally() {
+        FakeContactsProvider.rows = listOf(FakePhoneRow(8L, "Mert Akın", "+90 555 000 00 08", "Cep"))
+        val resolver = AndroidContactsResolver(
+            context = context,
+            contentResolver = contentResolver,
+            hasReadContactsPermission = { true }
+        )
+
+        val result = resolver.resolve("Mert Akın")
+
+        assertTrue(result is ContactLookupResult.Unique)
+    }
+
     private fun resolver(permissionGranted: Boolean = true): AndroidContactsResolver =
         AndroidContactsResolver(
             context = context,
@@ -205,6 +246,7 @@ class AndroidContactsResolverProviderInstrumentedTest {
             var lastUri: Uri? = null
             var lastSortOrder: String? = null
             var lastProjection: List<String> = emptyList()
+            var queryLooper: Looper? = null
 
             fun reset() {
                 rows = emptyList()
@@ -214,6 +256,7 @@ class AndroidContactsResolverProviderInstrumentedTest {
                 lastUri = null
                 lastSortOrder = null
                 lastProjection = emptyList()
+                queryLooper = null
             }
         }
 
@@ -227,6 +270,7 @@ class AndroidContactsResolverProviderInstrumentedTest {
             sortOrder: String?
         ): Cursor? {
             queryCount += 1
+            queryLooper = Looper.myLooper()
             lastUri = uri
             lastSortOrder = sortOrder
             lastProjection = projection?.map { it }.orEmpty()

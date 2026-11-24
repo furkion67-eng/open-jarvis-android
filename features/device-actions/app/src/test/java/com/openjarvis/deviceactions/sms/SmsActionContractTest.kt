@@ -1,9 +1,12 @@
 package com.openjarvis.deviceactions.sms
 
 import com.openjarvis.tasks.DeviceActionOutcomeCode
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -281,15 +284,85 @@ class SmsActionContractTest {
 
 
     @Test
-    fun dispatcherExposesRecoveredUnknownCountForUiWithoutExposingTransport() {
+    fun dispatcherRecoversPendingAttemptsForUiWithoutExposingTransport() = runBlocking {
+        val store = InMemorySmsAttemptStore()
+        val journal = SmsAttemptJournal(store)
+        journal.begin("ui-recovery", 1)
         val dispatcher = ConfirmedSmsDispatcher(
             permission = SmsPermission { true },
             gate = SmsConfirmationGate(),
-            transport = SmsTransport { _, callback -> callback(SmsSendOutcome.Rejected) },
-            recoveredUnknownCount = 2
+            transport = object : SmsTransport {
+                override fun send(draft: SmsDraft, callback: (SmsSendOutcome) -> Unit) {
+                    callback(SmsSendOutcome.Rejected)
+                }
+
+                override suspend fun recoverPendingAttempts(): Int =
+                    journal.recoverPendingAsUnknown().size
+            }
         )
 
-        assertEquals(2, dispatcher.recoveredUnknownCount)
+        assertEquals(1, dispatcher.recoverPendingAttempts())
+        assertEquals(SmsSendState.UNKNOWN, store.get("ui-recovery")?.state)
+    }
+
+    @Test
+    fun recoveryCancellationPropagatesInsteadOfBecomingAnOrdinaryFailure() = runBlocking {
+        val cancellation = CancellationException("test cancellation")
+        val dispatcher = ConfirmedSmsDispatcher(
+            permission = SmsPermission { true },
+            gate = SmsConfirmationGate(),
+            transport = object : SmsTransport {
+                override fun send(draft: SmsDraft, callback: (SmsSendOutcome) -> Unit) = Unit
+                override suspend fun recoverPendingAttempts(): Int = throw cancellation
+            }
+        )
+        var failureReported = false
+
+        val thrown = runCatching {
+            recoverPendingSmsAttemptsOrReport(dispatcher) { failureReported = true }
+        }.exceptionOrNull()
+
+        assertSame(cancellation, thrown)
+        assertEquals(false, failureReported)
+    }
+
+    @Test
+    fun ordinaryRecoveryFailureIsReportedAndBlocksTheNextSend() = runBlocking {
+        val failure = IllegalStateException("journal unavailable")
+        val dispatcher = ConfirmedSmsDispatcher(
+            permission = SmsPermission { true },
+            gate = SmsConfirmationGate(),
+            transport = object : SmsTransport {
+                override fun send(draft: SmsDraft, callback: (SmsSendOutcome) -> Unit) = Unit
+                override suspend fun recoverPendingAttempts(): Int = throw failure
+            }
+        )
+        var reported: Exception? = null
+
+        val recovered = recoverPendingSmsAttemptsOrReport(dispatcher) { reported = it }
+
+        assertNull(recovered)
+        assertSame(failure, reported)
+    }
+
+    @Test
+    fun suspendJournalOperationRethrowsCancellationInsteadOfReturningFailure() = runBlocking {
+        val cancellation = CancellationException("journal operation cancelled")
+
+        val thrown = runCatching {
+            runSmsJournalOperation<Int> { throw cancellation }
+        }.exceptionOrNull()
+
+        assertSame(cancellation, thrown)
+    }
+
+    @Test
+    fun suspendJournalOperationReturnsOrdinaryFailureForSafeClassification() = runBlocking {
+        val failure = IllegalStateException("journal unavailable")
+
+        val result = runSmsJournalOperation<Int> { throw failure }
+
+        assertSame(failure, result.exceptionOrNull())
     }
 
     @Test
