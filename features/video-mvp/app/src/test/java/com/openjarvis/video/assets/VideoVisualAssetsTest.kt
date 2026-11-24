@@ -55,6 +55,9 @@ class VideoVisualAssetsTest {
             assetId = "asset-one",
             sha256 = "a".repeat(64),
             sourceUrl = source,
+            sourceUploadSha1 = "a".repeat(40),
+            pinnedPageRevisionTimestamp = "2026-11-20T00:00:00Z",
+            uploadTimestamp = "2026-11-19T00:00:00Z",
             creator = "Example Creator",
             licenseId = "CC BY-NC",
             licenseVersion = "4.0",
@@ -82,6 +85,9 @@ class VideoVisualAssetsTest {
         assertEquals(0, resolved.attribution.sceneIndex)
         assertEquals("scene-01", resolved.attribution.sceneId)
         assertTrue(resolved.attribution.sha256.matches(Regex("[a-f0-9]{64}")))
+        assertEquals(descriptor().expectedUploadSha1, resolved.attribution.sourceUploadSha1)
+        assertEquals(descriptor().pinnedPageRevisionTimestamp, resolved.attribution.pinnedPageRevisionTimestamp)
+        assertEquals(descriptor().uploadTimestamp, resolved.attribution.uploadTimestamp)
         assertTrue(resolved.attribution.attributionText.contains(resolved.attribution.sourceUrl))
         assertTrue(resolved.attribution.attributionText.contains(resolved.attribution.licenseUrl))
         assertEquals("CC BY-SA", resolved.attribution.licenseId)
@@ -89,6 +95,51 @@ class VideoVisualAssetsTest {
         assertEquals("CC BY-SA 4.0", resolved.attribution.requiredOutputLicense)
         assertTrue(resolved.attribution.cacheMetadata.contains("expiresAt"))
         assertEquals(1, downloader.calls)
+    }
+
+    @Test
+    fun mismatchedOriginalUploadSha1FailsClosedBeforeCaching() {
+        val wrongEvidence = descriptor().copy(expectedUploadSha1 = sha1("different source".toByteArray()))
+        val downloader = FakeDownloader(jpeg)
+        val resolver = VideoVisualAssetResolver(MemoryCache(), downloader, clock = { now })
+        assertTrue(runCatching { resolver.resolveAll(listOf(wrongEvidence)) }.isFailure)
+        assertEquals(1, downloader.calls)
+    }
+
+    @Test
+    fun thumbnailRequiresMatchingOriginalSourceBytesAndSha1() {
+        val svg = "<svg xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M0 0\"/></svg>".toByteArray()
+        val png = byteArrayOf(137, 80, 78, 71, 13, 10, 26, 10).map { it.toByte() }.toByteArray()
+        val source = descriptor().copy(
+            downloadUrl = "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Example.jpg/1280px-Example.jpg.png",
+            expectedMimeType = "image/png",
+            expectedUploadSha1 = sha1(svg),
+            sourceVerificationUrl = "https://upload.wikimedia.org/wikipedia/commons/a/ab/Example.jpg",
+            sourceVerificationMimeType = "image/svg+xml",
+            sourceVerificationMaxBytes = 1_024L
+        )
+        val downloader = FakeDownloader(png, sourceBytes = svg, sourceMimeType = "image/svg+xml")
+        val resolved = VideoVisualAssetResolver(MemoryCache(), downloader, clock = { now })
+            .resolveAll(listOf(source)).single()
+        assertEquals(sha1(svg), resolved.attribution.sourceUploadSha1)
+        assertEquals("image/png", resolved.file.let { "image/png" })
+        assertEquals(1, downloader.calls)
+    }
+
+    @Test
+    fun pinnedUploadEvidenceRejectsMissingDigestAndUploadAfterPageRevision() {
+        val valid = descriptor()
+        assertFalse(VideoAssetLicensePolicy.isValidUploadEvidence("", valid.pinnedPageRevisionTimestamp, valid.uploadTimestamp))
+        assertFalse(VideoAssetLicensePolicy.isValidUploadEvidence(
+            valid.expectedUploadSha1,
+            "2025-01-01T00:00:00Z",
+            "2025-01-02T00:00:00Z"
+        ))
+        assertFalse(VideoAssetLicensePolicy.isValidUploadEvidence(
+            valid.expectedUploadSha1,
+            "not-a-timestamp",
+            valid.uploadTimestamp
+        ))
     }
 
     @Test
@@ -387,18 +438,31 @@ class VideoVisualAssetsTest {
             attributionText = "Example Creator, Example visual; CC BY-SA 4.0. License: https://creativecommons.org/licenses/by-sa/4.0/. Source: " + source,
             expectedMimeType = "image/jpeg",
             shareAlikeRequired = true,
-            requiredOutputLicense = "CC BY-SA 4.0"
+            requiredOutputLicense = "CC BY-SA 4.0",
+            expectedUploadSha1 = sha1(jpeg),
+            pinnedPageRevisionTimestamp = "2026-11-20T00:00:00Z",
+            uploadTimestamp = "2026-11-19T00:00:00Z"
         )
     }
 
-    private class FakeDownloader(private val bytes: ByteArray) : VideoVisualAssetDownloader {
+    private class FakeDownloader(
+        private val bytes: ByteArray,
+        private val sourceBytes: ByteArray? = null,
+        private val sourceMimeType: String? = null
+    ) : VideoVisualAssetDownloader {
         var calls = 0
         var fail = false
 
         override fun download(descriptor: VideoVisualAssetDescriptor): DownloadedVisualAsset {
             calls++
             if (fail) throw java.io.IOException("offline")
-            return DownloadedVisualAsset(bytes, descriptor.expectedMimeType, descriptor.downloadUrl)
+            return DownloadedVisualAsset(
+                bytes,
+                descriptor.expectedMimeType,
+                descriptor.downloadUrl,
+                sourceBytes,
+                sourceMimeType
+            )
         }
     }
 
@@ -444,6 +508,10 @@ class VideoVisualAssetsTest {
             }
         }
     }
+
+    private fun sha1(bytes: ByteArray): String =
+        java.security.MessageDigest.getInstance("SHA-1").digest(bytes)
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
     private fun sha256(bytes: ByteArray): String =
         java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
