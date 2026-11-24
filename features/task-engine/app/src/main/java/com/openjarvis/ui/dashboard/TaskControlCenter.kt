@@ -27,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -56,7 +57,12 @@ fun TaskControlCenter(modifier: Modifier = Modifier) {
         repositoryLoading = true
         repositoryError = null
         try {
-            repository = JarvisTaskRepository.getInstanceOnIo(context.applicationContext)
+            // Let the first Dashboard content render before Room open/recovery work begins.
+            withFrameNanos { }
+            withFrameNanos { }
+            val sharedRepository = JarvisTaskRepository.getInstanceOnIo(context.applicationContext)
+            JarvisTaskRepository.recoverInterruptedTasksOnIo(sharedRepository)
+            repository = sharedRepository
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {

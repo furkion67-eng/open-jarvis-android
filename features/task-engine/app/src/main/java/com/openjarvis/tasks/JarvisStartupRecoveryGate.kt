@@ -9,7 +9,12 @@ import kotlinx.coroutines.sync.withLock
  */
 internal class JarvisStartupRecoveryGate {
     private val mutex = Mutex()
-    private var completed = false
+    @Volatile private var completed = false
+
+    /** Clears process state between file-backed database reopen tests only. */
+    fun resetForTesting() {
+        completed = false
+    }
 
     suspend fun runOnce(recover: suspend () -> Unit) {
         mutex.withLock {
