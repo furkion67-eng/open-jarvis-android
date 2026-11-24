@@ -11,6 +11,7 @@ import com.openjarvis.video.VideoCommandOrigin
 import com.openjarvis.video.VideoCommandRouter
 import com.openjarvis.video.VideoStoryPipeline
 import com.openjarvis.video.VideoStoryPlanBuilder
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.nio.ByteBuffer
@@ -67,8 +68,8 @@ class VideoStoryTaskCapability : JarvisTaskCapability {
 
 /**
  * Local-only executor. The task's stable idempotency key determines both MediaStore names.
- * If the process died after export but before Room persisted success, a user retry reuses the
- * already verified pair rather than creating a second copy.
+ * If the process died after export but before Room persisted success, the uncommitted MediaStore
+ * rows are deleted and the render runs again; an unpersisted file is never reused as proof.
  */
 class VideoStoryTaskExecutor(context: Context) : JarvisTaskExecutor {
     private val appContext = context.applicationContext
@@ -277,10 +278,15 @@ class VideoStoryTaskExecutor(context: Context) : JarvisTaskExecutor {
     }
 
     private fun isReadableCaptionsUri(uri: Uri): Boolean {
-        if (uri.scheme != "content") return false
-        return appContext.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use {
-            val contents = it.readText()
-            contents.isNotBlank() && contents.contains("-->")
-        } == true
+        if (uri.scheme != "content" || uri.authority.isNullOrBlank()) return false
+        return try {
+            appContext.contentResolver.openInputStream(uri)?.use { input ->
+                VideoArtifactCaptionsPolicy.readValidated(input) != null
+            } == true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            false
+        }
     }
 }

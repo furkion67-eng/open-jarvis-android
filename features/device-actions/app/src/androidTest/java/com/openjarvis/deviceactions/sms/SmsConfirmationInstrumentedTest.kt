@@ -1,5 +1,7 @@
 package com.openjarvis.deviceactions.sms
 
+import android.content.Intent
+import com.openjarvis.tasks.DeviceActionOutcomeCode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
@@ -9,6 +11,26 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class SmsConfirmationInstrumentedTest {
+    @Test
+    fun actionSendToCreatesOnlySmsDraftAndNeverMarksSent() {
+        val exactMessage = "Bu mesaj SMS uygulamasında taslak olarak açılır."
+        val intent = SmsDraftHandoff.createIntent("+905551234567", exactMessage)
+
+        assertEquals(Intent.ACTION_SENDTO, intent.action)
+        assertEquals("smsto", intent.data?.scheme)
+        assertEquals("+905551234567", intent.data?.schemeSpecificPart)
+        assertEquals(exactMessage, intent.getStringExtra("sms_body"))
+        assertEquals(DeviceActionOutcomeCode.DRAFT, SmsDraftHandoff.outcomeCode)
+        assertTrue(SmsDraftHandoff.outcomeCode != DeviceActionOutcomeCode.SENT)
+        // Deliberately do not call startActivity or SmsManager: this is a draft contract test only.
+    }
+
+    @Test
+    fun actionSendToRejectsBlankDraftInputs() {
+        assertTrue(runCatching { SmsDraftHandoff.createIntent(" ", "message") }.isFailure)
+        assertTrue(runCatching { SmsDraftHandoff.createIntent("+905551234567", " ") }.isFailure)
+    }
+
     @Test
     fun deniedSendPermissionNeverInvokesTransport() {
         val gate = SmsConfirmationGate()
