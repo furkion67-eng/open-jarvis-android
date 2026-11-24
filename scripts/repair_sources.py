@@ -2,6 +2,8 @@
 from pathlib import Path
 import hashlib
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -10,8 +12,8 @@ root = Path(sys.argv[1])
 
 def _repair_input_digest(script_path: Path, features_root: Path) -> str:
     """
-    Fingerprint the repair program and every feature source/resource it overlays.
-    A script-only marker can incorrectly skip a repair after Kotlin/resources change.
+    Fingerprint the repair program, feature source/resources, and host patch templates.
+    A stale marker must never skip a changed Kotlin/resource/host integration patch.
     """
     digest = hashlib.sha256()
     digest.update(script_path.read_bytes())
@@ -24,7 +26,13 @@ def _repair_input_digest(script_path: Path, features_root: Path) -> str:
             if not source.is_file():
                 continue
             relative = source.relative_to(features_root)
-            if source.suffix != ".kt" and "res" not in relative.parts and source.name != "AndroidManifest.xml":
+            is_host_patch = relative.parts[:2] == ("host-integration", "patches")
+            if (
+                source.suffix != ".kt"
+                and "res" not in relative.parts
+                and source.name != "AndroidManifest.xml"
+                and not is_host_patch
+            ):
                 continue
             digest.update(relative.as_posix().encode("utf-8"))
             digest.update(b"\\0")
@@ -72,8 +80,179 @@ def _repair_input_digest_regression_test():
         if before_auxiliary_change == _repair_input_digest(script, features):
             raise SystemExit("repair input digest ignored a changed auxiliary product repair script")
 
+        host_patch = features / "host-integration/patches/app/src/main/java/Example.kt.patch"
+        host_patch.parent.mkdir(parents=True)
+        host_patch.write_bytes(b"host-patch-v1")
+        before_host_patch_change = _repair_input_digest(script, features)
+        host_patch.write_bytes(b"host-patch-v2")
+        if before_host_patch_change == _repair_input_digest(script, features):
+            raise SystemExit("repair input digest ignored a changed Feature host patch template")
+
 
 _repair_input_digest_regression_test()
+
+def _run_feature_host_patch(project_root: Path, payload: bytes, *, dry_run: bool, reverse: bool):
+    command = ["patch", "--batch", "--fuzz=0", "-p1"]
+    if dry_run:
+        command.append("--dry-run")
+    command.append("--reverse" if reverse else "--forward")
+    return subprocess.run(
+        command,
+        cwd=project_root,
+        input=payload,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False
+    )
+
+
+def _feature_host_patch_target(payload: bytes) -> str:
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise SystemExit("Feature host patch is not UTF-8: " + str(error))
+
+    diff_headers = re.findall(r"(?m)^diff --git a/(.+?) b/(.+)$", text)
+    old_headers = re.findall(r"(?m)^--- a/(.+)$", text)
+    new_headers = re.findall(r"(?m)^\\+\\+\\+ b/(.+)$", text)
+    if len(diff_headers) != 1 or len(old_headers) != 1 or len(new_headers) != 1:
+        raise SystemExit("Feature host patch must change exactly one existing file")
+    old_path, new_path = diff_headers[0]
+    if old_path != new_path or old_headers[0] != old_path or new_headers[0] != new_path:
+        raise SystemExit("Feature host patch path headers are inconsistent")
+
+    path = Path(new_path)
+    if path.is_absolute() or ".." in path.parts or "\\" in new_path:
+        raise SystemExit("Feature host patch contains an unsafe target path")
+    if not new_path.startswith("app/src/main/"):
+        raise SystemExit("Feature host patch target is outside the approved host app source scope")
+    return new_path
+
+
+def _apply_feature_host_patch(project_root: Path, patch_file: Path):
+    if patch_file.is_symlink() or not patch_file.is_file() or patch_file.suffix != ".patch":
+        raise SystemExit("Feature host patch template is not a regular .patch file: " + str(patch_file))
+    payload = patch_file.read_bytes()
+    if not payload:
+        raise SystemExit("Feature host patch template is empty: " + str(patch_file))
+
+    target_relative = _feature_host_patch_target(payload)
+    target = project_root / target_relative
+    try:
+        target.resolve().relative_to(project_root.resolve())
+    except ValueError:
+        raise SystemExit("Feature host patch target escapes the extracted project root")
+    if target.is_symlink() or not target.is_file():
+        raise SystemExit("Feature host patch target is missing or is a symlink: " + target_relative)
+
+    # Check the reverse first: an exact postimage is an idempotent skip. Otherwise require
+    # a zero-fuzz forward dry-run before changing the extracted host source.
+    already_applied = _run_feature_host_patch(
+        project_root, payload, dry_run=True, reverse=True
+    )
+    if already_applied.returncode == 0:
+        print("Feature host patch already applied: " + target_relative)
+        return
+
+    forward = _run_feature_host_patch(
+        project_root, payload, dry_run=True, reverse=False
+    )
+    if forward.returncode != 0:
+        detail = (forward.stderr or forward.stdout).decode("utf-8", errors="replace").strip()
+        raise SystemExit(
+            "Feature host patch preimage mismatch; refusing fuzzy/partial application for "
+            + target_relative + ": " + detail
+        )
+
+    applied = _run_feature_host_patch(
+        project_root, payload, dry_run=False, reverse=False
+    )
+    if applied.returncode != 0:
+        detail = (applied.stderr or applied.stdout).decode("utf-8", errors="replace").strip()
+        raise SystemExit("Feature host patch application failed for " + target_relative + ": " + detail)
+
+    verified = _run_feature_host_patch(
+        project_root, payload, dry_run=True, reverse=True
+    )
+    if verified.returncode != 0:
+        detail = (verified.stderr or verified.stdout).decode("utf-8", errors="replace").strip()
+        raise SystemExit("Feature host patch postimage verification failed for " + target_relative + ": " + detail)
+    print("Applied Feature host patch: " + target_relative)
+
+
+def _apply_feature_host_patches(project_root: Path, features_root: Path):
+    patch_root = features_root / "host-integration" / "patches"
+    if not patch_root.exists():
+        print("No Feature host patch templates present; skipping host patch application")
+        return
+    if patch_root.is_symlink() or not patch_root.is_dir():
+        raise SystemExit("Feature host patch directory is not a regular directory")
+
+    candidates = sorted(patch_root.rglob("*"), key=lambda item: item.as_posix())
+    patch_files = []
+    for candidate in candidates:
+        if candidate.is_dir():
+            continue
+        if candidate.is_symlink() or not candidate.is_file() or candidate.suffix != ".patch":
+            raise SystemExit("Unsupported file in Feature host patch directory: " + str(candidate))
+        patch_files.append(candidate)
+
+    if not patch_files:
+        raise SystemExit("Feature host patch directory exists but contains no .patch templates")
+    if shutil.which("patch") is None:
+        raise SystemExit("The GNU patch utility is required to apply Feature host patch templates")
+
+    for patch_file in patch_files:
+        _apply_feature_host_patch(project_root, patch_file)
+
+
+def _feature_host_patch_regression_test():
+    if shutil.which("patch") is None:
+        raise SystemExit("The GNU patch utility is required for host patch regression tests")
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        temporary_root = Path(temporary_directory)
+        project = temporary_root / "host"
+        target = project / "app/src/main/java/Example.kt"
+        target.parent.mkdir(parents=True)
+        target.write_text("class Example {\n}\n", encoding="utf-8")
+
+        features = temporary_root / "features"
+        patch_file = features / "host-integration/patches/app/src/main/java/Example.kt.patch"
+        patch_file.parent.mkdir(parents=True)
+        valid_patch = (
+            "diff --git a/app/src/main/java/Example.kt b/app/src/main/java/Example.kt\n"
+            "--- a/app/src/main/java/Example.kt\n"
+            "+++ b/app/src/main/java/Example.kt\n"
+            "@@ -1,2 +1,3 @@\n"
+            " class Example {\n"
+            "+    fun added() = Unit\n"
+            " }\n"
+        )
+        patch_file.write_text(valid_patch, encoding="utf-8")
+        _apply_feature_host_patch(project, patch_file)
+        expected = "class Example {\n    fun added() = Unit\n}\n"
+        if target.read_text(encoding="utf-8") != expected:
+            raise SystemExit("Feature host patch regression failed to apply its expected postimage")
+
+        # A second pass must recognize the exact postimage and make no further change.
+        _apply_feature_host_patch(project, patch_file)
+        if target.read_text(encoding="utf-8") != expected:
+            raise SystemExit("Feature host patch regression duplicated an already-applied patch")
+
+        # A changed/unknown preimage must fail closed rather than applying with fuzz.
+        invalid_patch = valid_patch.replace(" class Example {", " class Different {")
+        patch_file.write_text(invalid_patch, encoding="utf-8")
+        try:
+            _apply_feature_host_patch(project, patch_file)
+        except SystemExit:
+            pass
+        else:
+            raise SystemExit("Feature host patch regression accepted an unknown preimage")
+
+
+_feature_host_patch_regression_test()
+
+
 repair_script_path = Path(__file__).resolve()
 feature_sources_root = repair_script_path.parent.parent / "features"
 repair_digest = _repair_input_digest(repair_script_path, feature_sources_root)
@@ -5235,6 +5414,8 @@ def _voice_sms_coordinator_handoff_regression_test():
 
 _voice_sms_coordinator_handoff_regression_test()
 print("Verified voice SMS router-to-coordinator-to-ContactsContract handoff and confirmation-before-transport contract")
+
+_apply_feature_host_patches(root, feature_sources_root)
 
 repair_marker.write_text(repair_digest + "\n", encoding="utf-8")
 print("OPEN_JARVIS_REPAIR_IDEMPOTENT_MARKER_WRITTEN")
