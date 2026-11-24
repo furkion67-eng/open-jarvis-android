@@ -5057,7 +5057,7 @@ def _repair_main_activity_bootstrap(source):
                     child + '        text = "Yerel hafıza hazırlanıyor…",',
                     child + "        modifier = Modifier.padding(24.dp)",
                     child + "    )",
-                    child + "} ",
+                    child + "}",
                     indent + "} else if (graphifyRepoResult.isFailure) {"
                 ))
                 source = source[:match.start()] + loading_branch + source[match.end():]
@@ -5076,7 +5076,7 @@ def _repair_main_activity_bootstrap(source):
                     child + '        text = "Yerel hafıza hazırlanıyor…",',
                     child + "        modifier = Modifier.padding(24.dp)",
                     child + "    )",
-                    child + "} ",
+                    child + "}",
                     indent + "} else if (graphifyRepoResult.isFailure) {",
                     child + "androidx.compose.material3.Surface(modifier = Modifier.fillMaxSize()) {",
                     child + "    androidx.compose.material3.Text(",
@@ -5084,7 +5084,7 @@ def _repair_main_activity_bootstrap(source):
                     child + '            (graphifyRepoResult.exceptionOrNull()?.message ?: "Unknown startup error"),',
                     child + "        modifier = Modifier.padding(24.dp)",
                     child + "    )",
-                    child + "} ",
+                    child + "}",
                     indent + "} else {",
                     child + "DashboardScreen("
                 ))
