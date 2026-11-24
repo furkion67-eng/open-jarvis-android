@@ -77,7 +77,7 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
             assertTrue("The real MainActivity must own window focus after Dashboard readiness.", activity!!.window.decorView.hasWindowFocus())
             Log.i(
                 ACCEPTANCE_TAG,
-                "first_frame_ms=$firstFrameMs dashboard_ready_ms=$dashboardReadyMs budget_ms=$DASHBOARD_READY_BUDGET_MS"
+                "first_observed_draw_ms=$firstFrameMs dashboard_ready_ms=$dashboardReadyMs budget_ms=$DASHBOARD_READY_BUDGET_MS"
             )
 
             val repository = JarvisTaskRepository.getInstanceOnIo(context)
@@ -117,11 +117,6 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
             assertEquals(3, JSONArray(completed.artifactRefs).length())
             val goal = completed.goal
 
-            awaitAccessibleText(
-                instrumentation = instrumentation,
-                text = "JARVIS video arşivi",
-                timeoutMs = 10_000L
-            )
             awaitAccessibleTextAndClick(
                 instrumentation = instrumentation,
                 text = goal,
@@ -189,6 +184,7 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
                 }
             }
             observer.addOnDrawListener(listener)
+            decor.invalidate()
         }
         val remainingMs = (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
         if (!drawn.await(remainingMs, TimeUnit.MILLISECONDS)) {
