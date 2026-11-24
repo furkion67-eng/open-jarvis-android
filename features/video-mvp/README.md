@@ -38,7 +38,7 @@ The Mimar Sinan script uses Selçuk Mülâyim's TDV İslâm Ansiklopedisi entrie
 - https://islamansiklopedisi.org.tr/sinan
 - https://islamansiklopedisi.org.tr/suleymaniye-camii-ve-kulliyesi
 
-The five scene claims are limited to the sources' statements about Şehzade Camii (1548, “çıraklık”), Süleymaniye Camii's opening on 15 October 1557, seven years after its foundation ceremony (“kalfalık”), Selimiye in Edirne as Sinan's greatest work, his appointment as chief architect at age 48, and his death in 1588 / burial in the Süleymaniye complex. The first-two-second hook is now the concrete payoff “Süleymaniye yedi yılda!” rather than a generic slogan.
+The five scene claims are limited to the sources' statements about Şehzade Camii (1548, “çıraklık”), Süleymaniye Camii's opening on 15 October 1557, seven years after its foundation ceremony (“kalfalık”), Selimiye in Edirne as Sinan's greatest work, his appointment as chief architect at age 48, and his death in 1588 / burial in the Süleymaniye complex. The first-two-second hook is now the concrete payoff “Süleymaniye yedi yılda!” rather than a generic slogan. The opening visual is the licensed Süleymaniye exterior, so the first frame supports the hook instead of showing an unrelated sculpture; the next scenes rewind to Sinan's appointment and Şehzade before moving forward to Selimiye and his tomb.
 
 | Scene | Creator | License | Pinned source |
 |---|---|---|---|
