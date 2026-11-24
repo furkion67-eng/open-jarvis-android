@@ -15,7 +15,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.openjarvis.tasks.JarvisTaskDatabase
 import com.openjarvis.tasks.JarvisTaskRepository
 import com.openjarvis.tasks.JarvisTaskStatus
-import com.openjarvis.tasks.MainActivity
+import com.openjarvis.ui.MainActivity
 import com.openjarvis.tasks.VIDEO_TASK_EXECUTION_MODE
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -46,7 +46,6 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
         var taskId: String? = null
         var videoUri: String? = null
         var captionsUri: String? = null
-        var thumbnailUri: String? = null
         var monitor: Instrumentation.ActivityMonitor? = null
 
         try {
@@ -69,7 +68,7 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
                 timeoutMs = DASHBOARD_READY_BUDGET_MS
             )
             assertTrue("The Dashboard must become usable within 20 seconds.", dashboardReadyMs <= DASHBOARD_READY_BUDGET_MS)
-            assertTrue("The real MainActivity must own window focus after Dashboard readiness.", activity!!.hasWindowFocus())
+            assertTrue("The real MainActivity must own window focus after Dashboard readiness.", activity!!.window.decorView.hasWindowFocus())
             Log.i(
                 ACCEPTANCE_TAG,
                 "first_frame_ms=$firstFrameMs dashboard_ready_ms=$dashboardReadyMs budget_ms=$DASHBOARD_READY_BUDGET_MS"
@@ -107,7 +106,6 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
 
             awaitAccessibleText(
                 instrumentation = instrumentation,
-                activity = activity!!,
                 text = "JARVIS video arşivi",
                 timeoutMs = 10_000L
             )
@@ -152,7 +150,7 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
                 taskId?.let { cleanupDatabase.taskDao().deleteById(it) }
                 JarvisTaskDatabase.closeInstanceForTesting()
             }
-            listOf(videoUri, captionsUri, thumbnailUri).forEach { value ->
+            listOf(videoUri, captionsUri).forEach { value ->
                 if (!value.isNullOrBlank()) {
                     runCatching { context.contentResolver.delete(android.net.Uri.parse(value), null, null) }
                 }
@@ -197,7 +195,7 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
             required.forEach { text ->
                 if (containsVisibleText(root, text)) found += text
             }
-            if (found.containsAll(required) && activity.hasWindowFocus()) {
+            if (found.containsAll(required) && activity.window.decorView.hasWindowFocus()) {
                 return SystemClock.elapsedRealtime() - launchStartedAt
             }
             scrollForward(root)
@@ -211,7 +209,6 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
 
     private fun awaitAccessibleText(
         instrumentation: Instrumentation,
-        activity: Activity,
         text: String,
         timeoutMs: Long
     ) {
