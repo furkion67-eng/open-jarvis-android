@@ -1,10 +1,14 @@
 diff --git a/app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt b/app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt
 --- a/app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt
 +++ b/app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt
-@@ -1,5 +1,6 @@
+@@ -1,5 +1,7 @@
          } catch (e: Exception) {
-+            if (com.openjarvis.tasks.DashboardLoadFailurePolicy.shouldRethrow(e)) throw e
-             android.util.Log.e("OpenJarvis", "Dashboard database load failed", e)
-             recentTasks = emptyList()
-             mostUsedApps = emptyList()
+-            android.util.Log.e("OpenJarvis", "Dashboard database load failed", e)
+-            recentTasks = emptyList()
+-            mostUsedApps = emptyList()
++            com.openjarvis.tasks.DashboardLoadFailurePolicy.handle(e) { repositoryError ->
++                android.util.Log.e("OpenJarvis", "Dashboard database load failed", repositoryError)
++                recentTasks = emptyList()
++                mostUsedApps = emptyList()
++            }
          }
