@@ -1,7 +1,7 @@
 diff --git a/app/src/main/java/com/openjarvis/ui/MainActivity.kt b/app/src/main/java/com/openjarvis/ui/MainActivity.kt
 --- a/app/src/main/java/com/openjarvis/ui/MainActivity.kt
 +++ b/app/src/main/java/com/openjarvis/ui/MainActivity.kt
-@@
+@@ -1,8 +1,16 @@
                  if (graphifyRepoResult == null) {
                      androidx.compose.material3.Surface(modifier = Modifier.fillMaxSize()) {
 -                        androidx.compose.material3.Text(
@@ -20,5 +20,5 @@ diff --git a/app/src/main/java/com/openjarvis/ui/MainActivity.kt b/app/src/main/
 +                            androidx.compose.material3.CircularProgressIndicator()
 +                            androidx.compose.material3.Text("Yerel hafıza hazırlanıyor…")
 +                        }
-                     } 
+                     }
                  } else if (graphifyRepoResult.isFailure) {
