@@ -50,7 +50,7 @@ The five scene claims are limited to the sources' statements about Şehzade Cami
 
 ## Pinned binary upload evidence
 
-The timestamps and SHA-1 values below were read from the Wikimedia Commons MediaWiki API on 24 November 2026. For each asset, the selected upload is the latest file upload at or before the pinned file-description-page revision timestamp. The runtime verifies the original bytes against this SHA-1 before using them; the SHA-256 in the render attribution record then identifies the exact cached/rendered bytes.
+The timestamps and SHA-1 values below were read from the Wikimedia Commons MediaWiki API on 24 November 2026. The page timestamp was resolved from each `oldid` with `prop=revisions&rvprop=ids|timestamp`; the selected binary upload was resolved with `prop=imageinfo&iiprop=timestamp|sha1|size|mime|url&iilimit=1&iistart=<page-revision-timestamp>`. The current latest `imageinfo` record was also checked and matched the selected upload for all ten files. The runtime verifies the original bytes against this SHA-1 before using them; the SHA-256 in the render attribution record then identifies the exact cached/rendered bytes.
 
 | Asset | Pinned page revision timestamp | Original upload timestamp | Commons SHA-1 |
 |---|---|---|---|
