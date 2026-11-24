@@ -130,6 +130,30 @@ class VideoVisualAssetsTest {
     }
 
     @Test
+    fun sourceVerificationUrlMustBeThePinnedOriginalFile() {
+        val svg = "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>".toByteArray()
+        val valid = descriptor().copy(
+            downloadUrl = "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Example.jpg/1280px-Example.jpg.png",
+            expectedMimeType = "image/png",
+            expectedUploadSha1 = sha1(svg),
+            sourceVerificationUrl = "https://upload.wikimedia.org/wikipedia/commons/a/ab/Example.jpg",
+            sourceVerificationMimeType = "image/svg+xml",
+            sourceVerificationMaxBytes = 1_024L
+        )
+        VideoAssetLicensePolicy.validate(valid)
+        assertTrue(runCatching {
+            VideoAssetLicensePolicy.validate(valid.copy(
+                sourceVerificationUrl = "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Example.jpg/1280px-Example.jpg.png"
+            ))
+        }.isFailure)
+        assertTrue(runCatching {
+            VideoAssetLicensePolicy.validate(valid.copy(
+                sourceVerificationUrl = "https://upload.wikimedia.org/wikipedia/commons/a/ab/Other.jpg"
+            ))
+        }.isFailure)
+    }
+
+    @Test
     fun pinnedUploadEvidenceRejectsMissingDigestAndUploadAfterPageRevision() {
         val valid = descriptor()
         assertFalse(VideoAssetLicensePolicy.isValidUploadEvidence("", valid.pinnedPageRevisionTimestamp, valid.uploadTimestamp))
