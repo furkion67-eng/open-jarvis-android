@@ -317,7 +317,7 @@ object VideoStoryPlanBuilder {
     }
 
     private fun buildMimarSinan(): VideoStoryPlan {
-        val hook = "Üç eser, tek usta!"
+        val hook = "Süleymaniye yedi yılda!"
         val scenes = listOf(
             VideoScene(
                 heading = "48 yaşında mimarbaşı",
@@ -335,7 +335,7 @@ object VideoStoryPlanBuilder {
             ),
             VideoScene(
                 heading = "Kalfalık eseri: Süleymaniye",
-                caption = "Kanûnî adına başlayan külliye yedi yılda tamamlandı. Sinan, Süleymaniye'yi kalfalık eseri saydı.",
+                caption = "Cami, temel atıldıktan yedi yıl sonra 15 Ekim 1557'de açıldı. Sinan, onu kalfalık eseri saydı.",
                 sceneId = "sinan-suleymaniye",
                 visualAssetId = "commons-sinan-suleymaniye-exterior",
                 claimIds = listOf("sinan-journeyman")
@@ -370,10 +370,10 @@ object VideoStoryPlanBuilder {
             VideoClaimSource(
                 "sinan-journeyman",
                 "sinan-suleymaniye",
-                sourceUrl,
+                "https://islamansiklopedisi.org.tr/suleymaniye-camii-ve-kulliyesi",
                 publisher,
-                checkedOn,
-                "Süleymaniye Camii ve külliyesi yedi yılda tamamlandı; Sinan bu yapıyı kalfalık eseri saydı."
+                "2026-11-24",
+                "Süleymaniye Camii, temel atıldıktan yedi yıl sonra 15 Ekim 1557'de tamamlandı; Sinan bu yapıyı kalfalık eseri olarak tanımladı."
             ),
             VideoClaimSource(
                 "sinan-master",
