@@ -65,9 +65,9 @@ jobs:
       - name: Install ffmpeg and sqlite3
         run: |
           set -euo pipefail
-          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1 || ! command -v sqlite3 >/dev/null 2>&1 || ! command -v patch >/dev/null 2>&1; then
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1 || ! command -v sqlite3 >/dev/null 2>&1; then
             sudo apt-get update
-            sudo apt-get install -y ffmpeg sqlite3 patch
+            sudo apt-get install -y ffmpeg sqlite3
           fi
           ffmpeg -version | head -n 1
           ffprobe -version | head -n 1
