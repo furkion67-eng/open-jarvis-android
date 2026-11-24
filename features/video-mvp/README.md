@@ -65,7 +65,7 @@ The timestamps and SHA-1 values below were read from the Wikimedia Commons Media
 | Mimar Sinan sculpture | 2026-03-15T22:40:24Z | 2025-06-13T07:31:20Z | `019896c72049ccf8f7f37d9f0514a71be541285c` |
 | Mimar Sinan tomb | 2026-10-19T21:13:14Z | 2018-04-26T10:35:21Z | `bda6a4f3949a3c4a2daf731c101a0cd02c4e5927` |
 
-The 1453 map's original SVG is hash-verified before its Wikimedia PNG thumbnail is downloaded. The other nine render inputs are the original uploaded files, not current thumbnail URLs. The API's file-upload timestamp is checked not to be later than the pinned file-page revision timestamp.
+The 1453 map's original SVG is hash-verified both before and after its Wikimedia PNG thumbnail is downloaded, so a file replacement during the thumbnail request fails closed. The other nine render inputs are the original uploaded files, not current thumbnail URLs. The API's file-upload timestamp is checked not to be later than the pinned file-page revision timestamp, and future page-revision timestamps are rejected.
 
 ## Asset provenance
 
