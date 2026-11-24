@@ -91,9 +91,10 @@ class AndroidContactsResolverProviderInstrumentedTest {
         instrumentation.runOnMainSync {
             mainThread.set(Thread.currentThread())
             runBlocking {
-                result = ContactLookupRunner(
-                    resolver(queryThreadObserver = { queryThread.set(it) })
-                ).resolve("İpek Yılmaz")
+                val resolver = resolver().apply {
+                    queryThreadObserverForTest = { queryThread.set(it) }
+                }
+                result = ContactLookupRunner(resolver).resolve("İpek Yılmaz")
             }
         }
 
@@ -208,15 +209,25 @@ class AndroidContactsResolverProviderInstrumentedTest {
         assertTrue(resolver().resolve("İpek") is ContactLookupResult.Unavailable)
     }
 
-    private fun resolver(
-        permissionGranted: Boolean = true,
-        queryThreadObserver: ((Thread) -> Unit)? = null
-    ): AndroidContactsResolver =
+    @Test
+    fun productionConstructorPathHasNoTestObserverAndStillResolvesNormally() {
+        FakeContactsProvider.rows = listOf(FakePhoneRow(8L, "Mert Akın", "+90 555 000 00 08", "Cep"))
+        val resolver = AndroidContactsResolver(
+            context = context,
+            contentResolver = contentResolver,
+            hasReadContactsPermission = { true }
+        )
+
+        val result = resolver.resolve("Mert Akın")
+
+        assertTrue(result is ContactLookupResult.Unique)
+    }
+
+    private fun resolver(permissionGranted: Boolean = true): AndroidContactsResolver =
         AndroidContactsResolver(
             context = context,
             contentResolver = contentResolver,
-            hasReadContactsPermission = { permissionGranted },
-            queryThreadObserver = queryThreadObserver
+            hasReadContactsPermission = { permissionGranted }
         )
 
     data class FakePhoneRow(
