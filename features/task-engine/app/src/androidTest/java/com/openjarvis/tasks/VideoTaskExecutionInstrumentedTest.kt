@@ -11,7 +11,9 @@ import android.provider.MediaStore
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -31,6 +33,7 @@ class VideoTaskExecutionInstrumentedTest {
 
     @Before
     fun setUp() {
+        runBlocking(Dispatchers.IO) { JarvisTaskDatabase.closeInstanceForTesting() }
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         database = Room.inMemoryDatabaseBuilder(context, JarvisTaskDatabase::class.java)
             .allowMainThreadQueries()
@@ -41,6 +44,7 @@ class VideoTaskExecutionInstrumentedTest {
     @After
     fun tearDown() {
         database.close()
+        runBlocking(Dispatchers.IO) { JarvisTaskDatabase.closeInstanceForTesting() }
     }
 
     @Test
@@ -196,8 +200,8 @@ class VideoTaskExecutionInstrumentedTest {
             productionRegistry.executorFor(VIDEO_TASK_EXECUTION_MODE) is VideoStoryTaskExecutor
         )
 
-        val productionRepository = JarvisTaskRepository.getInstance(context)
-        val productionDao = JarvisTaskDatabase.getInstance(context).taskDao()
+        val productionRepository = JarvisTaskRepository.getInstanceOnIo(context)
+        val productionDao = withContext(Dispatchers.IO) { JarvisTaskDatabase.getInstance(context).taskDao() }
         val requestKey = "video-e2e-" + UUID.randomUUID().toString()
         val artifactKey = VideoTaskArtifactKey.from(requestKey)
         var taskId: String? = null
