@@ -13,6 +13,7 @@ import com.openjarvis.commands.ContactChoicePaging
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -20,6 +21,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.runBlocking
 import com.openjarvis.deviceactions.sms.ConfirmedSmsDispatcher
 import com.openjarvis.deviceactions.sms.SmsConfirmationGate
@@ -79,11 +81,25 @@ class AndroidContactsResolverProviderInstrumentedTest {
     }
 
     @Test
-    fun contactLookupRunnerQueriesProviderOffMainLooper() = runBlocking {
+    fun contactLookupRunnerInvokesContentResolverOffMainThreadWhenCalledFromMain() {
         FakeContactsProvider.rows = listOf(FakePhoneRow(7L, "İpek Yılmaz", "+90 532 111 22 33", "Cep"))
-        val result = ContactLookupRunner(resolver()).resolve("İpek Yılmaz")
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val mainThread = AtomicReference<Thread>()
+        val queryThread = AtomicReference<Thread>()
+        var result: ContactLookupResult? = null
+
+        instrumentation.runOnMainSync {
+            mainThread.set(Thread.currentThread())
+            runBlocking {
+                result = ContactLookupRunner(
+                    resolver(queryThreadObserver = { queryThread.set(it) })
+                ).resolve("İpek Yılmaz")
+            }
+        }
+
         assertTrue(result is ContactLookupResult.Unique)
-        assertTrue("ContactsContract provider queries must not run on the Android main looper.", FakeContactsProvider.queryLooper !== Looper.getMainLooper())
+        assertNotSame("Contacts lookup must leave the actual Android main thread.", mainThread.get(), queryThread.get())
+        assertTrue("The query-boundary thread must be captured.", queryThread.get() != null)
     }
 
     @Test
@@ -192,11 +208,15 @@ class AndroidContactsResolverProviderInstrumentedTest {
         assertTrue(resolver().resolve("İpek") is ContactLookupResult.Unavailable)
     }
 
-    private fun resolver(permissionGranted: Boolean = true): AndroidContactsResolver =
+    private fun resolver(
+        permissionGranted: Boolean = true,
+        queryThreadObserver: ((Thread) -> Unit)? = null
+    ): AndroidContactsResolver =
         AndroidContactsResolver(
             context = context,
             contentResolver = contentResolver,
-            hasReadContactsPermission = { permissionGranted }
+            hasReadContactsPermission = { permissionGranted },
+            queryThreadObserver = queryThreadObserver
         )
 
     data class FakePhoneRow(

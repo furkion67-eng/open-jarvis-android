@@ -13,7 +13,9 @@ class AndroidContactsResolver(
     hasReadContactsPermission: () -> Boolean = {
         context.applicationContext.checkSelfPermission(Manifest.permission.READ_CONTACTS) ==
             PackageManager.PERMISSION_GRANTED
-    }
+    },
+    /** Test seam records the caller at the ContentResolver boundary, before Binder dispatch. */
+    private val queryThreadObserver: ((Thread) -> Unit)? = null
 ) {
     private val appContext = context.applicationContext
     private val useCase = ContactLookupUseCase(
@@ -32,6 +34,8 @@ class AndroidContactsResolver(
             Phone.LABEL
         )
         val rows = mutableListOf<ContactPhoneRecord>()
+        // Observe the actual caller thread before ContentResolver can cross into provider Binder code.
+        queryThreadObserver?.invoke(Thread.currentThread())
         contentResolver.query(
             Phone.CONTENT_URI,
             projection,
