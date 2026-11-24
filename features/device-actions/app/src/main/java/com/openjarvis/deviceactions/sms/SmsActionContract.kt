@@ -7,6 +7,19 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/**
+ * Runs suspend journal work without translating coroutine cancellation into an ordinary
+ * transport or persistence result. Callers may classify only operational exceptions.
+ */
+internal suspend fun <T> runSmsJournalOperation(operation: suspend () -> T): Result<T> =
+    try {
+        Result.success(operation())
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
+
 internal data class SmsReview(
     val reviewId: String,
     val recipientName: String,

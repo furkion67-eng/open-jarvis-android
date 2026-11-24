@@ -346,6 +346,26 @@ class SmsActionContractTest {
     }
 
     @Test
+    fun suspendJournalOperationRethrowsCancellationInsteadOfReturningFailure() = runBlocking {
+        val cancellation = CancellationException("journal operation cancelled")
+
+        val thrown = runCatching {
+            runSmsJournalOperation<Int> { throw cancellation }
+        }.exceptionOrNull()
+
+        assertSame(cancellation, thrown)
+    }
+
+    @Test
+    fun suspendJournalOperationReturnsOrdinaryFailureForSafeClassification() = runBlocking {
+        val failure = IllegalStateException("journal unavailable")
+
+        val result = runSmsJournalOperation<Int> { throw failure }
+
+        assertSame(failure, result.exceptionOrNull())
+    }
+
+    @Test
     fun cancellingPreparedReviewPreventsLaterConfirmation() {
         val gate = SmsConfirmationGate()
         val review = gate.prepare("İpek Yılmaz", "+905321112233", "Gönderilmemeli")
