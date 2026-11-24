@@ -11,7 +11,9 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import androidx.test.platform.app.InstrumentationRegistry
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.runBlocking
 
 @RunWith(AndroidJUnit4::class)
@@ -32,31 +34,38 @@ class SmsConfirmationInstrumentedTest {
 
 
     @Test
-    fun confirmedDispatchEntersFakeTransportOffMainLooper() = runBlocking {
-        val mainLooper = Looper.getMainLooper()
-        var transportLooper: Looper? = mainLooper
-        var outcome: SmsSendOutcome? = null
+    fun confirmedDispatchEntersFakeTransportOffMainThreadWhenCalledFromMain() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val mainThread = AtomicReference<Thread>()
+        val transportThread = AtomicReference<Thread>()
+        val outcome = AtomicReference<SmsSendOutcome?>()
         val gate = SmsConfirmationGate()
         val dispatcher = ConfirmedSmsDispatcher(
             permission = SmsPermission { true },
             gate = gate,
             transport = SmsTransport { _, callback ->
-                transportLooper = Looper.myLooper()
+                transportThread.set(Thread.currentThread())
                 callback(SmsSendOutcome.Sent)
             }
         )
         val review = gate.prepare("Test Contact", "+905551112233", "No real SMS")
         val confirmation = gate.confirm(review.reviewId)!!
 
-        SmsDispatchIoRunner().dispatch(dispatcher, confirmation) { outcome = it }
+        instrumentation.runOnMainSync {
+            mainThread.set(Thread.currentThread())
+            runBlocking {
+                SmsDispatchIoRunner().dispatch(dispatcher, confirmation) { outcome.set(it) }
+            }
+        }
 
-        assertNotSame(mainLooper, transportLooper)
-        assertSame(SmsSendOutcome.Sent, outcome)
+        assertNotSame("The fake transport must not run on the Android main thread.", mainThread.get(), transportThread.get())
+        assertSame(SmsSendOutcome.Sent, outcome.get())
     }
 
     @Test
-    fun journalAndMultipartCallbackPersistenceRunOffMainLooper() = runBlocking {
-        val mainLooper = Looper.getMainLooper()
+    fun journalAndMultipartCallbackPersistenceRunOffMainThreadWhenStartedFromMain() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val mainThread = AtomicReference<Thread>()
         val store = LooperRecordingSmsAttemptStore()
         val journal = SmsAttemptJournal(store)
         val journalIo = SmsAttemptJournalIo(journal)
@@ -64,26 +73,32 @@ class SmsConfirmationInstrumentedTest {
             SmsPlatformCallbackRecorder("io-multipart", journal, Activity.RESULT_OK)
         )
 
-        journalIo.begin("io-multipart", 2)
-        assertEquals(SmsSendState.PENDING, recorderIo.record(0, Activity.RESULT_OK))
-        assertEquals(SmsSendState.SENT, recorderIo.record(1, Activity.RESULT_OK))
+        instrumentation.runOnMainSync {
+            mainThread.set(Thread.currentThread())
+            runBlocking {
+                journalIo.begin("io-multipart", 2)
+                assertEquals(SmsSendState.PENDING, recorderIo.record(0, Activity.RESULT_OK))
+                assertEquals(SmsSendState.SENT, recorderIo.record(1, Activity.RESULT_OK))
+            }
+        }
 
         assertEquals(SmsSendState.SENT, store.get("io-multipart")?.state)
-        assertTrue(store.writeLoopers.size >= 3)
-        assertTrue(store.writeLoopers.none { it === mainLooper })
+        assertTrue(store.writeThreads.size >= 3)
+        assertTrue("Every durable journal write must leave the actual Android main thread.",
+            store.writeThreads.none { it === mainThread.get() })
     }
 
     private class LooperRecordingSmsAttemptStore : SmsAttemptStore {
         private val records = ConcurrentHashMap<String, SmsAttemptRecord>()
-        val writeLoopers = java.util.Collections.synchronizedList(mutableListOf<Looper?>())
+        val writeThreads = java.util.Collections.synchronizedList(mutableListOf<Thread>())
         override fun all(): List<SmsAttemptRecord> = records.values.toList()
         override fun get(requestId: String): SmsAttemptRecord? = records[requestId]
         override fun put(record: SmsAttemptRecord) {
-            writeLoopers += Looper.myLooper()
+            writeThreads += Thread.currentThread()
             records[record.requestId] = record
         }
         override fun remove(requestId: String) {
-            writeLoopers += Looper.myLooper()
+            writeThreads += Thread.currentThread()
             records.remove(requestId)
         }
     }
