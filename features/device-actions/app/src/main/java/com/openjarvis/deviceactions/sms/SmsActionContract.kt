@@ -2,9 +2,23 @@ package com.openjarvis.deviceactions.sms
 
 import java.util.UUID
 import com.openjarvis.tasks.DeviceActionOutcomeCode
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+/**
+ * Runs suspend journal work without translating coroutine cancellation into an ordinary
+ * transport or persistence result. Callers may classify only operational exceptions.
+ */
+internal suspend fun <T> runSmsJournalOperation(operation: suspend () -> T): Result<T> =
+    try {
+        Result.success(operation())
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
 
 internal data class SmsReview(
     val reviewId: String,
@@ -277,6 +291,21 @@ internal class ConfirmedSmsDispatcher(
     }
 }
 
+/**
+ * Recovery failures block a new send, while coroutine cancellation remains cancellation and
+ * must propagate to the owning scope instead of being reported as an ordinary transport error.
+ */
+internal suspend fun recoverPendingSmsAttemptsOrReport(
+    dispatcher: ConfirmedSmsDispatcher,
+    onFailure: (Exception) -> Unit
+): Int? = try {
+    dispatcher.recoverPendingAttempts()
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (error: Exception) {
+    onFailure(error)
+    null
+}
 
 internal class SmsDispatchIoRunner(private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO) {
     suspend fun recoverPendingAttempts(dispatcher: ConfirmedSmsDispatcher): Int = withContext(ioDispatcher) { dispatcher.recoverPendingAttempts() }
