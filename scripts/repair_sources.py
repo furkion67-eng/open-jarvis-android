@@ -245,9 +245,11 @@ def _apply_feature_host_patches(project_root: Path, features_root: Path):
     candidates = sorted(patch_root.rglob("*"), key=lambda item: item.as_posix())
     patch_files = []
     for candidate in candidates:
+        if candidate.is_symlink():
+            raise SystemExit("Symlink in Feature host patch directory is not allowed: " + str(candidate))
         if candidate.is_dir():
             continue
-        if candidate.is_symlink() or not candidate.is_file() or candidate.suffix != ".patch":
+        if not candidate.is_file() or candidate.suffix != ".patch":
             raise SystemExit("Unsupported file in Feature host patch directory: " + str(candidate))
         patch_files.append(candidate)
 
