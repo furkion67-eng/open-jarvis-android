@@ -849,11 +849,11 @@ object Wikimedia1453AssetCatalog {
             attributionText = "Isabeau, “Golden Horn Wall” (2018), Wikimedia Commons; CC BY-SA 4.0. 9:16 kadraj için kırpıldı; bu görselin uyarlaması CC BY-SA 4.0 ile paylaşılmalıdır. Kaynak: https://commons.wikimedia.org/w/index.php?title=File:Golden_Horn_Wall.jpg&oldid=1237207514 Lisans: https://creativecommons.org/licenses/by-sa/4.0/",
             expectedMimeType = "image/jpeg",
             shareAlikeRequired = true,
-            requiredOutputLicense = "CC BY-SA 4.0"
-        ),
+            requiredOutputLicense = "CC BY-SA 4.0",
             expectedUploadSha1 = "a4840825d4178818dcf4ac5d0b378198f83c48e7",
             pinnedPageRevisionTimestamp = "2026-06-23T23:09:02Z",
             uploadTimestamp = "2025-09-17T14:17:45Z"
+        )
     )
 
     private val byId = assets.associateBy { it.assetId }
@@ -953,11 +953,11 @@ object WikimediaSinanAssetCatalog {
             expectedMimeType = "image/jpeg",
             maxBytes = 4_400_000L,
             shareAlikeRequired = true,
-            requiredOutputLicense = "CC BY-SA 4.0"
-        ),
+            requiredOutputLicense = "CC BY-SA 4.0",
             expectedUploadSha1 = "bda6a4f3949a3c4a2daf731c101a0cd02c4e5927",
             pinnedPageRevisionTimestamp = "2026-10-19T21:13:14Z",
             uploadTimestamp = "2018-04-26T10:35:21Z"
+        )
     )
 
     private val byId = assets.associateBy { it.assetId }
