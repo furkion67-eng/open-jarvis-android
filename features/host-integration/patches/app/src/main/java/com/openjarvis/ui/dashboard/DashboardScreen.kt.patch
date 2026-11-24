@@ -1,7 +1,7 @@
 diff --git a/app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt b/app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt
 --- a/app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt
 +++ b/app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt
-@@
+@@ -1,9 +1,22 @@
              // JARVIS_DEVICE_FEATURE_PANELS
              Spacer(modifier = Modifier.height(16.dp))
              VideoArtifactPlayerPanel(modifier = Modifier.fillMaxWidth())
