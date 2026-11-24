@@ -768,33 +768,39 @@ object Wikimedia1453AssetCatalog {
             assetId = "commons-constantinople-1453-miniature",
             sceneId = "1453-hook-siege",
             title = "Fall of Constantinople, c. 1455–1500",
-            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/f/fa/Constantinople_1453.jpg?utm_campaign=index&utm_content=original&utm_source=commons.wikimedia.org",
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/f/fa/Constantinople_1453.jpg",
             sourceUrl = "https://commons.wikimedia.org/w/index.php?title=File:Constantinople_1453.jpg&oldid=1222147207",
             creator = "Jean Le Tavernier",
             licenseId = "Public Domain Mark",
             licenseVersion = "1.0",
             licenseUrl = PDM_URL,
             attributionText = "Jean Le Tavernier, “Fall of Constantinople” (c. 1455–1500), Gallica/BnF via Wikimedia Commons; Public Domain Mark 1.0. 9:16 kadraj için kırpıldı. Kaynak: https://commons.wikimedia.org/w/index.php?title=File:Constantinople_1453.jpg&oldid=1222147207 Lisans: https://creativecommons.org/publicdomain/mark/1.0/",
-            expectedMimeType = "image/jpeg"
+            expectedMimeType = "image/jpeg",
+            expectedUploadSha1 = "28aec6604eb74d307dfdf4d530c2382212e09bbd",
+            pinnedPageRevisionTimestamp = "2026-05-29T09:10:49Z",
+            uploadTimestamp = "2023-01-26T14:24:28Z"
         ),
         VideoVisualAssetDescriptor(
             assetId = "commons-mehmed-ii-portrait",
             sceneId = "1453-mehmed",
             title = "The Sultan Mehmet II, Gentile Bellini",
-            downloadUrl = "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/6e/Bellini%2C_Gentile_-_Sultan_Mehmet_II.jpg/960px-Bellini%2C_Gentile_-_Sultan_Mehmet_II.jpg?utm_campaign=index&utm_content=thumbnail&utm_source=commons.wikimedia.org",
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/6/6e/Bellini%2C_Gentile_-_Sultan_Mehmet_II.jpg",
             sourceUrl = "https://commons.wikimedia.org/w/index.php?title=File:Bellini,_Gentile_-_Sultan_Mehmet_II.jpg&oldid=1284749530",
             creator = "Gentile Bellini",
             licenseId = "Public Domain Mark",
             licenseVersion = "1.0",
             licenseUrl = PDM_URL,
             attributionText = "Gentile Bellini, “The Sultan Mehmet II” (c. 1480), Wikimedia Commons; Public Domain Mark 1.0. 9:16 kadraj için kırpıldı. Kaynak: https://commons.wikimedia.org/w/index.php?title=File:Bellini,_Gentile_-_Sultan_Mehmet_II.jpg&oldid=1284749530 Lisans: https://creativecommons.org/publicdomain/mark/1.0/",
-            expectedMimeType = "image/jpeg"
+            expectedMimeType = "image/jpeg",
+            expectedUploadSha1 = "6ce889b4d2b97ff7fffdcafea463e2e49254f1b8",
+            pinnedPageRevisionTimestamp = "2026-10-08T21:43:09Z",
+            uploadTimestamp = "2024-04-28T10:57:43Z"
         ),
         VideoVisualAssetDescriptor(
             assetId = "commons-rumeli-hisari-2025",
             sceneId = "1453-rumeli",
             title = "Rumeli Hisarı Fortress in 2025",
-            downloadUrl = "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/49/Rumeli_Hisar%C4%B1_Fortress_in_2025.jpg/1280px-Rumeli_Hisar%C4%B1_Fortress_in_2025.jpg?utm_campaign=index&utm_content=thumbnail&utm_source=commons.wikimedia.org",
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/4/49/Rumeli_Hisar%C4%B1_Fortress_in_2025.jpg",
             sourceUrl = "https://commons.wikimedia.org/w/index.php?title=File:Rumeli_Hisar%C4%B1_Fortress_in_2025.jpg&oldid=1118525609",
             creator = "mike",
             licenseId = "CC BY-SA",
@@ -803,13 +809,17 @@ object Wikimedia1453AssetCatalog {
             attributionText = "mike, “Rumeli Hisarı Fortress in 2025” (2025), Wikimedia Commons; CC BY-SA 4.0. 9:16 kadraj için kırpıldı; bu görselin uyarlaması CC BY-SA 4.0 ile paylaşılmalıdır. Kaynak: https://commons.wikimedia.org/w/index.php?title=File:Rumeli_Hisar%C4%B1_Fortress_in_2025.jpg&oldid=1118525609 Lisans: https://creativecommons.org/licenses/by-sa/4.0/",
             expectedMimeType = "image/jpeg",
             shareAlikeRequired = true,
-            requiredOutputLicense = "CC BY-SA 4.0"
+            requiredOutputLicense = "CC BY-SA 4.0",
+            maxBytes = 4_900_000L,
+            expectedUploadSha1 = "74395103cd95488caae9454fac23aa2dad9890ef",
+            pinnedPageRevisionTimestamp = "2025-11-19T18:56:30Z",
+            uploadTimestamp = "2025-09-07T14:33:08Z"
         ),
         VideoVisualAssetDescriptor(
             assetId = "commons-1453-siege-map-en",
             sceneId = "1453-halic-map",
             title = "Siege of Constantinople 1453 map-en",
-            downloadUrl = "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a6/Siege_of_Constantinople_1453_map-en.svg/1280px-Siege_of_Constantinople_1453_map-en.svg.png?utm_campaign=index&utm_content=thumbnail&utm_source=commons.wikimedia.org",
+            downloadUrl = "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a6/Siege_of_Constantinople_1453_map-en.svg/1280px-Siege_of_Constantinople_1453_map-en.svg.png",
             sourceUrl = "https://commons.wikimedia.org/w/index.php?title=File:Siege_of_Constantinople_1453_map-en.svg&oldid=1287462680",
             creator = "Sémhur",
             licenseId = "CC BY-SA",
@@ -818,13 +828,19 @@ object Wikimedia1453AssetCatalog {
             attributionText = "Sémhur, “Siege of Constantinople 1453 map-en” (2020), Wikimedia Commons; CC BY-SA 4.0. PNG küçük resmi kullanıldı ve 9:16 kadraj için kırpıldı; bu görselin uyarlaması CC BY-SA 4.0 ile paylaşılmalıdır. Kaynak: https://commons.wikimedia.org/w/index.php?title=File:Siege_of_Constantinople_1453_map-en.svg&oldid=1287462680 Lisans: https://creativecommons.org/licenses/by-sa/4.0/",
             expectedMimeType = "image/png",
             shareAlikeRequired = true,
-            requiredOutputLicense = "CC BY-SA 4.0"
+            requiredOutputLicense = "CC BY-SA 4.0",
+            sourceVerificationUrl = "https://upload.wikimedia.org/wikipedia/commons/a/a6/Siege_of_Constantinople_1453_map-en.svg",
+            sourceVerificationMimeType = "image/svg+xml",
+            sourceVerificationMaxBytes = 300_000L,
+            expectedUploadSha1 = "b5482a15226ada4bdd07780518c13aef2f45c19b",
+            pinnedPageRevisionTimestamp = "2026-10-15T10:24:34Z",
+            uploadTimestamp = "2024-09-18T07:11:01Z"
         ),
         VideoVisualAssetDescriptor(
             assetId = "commons-golden-horn-wall",
             sceneId = "1453-walls",
             title = "Golden Horn Wall",
-            downloadUrl = "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/54/Golden_Horn_Wall.jpg/1280px-Golden_Horn_Wall.jpg?utm_campaign=index&utm_content=thumbnail&utm_source=commons.wikimedia.org",
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/5/54/Golden_Horn_Wall.jpg",
             sourceUrl = "https://commons.wikimedia.org/w/index.php?title=File:Golden_Horn_Wall.jpg&oldid=1237207514",
             creator = "Isabeau",
             licenseId = "CC BY-SA",
@@ -834,7 +850,10 @@ object Wikimedia1453AssetCatalog {
             expectedMimeType = "image/jpeg",
             shareAlikeRequired = true,
             requiredOutputLicense = "CC BY-SA 4.0"
-        )
+        ),
+            expectedUploadSha1 = "a4840825d4178818dcf4ac5d0b378198f83c48e7",
+            pinnedPageRevisionTimestamp = "2026-06-23T23:09:02Z",
+            uploadTimestamp = "2025-09-17T14:17:45Z"
     )
 
     private val byId = assets.associateBy { it.assetId }
@@ -859,7 +878,10 @@ object WikimediaSinanAssetCatalog {
             attributionText = "R Prazeres, Sehzade Mosque minarets; CC BY-SA 4.0. 9:16 kadraj için kırpıldı; uyarlama CC BY-SA 4.0 ile paylaşılmalıdır. Kaynak: https://commons.wikimedia.org/w/index.php?title=File:Sehzade_Mosque_DSCF3265.jpg&oldid=1207014206 Lisans: https://creativecommons.org/licenses/by-sa/4.0/",
             expectedMimeType = "image/jpeg",
             shareAlikeRequired = true,
-            requiredOutputLicense = "CC BY-SA 4.0"
+            requiredOutputLicense = "CC BY-SA 4.0",
+            expectedUploadSha1 = "e516513bd9eb1ba9e46878751476984b5895e331",
+            pinnedPageRevisionTimestamp = "2026-05-02T09:49:35Z",
+            uploadTimestamp = "2022-09-27T06:03:19Z"
         ),
         VideoVisualAssetDescriptor(
             assetId = "commons-sinan-suleymaniye-exterior",
@@ -875,7 +897,10 @@ object WikimediaSinanAssetCatalog {
             expectedMimeType = "image/jpeg",
             maxBytes = 4_400_000L,
             shareAlikeRequired = true,
-            requiredOutputLicense = "CC BY-SA 4.0"
+            requiredOutputLicense = "CC BY-SA 4.0",
+            expectedUploadSha1 = "95c5931aca24a2fde8d24ab046a85a920b567c70",
+            pinnedPageRevisionTimestamp = "2025-06-28T07:46:53Z",
+            uploadTimestamp = "2015-05-22T13:14:32Z"
         ),
         VideoVisualAssetDescriptor(
             assetId = "commons-sinan-selimiye-monument",
@@ -891,7 +916,10 @@ object WikimediaSinanAssetCatalog {
             expectedMimeType = "image/jpeg",
             maxBytes = 4_400_000L,
             shareAlikeRequired = true,
-            requiredOutputLicense = "CC BY-SA 4.0"
+            requiredOutputLicense = "CC BY-SA 4.0",
+            expectedUploadSha1 = "ab5c598321266333cdaa20e00cd8c00529ca3e3e",
+            pinnedPageRevisionTimestamp = "2026-01-01T15:10:05Z",
+            uploadTimestamp = "2025-06-09T11:20:26Z"
         ),
         VideoVisualAssetDescriptor(
             assetId = "commons-sinan-sculpture",
@@ -906,7 +934,10 @@ object WikimediaSinanAssetCatalog {
             attributionText = "Yahia, Koca Mimar Sinan sculpture; CC BY-SA 4.0. Heykel fotoğrafı 9:16 kadraj için kırpıldı; uyarlama CC BY-SA 4.0 ile paylaşılmalıdır. Kaynak: https://commons.wikimedia.org/w/index.php?title=File:Koca_Mimar_Sinan.jpg&oldid=1181793138 Lisans: https://creativecommons.org/licenses/by-sa/4.0/",
             expectedMimeType = "image/jpeg",
             shareAlikeRequired = true,
-            requiredOutputLicense = "CC BY-SA 4.0"
+            requiredOutputLicense = "CC BY-SA 4.0",
+            expectedUploadSha1 = "019896c72049ccf8f7f37d9f0514a71be541285c",
+            pinnedPageRevisionTimestamp = "2026-03-15T22:40:24Z",
+            uploadTimestamp = "2025-06-13T07:31:20Z"
         ),
         VideoVisualAssetDescriptor(
             assetId = "commons-sinan-tomb",
@@ -923,7 +954,10 @@ object WikimediaSinanAssetCatalog {
             maxBytes = 4_400_000L,
             shareAlikeRequired = true,
             requiredOutputLicense = "CC BY-SA 4.0"
-        )
+        ),
+            expectedUploadSha1 = "bda6a4f3949a3c4a2daf731c101a0cd02c4e5927",
+            pinnedPageRevisionTimestamp = "2026-10-19T21:13:14Z",
+            uploadTimestamp = "2018-04-26T10:35:21Z"
     )
 
     private val byId = assets.associateBy { it.assetId }
