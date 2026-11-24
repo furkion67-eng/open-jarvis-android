@@ -107,8 +107,12 @@ def _feature_host_patch_target(payload: bytes) -> str:
     path = Path(new_path)
     if path.is_absolute() or ".." in path.parts or "\\" in new_path:
         raise SystemExit("Feature host patch contains an unsafe target path")
-    if not new_path.startswith("app/src/main/"):
-        raise SystemExit("Feature host patch target is outside the approved host app source scope")
+    allowed_targets = {
+        "app/src/main/java/com/openjarvis/ui/MainActivity.kt",
+        "app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt",
+    }
+    if new_path not in allowed_targets:
+        raise SystemExit("Feature host patch target is not one of the two reviewed host integration files")
     return new_path
 
 
@@ -161,21 +165,38 @@ def _count_exact_sequence(lines, expected):
     )
 
 
+def _path_without_symlink_components(path: Path, label: str) -> Path:
+    """Return an absolute lexical path only when no component is a symlink."""
+    absolute = path.absolute()
+    for component in reversed([*absolute.parents, absolute]):
+        if component.is_symlink():
+            raise SystemExit(label + " contains a symlink path component: " + str(component))
+    return absolute
+
+
 def _apply_feature_host_patch(project_root: Path, patch_file: Path):
-    if patch_file.is_symlink() or not patch_file.is_file() or patch_file.suffix != ".patch":
+    patch_file = _path_without_symlink_components(patch_file, "Feature host patch template")
+    if not patch_file.is_file() or patch_file.suffix != ".patch":
         raise SystemExit("Feature host patch template is not a regular .patch file: " + str(patch_file))
     payload = patch_file.read_bytes()
     if not payload:
         raise SystemExit("Feature host patch template is empty: " + str(patch_file))
 
+    project_root = _path_without_symlink_components(project_root, "Extracted host project root")
+    if not project_root.is_dir():
+        raise SystemExit("Extracted host project root is not a regular directory: " + str(project_root))
     target_relative = _feature_host_patch_target(payload)
-    target = project_root / target_relative
+    target = _path_without_symlink_components(project_root / target_relative, "Feature host patch target")
+    if not target.is_file():
+        raise SystemExit("Feature host patch target is missing or is not a regular file: " + target_relative)
     try:
-        target.resolve().relative_to(project_root.resolve())
-    except ValueError:
-        raise SystemExit("Feature host patch target escapes the extracted project root")
-    if target.is_symlink() or not target.is_file():
-        raise SystemExit("Feature host patch target is missing or is a symlink: " + target_relative)
+        resolved_root = project_root.resolve(strict=True)
+        resolved_target = target.resolve(strict=True)
+        resolved_target.relative_to(resolved_root)
+    except (ValueError, OSError):
+        raise SystemExit("Feature host patch target escapes the extracted project root or is missing")
+    if resolved_target != target:
+        raise SystemExit("Feature host patch target resolves through a symlink: " + target_relative)
 
     old_lines, new_lines = _feature_host_patch_hunk_lines(payload)
     current_text = target.read_text(encoding="utf-8")
