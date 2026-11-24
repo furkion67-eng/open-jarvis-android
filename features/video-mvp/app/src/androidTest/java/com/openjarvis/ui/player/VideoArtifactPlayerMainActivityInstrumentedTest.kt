@@ -3,6 +3,7 @@ package com.openjarvis.ui.player
 import android.app.Activity
 import android.app.Application
 import android.app.Instrumentation
+import android.graphics.Rect
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Bundle
@@ -28,8 +29,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
@@ -115,8 +118,14 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
                 launchStartedAt = launchStartedAt,
                 timeoutMs = DASHBOARD_READY_BUDGET_MS
             )
+            // awaitDashboardReady traverses the Dashboard to find the archive milestone.
+            // Reset every scrollable container before creating/locating the new archive row.
+            scrollToDashboardTop(instrumentation)
             assertTrue("The Dashboard must become usable within 20 seconds.", dashboardReadyMs <= DASHBOARD_READY_BUDGET_MS)
-            assertTrue("The real MainActivity must own window focus after Dashboard readiness.", activity!!.window.decorView.hasWindowFocus())
+            assertTrue(
+                "The real MainActivity must own window focus after Dashboard readiness.",
+                hasWindowFocusOnMain(instrumentation, activity!!)
+            )
             Log.i(
                 ACCEPTANCE_TAG,
                 "first_observed_draw_ms=$firstFrameMs dashboard_ready_ms=$dashboardReadyMs budget_ms=$DASHBOARD_READY_BUDGET_MS"
@@ -138,7 +147,11 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
             assertTrue(preview.videoUri.isNullOrBlank())
             assertTrue(preview.captionsUri.isNullOrBlank())
 
-            repository.acceptPlan(createdTaskId)
+            // The production renderer performs network-backed asset retrieval and Turkish TTS.
+            // Bound the real executor so an unavailable provider cannot hang instrumentation.
+            withTimeout(PRODUCTION_RENDER_TIMEOUT_MS) {
+                repository.acceptPlan(createdTaskId)
+            }
 
             val completed = withContext(Dispatchers.IO) { database.taskDao().findById(createdTaskId) }
                 ?: throw AssertionError("The accepted video task must remain in Room.")
@@ -146,10 +159,13 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
             assertTrue(completed.planAcceptedAt != null)
             assertTrue(completed.videoUri.orEmpty().startsWith("content://"))
             assertTrue(completed.captionsUri.orEmpty().startsWith("content://"))
-            assertTrue(completed.videoArtifactMetadataJson.isNotBlank())
+            val metadataJson = requireNotNull(completed.videoArtifactMetadataJson) {
+                "A SUCCEEDED video task must persist typed artifact metadata."
+            }
+            assertTrue("Persisted video artifact metadata must not be blank.", metadataJson.isNotBlank())
             videoUri = completed.videoUri
             captionsUri = completed.captionsUri
-            val metadata = VideoArtifactMetadataCodec.decode(completed.videoArtifactMetadataJson)
+            val metadata = VideoArtifactMetadataCodec.decode(metadataJson)
             assertNotNull("Typed renderer metadata must be persisted with the task.", metadata)
             assertTrue(requireNotNull(metadata).isValid())
             assertTrue(requireNotNull(metadata).attributionManifestComplete)
@@ -159,9 +175,10 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
             assertEquals(3, JSONArray(completed.artifactRefs).length())
             val goal = completed.goal
 
-            awaitAccessibleTextAndClick(
+            scrollToDashboardTop(instrumentation)
+            awaitArchiveRowAndClick(
                 instrumentation = instrumentation,
-                text = goal,
+                taskGoal = goal,
                 timeoutMs = 30_000L
             )
             awaitVideoView(activity!!, requireNotNull(videoUri), timeoutMs = 30_000L)
@@ -193,7 +210,7 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
             monitor?.let { instrumentation.removeMonitor(it) }
             firstDrawCallbacks?.let(application::unregisterActivityLifecycleCallbacks)
 
-            withContext(Dispatchers.IO) {
+            withContext(NonCancellable + Dispatchers.IO) {
                 JarvisTaskDatabase.closeInstanceForTesting()
                 val cleanupDatabase = JarvisTaskDatabase.getInstance(context)
                 taskId?.let { cleanupDatabase.taskDao().deleteById(it) }
@@ -205,6 +222,14 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
                 }
             }
         }
+    }
+
+    private fun hasWindowFocusOnMain(instrumentation: Instrumentation, activity: Activity): Boolean {
+        var hasFocus = false
+        instrumentation.runOnMainSync {
+            hasFocus = !activity.isFinishing && activity.window.decorView.hasWindowFocus()
+        }
+        return hasFocus
     }
 
     private fun awaitDashboardReady(
@@ -225,15 +250,88 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
             required.forEach { text ->
                 if (containsVisibleText(root, text)) found += text
             }
-            if (found.containsAll(required) && activity.window.decorView.hasWindowFocus()) {
-                return SystemClock.elapsedRealtime() - launchStartedAt
+            if (found.containsAll(required)) {
+                if (hasWindowFocusOnMain(instrumentation, activity)) {
+                    return SystemClock.elapsedRealtime() - launchStartedAt
+                }
+                // All Dashboard milestones have been seen; wait for focus without scrolling
+                // past the archive section and making later row selection nondeterministic.
+                SystemClock.sleep(100)
+            } else {
+                scrollForward(root)
+                SystemClock.sleep(100)
+            }
+        }
+        throw AssertionError(
+            "Real Dashboard was not ready within ${timeoutMs} ms. Visible milestones: " +
+                found.joinToString(", ") + "; required: " + required.joinToString(", ")
+        )
+    }
+
+    private fun scrollToDashboardTop(instrumentation: Instrumentation) {
+        val deadline = SystemClock.elapsedRealtime() + SCROLL_RESET_BUDGET_MS
+        var actions = 0
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val root = instrumentation.uiAutomation.rootInActiveWindow
+            if (root == null) {
+                SystemClock.sleep(50)
+                continue
+            }
+            if (!scrollBackward(root)) return
+            actions++
+            if (actions >= MAX_SCROLL_RESET_ACTIONS) {
+                throw AssertionError("Dashboard scroll reset exceeded $MAX_SCROLL_RESET_ACTIONS bounded actions.")
+            }
+            SystemClock.sleep(50)
+        }
+        throw AssertionError("Dashboard scroll position could not be restored to the top within the bounded reset budget.")
+    }
+
+    private fun scrollBackward(root: AccessibilityNodeInfo?): Boolean {
+        if (root == null) return false
+        if (root.isScrollable && root.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) return true
+        for (index in 0 until root.childCount) {
+            if (scrollBackward(root.getChild(index))) return true
+        }
+        return false
+    }
+
+    private fun awaitArchiveRowAndClick(
+        instrumentation: Instrumentation,
+        taskGoal: String,
+        timeoutMs: Long
+    ) {
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val root = instrumentation.uiAutomation.rootInActiveWindow
+            val archiveHeader = root?.findAccessibilityNodeInfosByText("JARVIS video arşivi")
+                .orEmpty()
+                .filter { it.isVisibleToUser }
+                .maxByOrNull { node -> Rect().also(node::getBoundsInScreen).bottom }
+            if (root != null && archiveHeader != null) {
+                val headerBounds = Rect().also(archiveHeader::getBoundsInScreen)
+                val archiveRows = root.findAccessibilityNodeInfosByText(taskGoal)
+                    .orEmpty()
+                    .filter { node ->
+                        if (!node.isVisibleToUser) return@filter false
+                        val bounds = Rect().also(node::getBoundsInScreen)
+                        bounds.top >= headerBounds.bottom
+                    }
+                for (node in archiveRows) {
+                    var clickable: AccessibilityNodeInfo? = node
+                    while (clickable != null && !clickable.isClickable) {
+                        clickable = clickable.parent
+                    }
+                    if (clickable != null && clickable.isEnabled &&
+                        clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    ) return
+                }
             }
             scrollForward(root)
             SystemClock.sleep(100)
         }
         throw AssertionError(
-            "Real Dashboard was not ready within ${timeoutMs} ms. Visible milestones: " +
-                found.joinToString(", ") + "; required: " + required.joinToString(", ")
+            "Could not select the exact task row below the JARVIS video archive heading: $taskGoal"
         )
     }
 
@@ -333,6 +431,9 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
 
     private companion object {
         const val DASHBOARD_READY_BUDGET_MS = 20_000L
+        const val PRODUCTION_RENDER_TIMEOUT_MS = 180_000L
+        const val SCROLL_RESET_BUDGET_MS = 5_000L
+        const val MAX_SCROLL_RESET_ACTIONS = 64
         const val ACCEPTANCE_TAG = "JARVIS_ACCEPTANCE"
     }
 }
