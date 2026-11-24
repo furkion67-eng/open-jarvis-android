@@ -1,0 +1,24 @@
+diff --git a/app/src/main/java/com/openjarvis/ui/MainActivity.kt b/app/src/main/java/com/openjarvis/ui/MainActivity.kt
+--- a/app/src/main/java/com/openjarvis/ui/MainActivity.kt
++++ b/app/src/main/java/com/openjarvis/ui/MainActivity.kt
+@@
+                 if (graphifyRepoResult == null) {
+                     androidx.compose.material3.Surface(modifier = Modifier.fillMaxSize()) {
+-                        androidx.compose.material3.Text(
+-                            text = "Yerel hafıza hazırlanıyor…",
+-                            modifier = Modifier.padding(24.dp)
+-                        )
++                        androidx.compose.foundation.layout.Column(
++                            modifier = Modifier.fillMaxSize().padding(24.dp),
++                            horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
++                            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
++                        ) {
++                            androidx.compose.material3.Text(
++                                text = "JARVIS",
++                                style = androidx.compose.material3.MaterialTheme.typography.headlineMedium
++                            )
++                            androidx.compose.material3.CircularProgressIndicator()
++                            androidx.compose.material3.Text("Yerel hafıza hazırlanıyor…")
++                        }
+                     } 
+                 } else if (graphifyRepoResult.isFailure) {
