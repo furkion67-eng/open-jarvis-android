@@ -645,35 +645,71 @@ class FileVideoVisualAssetCache(
 class WikimediaCommonsVisualAssetDownloader : VideoVisualAssetDownloader {
     override fun download(descriptor: VideoVisualAssetDescriptor): DownloadedVisualAsset {
         VideoAssetLicensePolicy.validate(descriptor)
-        var current = URL(descriptor.downloadUrl)
+        val originalUrl = descriptor.sourceVerificationUrl ?: descriptor.downloadUrl
+        val original = fetch(
+            originalUrl,
+            descriptor.sourceVerificationMimeType,
+            descriptor.sourceVerificationMaxBytes,
+            descriptor,
+            requireOriginal = true
+        )
+        if (sha1(original.bytes) != descriptor.expectedUploadSha1) {
+            throw IOException("Commons özgün yükleme SHA-1 değeri sabit revizyonla eşleşmiyor.")
+        }
+        if (descriptor.sourceVerificationUrl == null) {
+            return DownloadedVisualAsset(original.bytes, original.mimeType, original.finalUrl)
+        }
+        val visual = fetch(
+            descriptor.downloadUrl,
+            descriptor.expectedMimeType,
+            descriptor.maxBytes,
+            descriptor,
+            requireOriginal = false
+        )
+        return DownloadedVisualAsset(
+            bytes = visual.bytes,
+            mimeType = visual.mimeType,
+            finalUrl = visual.finalUrl,
+            sourceVerificationBytes = original.bytes,
+            sourceVerificationMimeType = original.mimeType
+        )
+    }
+
+    private data class FetchedFile(val bytes: ByteArray, val mimeType: String, val finalUrl: String)
+
+    private fun fetch(
+        initialUrl: String,
+        expectedMimeType: String,
+        maxBytes: Long,
+        descriptor: VideoVisualAssetDescriptor,
+        requireOriginal: Boolean
+    ): FetchedFile {
+        var current = URL(initialUrl)
         repeat(MAX_REDIRECTS + 1) {
-            validateUrl(current, descriptor)
+            validateUrl(current, descriptor, requireOriginal)
             val connection = current.openConnection() as HttpURLConnection
             try {
                 connection.connectTimeout = CONNECT_TIMEOUT_MS
                 connection.readTimeout = READ_TIMEOUT_MS
                 connection.instanceFollowRedirects = false
                 connection.setRequestProperty("User-Agent", USER_AGENT)
-                connection.setRequestProperty("Accept", descriptor.expectedMimeType)
+                connection.setRequestProperty("Accept", expectedMimeType)
                 when (val status = connection.responseCode) {
                     in 300..399 -> {
                         val location = connection.getHeaderField("Location")
                             ?: throw IOException("Wikimedia görsel yönlendirmesi eksik.")
                         current = URL(current, location)
+                        validateUrl(current, descriptor, requireOriginal)
                     }
                     HttpURLConnection.HTTP_OK -> {
-                        val mimeType = connection.contentType
-                            ?.substringBefore(';')
-                            ?.trim()
+                        val mimeType = connection.contentType?.substringBefore(';')?.trim()
                             ?.lowercase(Locale.ROOT)
                             ?: throw IOException("Wikimedia görsel MIME türünü bildirmedi.")
-                        if (mimeType != descriptor.expectedMimeType) {
+                        if (mimeType != expectedMimeType) {
                             throw IOException("Wikimedia beklenmeyen görsel biçimi döndürdü.")
                         }
                         val length = connection.getHeaderFieldLong("Content-Length", -1L)
-                        if (length > descriptor.maxBytes) {
-                            throw IOException("Wikimedia görseli boyut sınırını aşıyor.")
-                        }
+                        if (length > maxBytes) throw IOException("Wikimedia görseli boyut sınırını aşıyor.")
                         val bytes = connection.inputStream.use { input ->
                             val output = ByteArrayOutputStream()
                             val buffer = ByteArray(8_192)
@@ -682,14 +718,12 @@ class WikimediaCommonsVisualAssetDownloader : VideoVisualAssetDownloader {
                                 val count = input.read(buffer)
                                 if (count < 0) break
                                 total += count
-                                if (total > descriptor.maxBytes) {
-                                    throw IOException("Wikimedia görseli boyut sınırını aşıyor.")
-                                }
+                                if (total > maxBytes) throw IOException("Wikimedia görseli boyut sınırını aşıyor.")
                                 output.write(buffer, 0, count)
                             }
                             output.toByteArray()
                         }
-                        return DownloadedVisualAsset(bytes, mimeType, current.toExternalForm())
+                        return FetchedFile(bytes, mimeType, current.toExternalForm())
                     }
                     else -> throw IOException("Wikimedia görseli indirilemedi (HTTP $status).")
                 }
@@ -700,9 +734,19 @@ class WikimediaCommonsVisualAssetDownloader : VideoVisualAssetDownloader {
         throw IOException("Wikimedia görseli için çok fazla yönlendirme yapıldı.")
     }
 
-    private fun validateUrl(url: URL, descriptor: VideoVisualAssetDescriptor) {
-        require(VideoAssetLicensePolicy.isDownloadForPinnedSource(descriptor.sourceUrl, url.toExternalForm())) {
+    private fun validateUrl(url: URL, descriptor: VideoVisualAssetDescriptor, requireOriginal: Boolean) {
+        val value = url.toExternalForm()
+        require(VideoAssetLicensePolicy.isDownloadForPinnedSource(descriptor.sourceUrl, value)) {
             "Wikimedia yönlendirmesi sabitlenmiş dosya adından uzaklaştı."
+        }
+        if (requireOriginal) {
+            require(VideoAssetLicensePolicy.isOriginalDownloadUrl(value)) {
+                "Özgün yükleme doğrulaması küçük resim veya farklı bir host üzerinden yapılamaz."
+            }
+        } else {
+            require(VideoAssetLicensePolicy.isAllowedDownloadUrl(value)) {
+                "Görsel indirme yönlendirmesi izin verilmeyen Wikimedia hostuna geçti."
+            }
         }
     }
 
@@ -886,6 +930,9 @@ object WikimediaSinanAssetCatalog {
 
     fun find(assetId: String): VideoVisualAssetDescriptor? = byId[assetId]
 }
+
+private fun sha1(bytes: ByteArray): String =
+    MessageDigest.getInstance("SHA-1").digest(bytes).toHex()
 
 private fun sha256(value: String): String = sha256(value.toByteArray(Charsets.UTF_8))
 
