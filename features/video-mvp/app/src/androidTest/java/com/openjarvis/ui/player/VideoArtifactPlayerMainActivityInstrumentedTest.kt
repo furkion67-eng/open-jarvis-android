@@ -8,6 +8,7 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.VideoView
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -21,7 +22,6 @@ import com.openjarvis.tasks.VIDEO_TASK_EXECUTION_MODE
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -30,6 +30,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * Product-level player acceptance on the real extracted-host MainActivity.
@@ -60,7 +62,7 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
                 Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
 
-            val firstFrameMs = awaitFirstLaidOutFrame(
+            val firstFrameMs = awaitFirstDrawnFrame(
                 activity = activity!!,
                 launchStartedAt = launchStartedAt,
                 timeoutMs = DASHBOARD_READY_BUDGET_MS
@@ -122,14 +124,12 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
             )
             awaitAccessibleTextAndClick(
                 instrumentation = instrumentation,
-                activity = activity!!,
                 text = goal,
                 timeoutMs = 30_000L
             )
             awaitVideoView(activity!!, requireNotNull(videoUri), timeoutMs = 30_000L)
             awaitAccessibleTextAndClick(
                 instrumentation = instrumentation,
-                activity = activity!!,
                 text = "Oynat",
                 timeoutMs = 30_000L
             )
@@ -234,7 +234,6 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
 
     private fun awaitAccessibleTextAndClick(
         instrumentation: Instrumentation,
-        activity: Activity,
         text: String,
         timeoutMs: Long
     ) {
