@@ -180,7 +180,7 @@ object VideoAssetLicensePolicy {
         if (!expectedSha1.matches(Regex("[a-f0-9]{40}"))) return false
         val pinned = runCatching { Instant.parse(pinnedPageRevisionTimestamp) }.getOrNull() ?: return false
         val uploaded = runCatching { Instant.parse(uploadTimestamp) }.getOrNull() ?: return false
-        return !uploaded.isAfter(pinned)
+        return !uploaded.isAfter(pinned) && !pinned.isAfter(Instant.now())
     }
 
     fun validate(descriptor: VideoVisualAssetDescriptor) {
