@@ -141,6 +141,18 @@ object VideoStoryQualityPolicy {
         }) {
             "Genel dolgu metni kaynaklı hikâyede kullanılamaz."
         }
+        val durationMs = plan.renderSpec.durationSeconds * 1_000L
+        require(plan.captions.isNotEmpty() && plan.captions.all {
+            it.startMs >= 0L && it.endMs > it.startMs &&
+                it.endMs <= durationMs && it.text.isNotBlank()
+        }) {
+            "Altyazı aralıkları pozitif, metinli ve video süresi içinde olmalı."
+        }
+        require(plan.captions.zipWithNext().all { (current, next) ->
+            next.startMs >= current.endMs
+        }) {
+            "Altyazılar zaman sırasına uymalı ve birbiriyle çakışmamalı."
+        }
         require(plan.captions.firstOrNull()?.let {
             it.startMs == 0L && it.text == plan.hookText && it.endMs in 1L..2_000L
         } == true) {
