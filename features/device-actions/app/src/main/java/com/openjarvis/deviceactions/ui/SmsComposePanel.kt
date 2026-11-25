@@ -34,10 +34,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import com.openjarvis.deviceaccess.capabilities.AndroidCapabilityStatusReader
 import com.openjarvis.deviceactions.contacts.AndroidContactsResolver
+import com.openjarvis.deviceactions.contacts.ContactLookupRunner
 import com.openjarvis.deviceactions.contacts.ContactCandidate
 import com.openjarvis.deviceactions.contacts.ContactLookupResult
 import com.openjarvis.deviceactions.contacts.ContactPhoneOption
 import com.openjarvis.deviceactions.sms.SmsConfirmationGate
+import com.openjarvis.deviceactions.sms.SmsDispatchIoRunner
 import com.openjarvis.deviceactions.sms.createAndroidSmsDispatcher
 import com.openjarvis.deviceactions.sms.SmsSendOutcome
 import com.openjarvis.deviceactions.sms.SmsSelectionInvalidationPolicy
@@ -55,8 +57,10 @@ fun SmsComposePanel(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val contacts = remember(context) { AndroidContactsResolver(context) }
+    val contactLookupRunner = remember(contacts) { ContactLookupRunner(contacts) }
     val capabilityStatus = remember(context) { AndroidCapabilityStatusReader(context) }
     val gate = remember { SmsConfirmationGate() }
+    val smsIo = remember { SmsDispatchIoRunner() }
     val dispatcher = remember(context, gate) {
         createAndroidSmsDispatcher(context, gate)
     }
@@ -69,6 +73,7 @@ fun SmsComposePanel(
     var status by remember { mutableStateOf("SMS için önce rehberden bir kişi bul.") }
     var showConfirmation by remember { mutableStateOf(false) }
     var contactPageIndex by remember { mutableStateOf(0) }
+    var resolvingContacts by remember { mutableStateOf(false) }
 
     suspend fun persistSmsOutcome(outcome: SmsSendOutcome) {
         val journalFailed = try {
@@ -92,11 +97,21 @@ fun SmsComposePanel(
     }
 
     LaunchedEffect(dispatcher) {
-        if (dispatcher.recoveredUnknownCount > 0) {
-            status = "Önceki SMS gönderiminin sonucu uygulama yeniden açıldığında doğrulanamadı (UNKNOWN). JARVIS mesajı otomatik tekrar göndermedi."
-            persistSmsOutcome(
-                SmsSendOutcome.Unknown("Önceki süreçte SMS gönderim callback'i alınamadı; otomatik tekrar yapılmadı.")
-            )
+        try {
+            val recoveredUnknownCount = smsIo.recoverPendingAttempts(dispatcher)
+            if (recoveredUnknownCount > 0) {
+                status = "Önceki SMS gönderiminin sonucu uygulama yeniden açıldığında doğrulanamadı (UNKNOWN). JARVIS mesajı otomatik tekrar göndermedi."
+                repeat(recoveredUnknownCount) {
+                    persistSmsOutcome(
+                        SmsSendOutcome.Unknown("Önceki süreçte SMS gönderim callback'i alınamadı; otomatik tekrar yapılmadı.")
+                    )
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            status = "Önceki SMS denemeleri güvenli biçimde kurtarılamadı; gönderim kapalı: " +
+                (error.localizedMessage ?: "kayıt hatası")
         }
     }
 
@@ -116,13 +131,38 @@ fun SmsComposePanel(
         }
     }
 
+    suspend fun lookupContacts(query: String) {
+        if (query.isBlank()) {
+            applyLookup(ContactLookupResult.InvalidQuery)
+            return
+        }
+        resolvingContacts = true
+        status = "Android Rehberi aranıyor…"
+        try {
+            val result = contactLookupRunner.resolve(query)
+            if (nameQuery == query) {
+                applyLookup(result)
+                status = "Rehber araması tamamlandı."
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            if (nameQuery == query) {
+                applyLookup(ContactLookupResult.Unavailable(error.localizedMessage ?: "Android Rehberi okunamadı."))
+                status = "Rehber araması tamamlanamadı."
+            }
+        } finally {
+            resolvingContacts = false
+        }
+    }
+
     val contactsPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         capabilityStatus.recordPermissionRequestResult("contacts", granted)
         if (granted) {
-            applyLookup(contacts.resolve(nameQuery))
-            status = "Rehber izni verildi."
+            val query = nameQuery
+            coroutineScope.launch { lookupContacts(query) }
         } else {
             applyLookup(ContactLookupResult.PermissionDenied)
             status = "Rehber izni verilmedi. Kişi adı okunmadı."
@@ -166,17 +206,18 @@ fun SmsComposePanel(
                 modifier = Modifier.fillMaxWidth()
             )
             Button(
-                enabled = nameQuery.isNotBlank(),
+                enabled = nameQuery.isNotBlank() && !resolvingContacts,
                 onClick = {
                     if (context.checkSelfPermission(Manifest.permission.READ_CONTACTS) ==
                         PackageManager.PERMISSION_GRANTED
                     ) {
-                        applyLookup(contacts.resolve(nameQuery))
+                        val query = nameQuery
+                        coroutineScope.launch { lookupContacts(query) }
                     } else {
                         contactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
                     }
                 }
-            ) { Text("Rehberde ara") }
+            ) { Text(if (resolvingContacts) "Rehber aranıyor…" else "Rehberde ara") }
 
             when (val result = lookupResult) {
                 is ContactLookupResult.PermissionDenied -> Text(
@@ -350,22 +391,30 @@ fun SmsComposePanel(
                         status = "Gönderim onayı oluşturulamadı."
                     } else {
                         status = "SMS gönderim sonucu bekleniyor…"
-                        dispatcher.dispatch(confirmation) { outcome ->
-                            status = when (outcome) {
-                                SmsSendOutcome.Sent ->
-                                    "Android gönderim callback'i başarılı. Bu, mesajın alıcıya teslim edildiğini kanıtlamaz."
-                                SmsSendOutcome.PermissionDenied ->
-                                    "SMS izni yok veya geri alındı. SENT kaydedilmedi."
-                                SmsSendOutcome.Unsupported ->
-                                    "Bu cihaz SMS gönderimini desteklemiyor."
-                                SmsSendOutcome.Rejected ->
-                                    "Onay geçersiz veya daha önce kullanılmış. Mesaj gönderilmedi."
-                                is SmsSendOutcome.Failed ->
-                                    "SMS gönderilemedi: " + outcome.reason
-                                is SmsSendOutcome.Unknown ->
-                                    "Gönderim sonucu doğrulanamadı: " + outcome.reason
+                        coroutineScope.launch {
+                            try {
+                                val recovered = smsIo.recoverPendingAttempts(dispatcher)
+                                repeat(recovered) {
+                                    persistSmsOutcome(SmsSendOutcome.Unknown("Önceki SMS callback'i süreç kapanırken kayboldu; otomatik tekrar yapılmadı."))
+                                }
+                                smsIo.dispatch(dispatcher, confirmation) { outcome ->
+                                    coroutineScope.launch {
+                                        status = when (outcome) {
+                                            SmsSendOutcome.Sent -> "Android gönderim callback'i başarılı. Bu, mesajın alıcıya teslim edildiğini kanıtlamaz."
+                                            SmsSendOutcome.PermissionDenied -> "SMS izni yok veya geri alındı. SENT kaydedilmedi."
+                                            SmsSendOutcome.Unsupported -> "Bu cihaz SMS gönderimini desteklemiyor."
+                                            SmsSendOutcome.Rejected -> "Onay geçersiz veya daha önce kullanılmış. Mesaj gönderilmedi."
+                                            is SmsSendOutcome.Failed -> "SMS gönderilemedi: " + outcome.reason
+                                            is SmsSendOutcome.Unknown -> "Gönderim sonucu doğrulanamadı: " + outcome.reason
+                                        }
+                                        persistSmsOutcome(outcome)
+                                    }
+                                }
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                status = "SMS gönderimi güvenli biçimde başlatılamadı: " + (error.localizedMessage ?: "bilinmeyen hata")
                             }
-                            coroutineScope.launch { persistSmsOutcome(outcome) }
                         }
                     }
                 }) { Text("Onayla ve SMS gönder") }
