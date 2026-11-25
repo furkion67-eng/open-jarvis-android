@@ -220,6 +220,32 @@ class VideoStoryPlanTest {
     }
 
     @Test
+    fun storyQualityRejectsOverlappingCaptionIntervals() {
+        val plan = VideoStoryPlanBuilder.build("1453")
+        val invalid = plan.copy(
+            captions = plan.captions.toMutableList().also { cues ->
+                cues[2] = cues[2].copy(startMs = cues[1].endMs - 1L)
+            }
+        )
+        assertTrue(runCatching { VideoStoryQualityPolicy.validate(invalid) }.isFailure)
+    }
+
+    @Test
+    fun storyQualityRejectsCaptionIntervalsOutsideVideoDurationOrBlankText() {
+        val plan = VideoStoryPlanBuilder.build("1453")
+        val beyondDuration = plan.copy(
+            captions = plan.captions.dropLast(1) + plan.captions.last().copy(endMs = 45_001L)
+        )
+        val blankCue = plan.copy(
+            captions = plan.captions.toMutableList().also { cues ->
+                cues[1] = cues[1].copy(text = "  ")
+            }
+        )
+        assertTrue(runCatching { VideoStoryQualityPolicy.validate(beyondDuration) }.isFailure)
+        assertTrue(runCatching { VideoStoryQualityPolicy.validate(blankCue) }.isFailure)
+    }
+
+    @Test
     fun blankPromptIsRejected() {
         val error = runCatching { VideoStoryPlanBuilder.build("   ") }.exceptionOrNull()
         assertTrue(error is IllegalArgumentException)
