@@ -4,7 +4,9 @@ import com.openjarvis.graphify.GraphifyRepository
 import com.openjarvis.deviceactions.sms.SmsConfirmationGate
 import com.openjarvis.deviceactions.sms.SmsReview
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 class DeviceActionCoordinator(
     private val context: android.content.Context,
     private val graphifyRepo: GraphifyRepository,
@@ -295,7 +297,9 @@ class DeviceActionCoordinator(
                 return null
             }
         }
-        return when (val resolution = executor.resolveContactNumber(name)) {
+        return when (val resolution = withContext(Dispatchers.IO) {
+            executor.resolveContactNumber(name)
+        }) {
             is AndroidActionExecutor.ContactResolution.Exact ->
                 ResolvedRecipient(resolution.displayName, resolution.number)
             is AndroidActionExecutor.ContactResolution.Ambiguous -> {
