@@ -16,9 +16,11 @@ concurrency:
 
 jobs:
   build:
-    name: Build debug APK
+    name: Build Debug/Release APK and JVM tests
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
+    outputs:
+      artifacts_ready: ${{ steps.verify_debug_apk.outcome == 'success' && steps.build_test_apk.outcome == 'success' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -176,6 +178,7 @@ jobs:
         run: gradle --no-daemon --max-workers=1 --stacktrace assembleDebug
 
       - name: Verify Debug APK signature, package metadata and checksum
+        id: verify_debug_apk
         working-directory: ${{ steps.source.outputs.project_dir }}
         run: |
           set -euo pipefail
@@ -186,11 +189,45 @@ jobs:
           sha256sum "$APK" > "$APK.sha256"
           cat "$APK.sha256"
 
-      - name: Run Debug and Release JVM tests and build instrumented test APK
+      - name: Build Release APK variant
+        id: build_release
+        if: always() && steps.source.outcome == 'success'
         working-directory: ${{ steps.source.outputs.project_dir }}
         env:
           GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=1g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1
-        run: gradle --no-daemon --max-workers=1 --stacktrace testDebugUnitTest testReleaseUnitTest assembleDebugAndroidTest
+        run: gradle --no-daemon --max-workers=1 --stacktrace assembleRelease
+
+      - name: Record Release APK variant checksum (QA build; signing is separate)
+        if: always() && steps.build_release.outcome == 'success'
+        working-directory: ${{ steps.source.outputs.project_dir }}
+        run: |
+          set -euo pipefail
+          find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print -exec sha256sum {} ;
+          test -n "$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print -quit)"
+
+      - name: Run Debug JVM tests independently
+        id: debug_jvm
+        if: always() && steps.source.outcome == 'success'
+        working-directory: ${{ steps.source.outputs.project_dir }}
+        env:
+          GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=1g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1
+        run: gradle --no-daemon --max-workers=1 --stacktrace testDebugUnitTest
+
+      - name: Run Release JVM tests independently
+        id: release_jvm
+        if: always() && steps.source.outcome == 'success'
+        working-directory: ${{ steps.source.outputs.project_dir }}
+        env:
+          GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=1g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1
+        run: gradle --no-daemon --max-workers=1 --stacktrace testReleaseUnitTest
+
+      - name: Build instrumented test APK independently
+        id: build_test_apk
+        if: always() && steps.source.outcome == 'success'
+        working-directory: ${{ steps.source.outputs.project_dir }}
+        env:
+          GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=1g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1
+        run: gradle --no-daemon --max-workers=1 --stacktrace assembleDebugAndroidTest
 
       - name: Upload unit test results
         if: always()
@@ -202,6 +239,7 @@ jobs:
           retention-days: 7
 
       - name: Upload instrumented test APK
+        if: always() && steps.build_test_apk.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: Open-Jarvis-Test-APK
@@ -224,7 +262,17 @@ jobs:
           if-no-files-found: warn
           retention-days: 2
 
+      - name: Upload Release APK variant (QA build)
+        if: always() && steps.build_release.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Open-Jarvis-Release-Variant-QA
+          path: ${{ steps.source.outputs.project_dir }}/app/build/outputs/apk/release/*.apk
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Upload APK
+        if: always() && steps.verify_debug_apk.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: Open-Jarvis-APK
@@ -238,6 +286,7 @@ jobs:
     name: Emulator launch and instrumentation (API ${{ matrix.api-level }})
     runs-on: ubuntu-latest
     needs: build
+    if: always() && needs.build.outputs.artifacts_ready == 'true'
     strategy:
       fail-fast: false
       matrix:
