@@ -27,6 +27,11 @@ jobs:
         if: github.event_name == 'push'
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
+      - name: Verify Feature host patch applicator security
+        run: |
+          python3 -m py_compile scripts/apply_feature_host_patches.py scripts/test_feature_host_patches_security.py
+          python3 scripts/test_feature_host_patches_security.py
+
       - name: Extract source and locate project
         id: source
         run: |
@@ -103,6 +108,7 @@ jobs:
           )
           dashboard.write_text(ds)
           PY
+          python3 scripts/apply_feature_host_patches.py "$PROJECT_DIR"
           python3 scripts/add_startup_diagnostics.py "$PROJECT_DIR"
           ls -la "$PROJECT_DIR"
 
