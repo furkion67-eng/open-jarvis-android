@@ -202,7 +202,7 @@ jobs:
         working-directory: ${{ steps.source.outputs.project_dir }}
         run: |
           set -euo pipefail
-          find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print -exec sha256sum {} \\;
+          find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print -exec sha256sum {} \;
           test -n "$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print -quit)"
 
       - name: Run Debug JVM tests independently
