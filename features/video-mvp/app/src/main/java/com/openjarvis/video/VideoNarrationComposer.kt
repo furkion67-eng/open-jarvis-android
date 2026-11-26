@@ -184,14 +184,15 @@ internal object VideoNarrationTimeline {
                 require(segmentDuration >= chunks.size * MIN_CAPTION_CUE_DURATION_MS) {
                     "Konuşma, okunabilir altyazı parçaları için yeterli süre vermedi; metni kısalt."
                 }
+                val segmentStart = cursor
                 val cueDuration = segmentDuration / chunks.size
+                val remainder = segmentDuration % chunks.size
                 chunks.forEachIndexed { chunkIndex, chunk ->
                     val start = cursor
-                    val end = if (chunkIndex == chunks.lastIndex) {
-                        cursor + segmentDuration
-                    } else {
-                        cursor + cueDuration
-                    }
+                    val completedChunks = chunkIndex + 1
+                    val offset = cueDuration * completedChunks +
+                        (remainder * completedChunks) / chunks.size
+                    val end = segmentStart + offset
                     add(TimedVideoCaption(start, end, chunk))
                     cursor = end
                 }
