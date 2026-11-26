@@ -53,7 +53,9 @@ class SmsTransportExposureTest {
         assertTrue(panelSource.contains("createAndroidSmsDispatcher(context, gate)"))
         assertTrue(panelSource.contains("gate.prepare(recipient.displayName, phone.number, message)"))
         assertTrue(panelSource.contains("gate.confirm(review.reviewId)"))
-        assertTrue(panelSource.contains("dispatcher.dispatch(confirmation)"))
+        assertTrue(panelSource.contains("smsIo.dispatch(dispatcher, confirmation)"))
+        assertTrue(contractSource.contains("internal class SmsDispatchIoRunner("))
+        assertTrue(contractSource.contains("withContext(ioDispatcher) { dispatcher.dispatch(confirmation, callback) }"))
         assertFalse(panelSource.contains("AndroidSmsSender"))
 
         // Voice and compose must share a one-time token created from the exact visible review.

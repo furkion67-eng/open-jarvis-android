@@ -149,6 +149,24 @@ class VideoNarrationComposerTest {
     }
 
     @Test
+    fun multipleSpeechSegmentsKeepContiguousMeasuredBoundaries() {
+        val first = "The fleet crossed the ridge before dawn and surprised the harbor guards."
+        val second = "The defenders rushed to the shore while the ships descended toward the inlet."
+        val captions = VideoNarrationTimeline.captionsForSpeechSegments(
+            listOf(first, second),
+            listOf(2_400L, 3_600L),
+            8_000L
+        )
+
+        assertEquals(2_400L, captions[1].endMs)
+        assertEquals(6_000L, captions.last().endMs)
+        assertEquals("$first $second", captions.joinToString(" ") { it.text })
+        captions.zipWithNext().forEach { (left, right) ->
+            assertEquals(left.endMs, right.startMs)
+        }
+    }
+
+    @Test
     fun narrationFailsClosedWhenReadableCaptionChunksWouldFlashTooQuickly() {
         val spoken = "Osmanlı gemileri gece boyunca Galata sırtlarından dikkatle Haliç'e indirildi ve savunma hattını şaşırttı."
         val error = runCatching {
