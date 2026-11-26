@@ -4,7 +4,9 @@ import com.openjarvis.graphify.GraphifyRepository
 import com.openjarvis.deviceactions.sms.SmsConfirmationGate
 import com.openjarvis.deviceactions.sms.SmsReview
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 class DeviceActionCoordinator(
     private val context: android.content.Context,
     private val graphifyRepo: GraphifyRepository,
@@ -23,7 +25,8 @@ class DeviceActionCoordinator(
             val query: String,
             val kind: PendingKind,
             val candidates: List<ContactMatcher.Match>,
-            val body: String?
+            val body: String?,
+            val pageIndex: Int = 0
         ) : PendingDeviceAction()
     }
     private enum class PendingKind { Sms, Call, WhatsApp }
@@ -81,6 +84,17 @@ class DeviceActionCoordinator(
             cancelPending(setState)
             return true
         }
+        val requestedPage = ContactChoicePaging.navigate(
+            command = command,
+            currentPageIndex = choice.pageIndex,
+            totalItems = choice.candidates.size
+        )
+        if (requestedPage != null) {
+            val updatedChoice = choice.copy(pageIndex = requestedPage)
+            pending = updatedChoice
+            setState(choicePrompt(updatedChoice))
+            return true
+        }
         when (val result = ContactChoiceSelector.select(command, choice.candidates)) {
             is ContactChoiceSelector.Result.Selected -> {
                 val match = result.match
@@ -128,13 +142,21 @@ class DeviceActionCoordinator(
         return true
     }
     private fun choicePrompt(choice: PendingDeviceAction.ContactAwaitingChoice): AgentState.NeedsInput {
-        val options = choice.candidates
-            .take(5)
-            .mapIndexed { i, c -> "${i + 1}. ${c.label} (${c.value})" }
+        val page = ContactChoicePaging.page(choice.candidates, choice.pageIndex)
+        val options = page.items
+            .mapIndexed { index, candidate ->
+                "${page.startIndex + index + 1}. ${candidate.label} (${candidate.value})"
+            }
             .joinToString(", ")
+        val navigation = listOfNotNull(
+            if (page.hasPrevious) "Önceki sayfa için 'önceki sayfa' deyin." else null,
+            if (page.hasNext) "Sonraki sayfa için 'sonraki sayfa' deyin." else null
+        ).joinToString(" ")
+        val pageLabel = if (page.pageCount == 0) "boş liste" else "sayfa ${page.pageIndex + 1}/${page.pageCount}"
         return AgentState.NeedsInput(
-            "\"${choice.query}\" için birden fazla eşleşme var: $options. " +
-                "Hangisi? Numarasını söyleyin ya da tam adıyla seçin."
+            "'${choice.query}' için ${choice.candidates.size} eşleşme var ($pageLabel): $options. " +
+                "$navigation Bir kişiyi/numarayı seçmek için listede görünen numarayı söyleyin veya tam adıyla seçin. " +
+                "İptal için 'iptal' deyin."
         )
     }
     suspend fun handle(routed: RoutedCommand, command: String, setState: (AgentState) -> Unit) {
@@ -275,7 +297,9 @@ class DeviceActionCoordinator(
                 return null
             }
         }
-        return when (val resolution = executor.resolveContactNumber(name)) {
+        return when (val resolution = withContext(Dispatchers.IO) {
+            executor.resolveContactNumber(name)
+        }) {
             is AndroidActionExecutor.ContactResolution.Exact ->
                 ResolvedRecipient(resolution.displayName, resolution.number)
             is AndroidActionExecutor.ContactResolution.Ambiguous -> {

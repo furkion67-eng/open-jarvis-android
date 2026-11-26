@@ -2,6 +2,23 @@ package com.openjarvis.deviceactions.sms
 
 import java.util.UUID
 import com.openjarvis.tasks.DeviceActionOutcomeCode
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+/**
+ * Runs suspend journal work without translating coroutine cancellation into an ordinary
+ * transport or persistence result. Callers may classify only operational exceptions.
+ */
+internal suspend fun <T> runSmsJournalOperation(operation: suspend () -> T): Result<T> =
+    try {
+        Result.success(operation())
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
 
 internal data class SmsReview(
     val reviewId: String,
@@ -152,12 +169,14 @@ internal interface SmsAttemptStore {
 
 /** Durable callback journal. It stores no phone number, contact name or message body. */
 internal class SmsAttemptJournal(private val store: SmsAttemptStore) {
+    @Synchronized
     fun begin(requestId: String, partCount: Int) {
         require(requestId.isNotBlank() && partCount > 0)
         store.put(SmsAttemptRecord(requestId, List(partCount) { SmsPartResult.PENDING }, SmsSendState.PENDING))
         pruneTerminalHistory()
     }
 
+    @Synchronized
     fun recordPlatformResult(requestId: String, partIndex: Int, resultCode: Int, resultOk: Int): SmsSendState {
         val current = store.get(requestId) ?: return SmsSendState.UNKNOWN
         if (current.state != SmsSendState.PENDING || partIndex !in current.parts.indices ||
@@ -171,10 +190,13 @@ internal class SmsAttemptJournal(private val store: SmsAttemptStore) {
         return state
     }
 
+    @Synchronized
     fun markUnknown(requestId: String): SmsSendState = transitionPending(requestId, SmsSendState.UNKNOWN)
+    @Synchronized
     fun markFailed(requestId: String): SmsSendState = transitionPending(requestId, SmsSendState.FAILED)
 
     /** Called once when the SMS integration is first opened in a new app process. */
+    @Synchronized
     fun recoverPendingAsUnknown(): List<SmsAttemptRecord> {
         val pending = store.all().filter { it.state == SmsSendState.PENDING }
         pending.forEach { store.put(it.copy(state = SmsSendState.UNKNOWN, updatedAtMillis = System.currentTimeMillis())) }
@@ -200,6 +222,16 @@ internal class SmsAttemptJournal(private val store: SmsAttemptStore) {
     private companion object { const val MAX_TERMINAL_HISTORY = 32 }
 }
 
+internal class SmsAttemptJournalIo(
+    private val journal: SmsAttemptJournal,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+) {
+    suspend fun begin(requestId: String, partCount: Int) = withContext(ioDispatcher) { journal.begin(requestId, partCount) }
+    suspend fun markUnknown(requestId: String): SmsSendState = withContext(ioDispatcher) { journal.markUnknown(requestId) }
+    suspend fun markFailed(requestId: String): SmsSendState = withContext(ioDispatcher) { journal.markFailed(requestId) }
+    suspend fun recoverPendingAsUnknown(): List<SmsAttemptRecord> = withContext(ioDispatcher) { journal.recoverPendingAsUnknown() }
+}
+
 /**
  * Shared callback seam used by the Android BroadcastReceiver and tests. Durable journal state
  * is authoritative: a late callback after timeout/process recovery can never promote UNKNOWN to SENT.
@@ -209,13 +241,18 @@ internal class SmsPlatformCallbackRecorder(
     private val journal: SmsAttemptJournal,
     private val resultOk: Int
 ) {
-    /** The durable per-part journal is the sole source of truth for SENT/FAILED/UNKNOWN. */
     @Synchronized
-    fun record(partIndex: Int, resultCode: Int): SmsSendState =
-        journal.recordPlatformResult(requestId, partIndex, resultCode, resultOk)
-
+    fun record(partIndex: Int, resultCode: Int): SmsSendState = journal.recordPlatformResult(requestId, partIndex, resultCode, resultOk)
     @Synchronized
     fun markUnknown(): SmsSendState = journal.markUnknown(requestId)
+}
+
+internal class SmsPlatformCallbackRecorderIo(
+    private val recorder: SmsPlatformCallbackRecorder,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+) {
+    suspend fun record(partIndex: Int, resultCode: Int): SmsSendState = withContext(ioDispatcher) { recorder.record(partIndex, resultCode) }
+    suspend fun markUnknown(): SmsSendState = withContext(ioDispatcher) { recorder.markUnknown() }
 }
 
 sealed interface SmsSendOutcome {
@@ -228,14 +265,17 @@ sealed interface SmsSendOutcome {
 }
 
 internal fun interface SmsPermission { fun isGranted(): Boolean }
-internal fun interface SmsTransport { fun send(draft: SmsDraft, callback: (SmsSendOutcome) -> Unit) }
+internal fun interface SmsTransport {
+    fun send(draft: SmsDraft, callback: (SmsSendOutcome) -> Unit)
+    suspend fun recoverPendingAttempts(): Int = 0
+}
 
 internal class ConfirmedSmsDispatcher(
     private val permission: SmsPermission,
     private val gate: SmsConfirmationGate,
-    private val transport: SmsTransport,
-    val recoveredUnknownCount: Int = 0
+    private val transport: SmsTransport
 ) {
+    suspend fun recoverPendingAttempts(): Int = transport.recoverPendingAttempts()
     fun dispatch(confirmation: ConfirmedSmsAction, callback: (SmsSendOutcome) -> Unit) {
         if (!runCatching(permission::isGranted).getOrDefault(false)) {
             gate.cancel(confirmation.reviewId)
@@ -251,6 +291,28 @@ internal class ConfirmedSmsDispatcher(
     }
 }
 
+/**
+ * Recovery failures block a new send, while coroutine cancellation remains cancellation and
+ * must propagate to the owning scope instead of being reported as an ordinary transport error.
+ */
+internal suspend fun recoverPendingSmsAttemptsOrReport(
+    dispatcher: ConfirmedSmsDispatcher,
+    onFailure: (Exception) -> Unit
+): Int? = try {
+    dispatcher.recoverPendingAttempts()
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (error: Exception) {
+    onFailure(error)
+    null
+}
+
+internal class SmsDispatchIoRunner(private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO) {
+    suspend fun recoverPendingAttempts(dispatcher: ConfirmedSmsDispatcher): Int = withContext(ioDispatcher) { dispatcher.recoverPendingAttempts() }
+    suspend fun dispatch(dispatcher: ConfirmedSmsDispatcher, confirmation: ConfirmedSmsAction, callback: (SmsSendOutcome) -> Unit) {
+        withContext(ioDispatcher) { dispatcher.dispatch(confirmation, callback) }
+    }
+}
 
 /** One privacy-safe outcome mapping shared by voice and compose SMS entry points. */
 fun SmsSendOutcome.toDeviceActionOutcomeCode(): DeviceActionOutcomeCode = when (this) {

@@ -1,15 +1,23 @@
 package com.openjarvis.tasks
 
+import android.content.ContentValues
+import android.content.Context
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
+import android.os.Environment
+import android.provider.BaseColumns
+import android.provider.MediaStore
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -25,6 +33,7 @@ class VideoTaskExecutionInstrumentedTest {
 
     @Before
     fun setUp() {
+        runBlocking(Dispatchers.IO) { JarvisTaskDatabase.closeInstanceForTesting() }
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         database = Room.inMemoryDatabaseBuilder(context, JarvisTaskDatabase::class.java)
             .allowMainThreadQueries()
@@ -35,6 +44,7 @@ class VideoTaskExecutionInstrumentedTest {
     @After
     fun tearDown() {
         database.close()
+        runBlocking(Dispatchers.IO) { JarvisTaskDatabase.closeInstanceForTesting() }
     }
 
     @Test
@@ -190,15 +200,43 @@ class VideoTaskExecutionInstrumentedTest {
             productionRegistry.executorFor(VIDEO_TASK_EXECUTION_MODE) is VideoStoryTaskExecutor
         )
 
-        val productionRepository = JarvisTaskRepository.getInstance(context)
-        val productionDao = JarvisTaskDatabase.getInstance(context).taskDao()
+        val productionRepository = JarvisTaskRepository.getInstanceOnIo(context)
+        val productionDao = withContext(Dispatchers.IO) { JarvisTaskDatabase.getInstance(context).taskDao() }
         val requestKey = "video-e2e-" + UUID.randomUUID().toString()
+        val artifactKey = VideoTaskArtifactKey.from(requestKey)
         var taskId: String? = null
         var mp4Uri: Uri? = null
         var srtUri: Uri? = null
         var thumbnailUri: Uri? = null
+        var staleVideoUri: Uri? = null
+        var staleCaptionsUri: Uri? = null
+        var staleThumbnailUri: Uri? = null
 
         try {
+            // Simulate a process death after MediaStore export but before Room committed success.
+            // The executor contract is cleanup-and-rerender, not reuse of an uncommitted bundle.
+            staleVideoUri = insertStaleArtifact(
+                context,
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                "jarvis-" + artifactKey + ".mp4",
+                "video/mp4",
+                Environment.DIRECTORY_MOVIES + "/OpenJarvis"
+            )
+            staleCaptionsUri = insertStaleArtifact(
+                context,
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                "jarvis-" + artifactKey + ".srt",
+                "application/x-subrip",
+                Environment.DIRECTORY_DOWNLOADS + "/OpenJarvis"
+            )
+            staleThumbnailUri = insertStaleArtifact(
+                context,
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                "jarvis-" + artifactKey + "-thumb.jpg",
+                "image/jpeg",
+                Environment.DIRECTORY_PICTURES + "/OpenJarvis"
+            )
+
             taskId = productionRepository.createTask(goal, requestKey)
             val preview = productionDao.findById(taskId!!)!!
             assertEquals(VIDEO_TASK_EXECUTION_MODE, preview.ownerAgent)
@@ -210,6 +248,9 @@ class VideoTaskExecutionInstrumentedTest {
             assertTrue(preview.captionsUri.isNullOrBlank())
 
             productionRepository.acceptPlan(taskId!!)
+            assertFalse("Uncommitted stale MP4 must be removed before rerender.", mediaRowExists(context, staleVideoUri!!))
+            assertFalse("Uncommitted stale SRT must be removed before rerender.", mediaRowExists(context, staleCaptionsUri!!))
+            assertFalse("Uncommitted stale thumbnail must be removed before rerender.", mediaRowExists(context, staleThumbnailUri!!))
             val completed = productionDao.findById(taskId!!)!!
             assertEquals(JarvisTaskStatus.SUCCEEDED.storageValue, completed.status)
 
@@ -220,6 +261,9 @@ class VideoTaskExecutionInstrumentedTest {
             mp4Uri = Uri.parse(artifacts.getString(0))
             srtUri = Uri.parse(artifacts.getString(1))
             thumbnailUri = Uri.parse(artifacts.getString(2))
+            assertNotEquals(staleVideoUri, mp4Uri)
+            assertNotEquals(staleCaptionsUri, srtUri)
+            assertNotEquals(staleThumbnailUri, thumbnailUri)
 
             val metadata = VideoArtifactMetadataCodec.decode(completed.videoArtifactMetadataJson)
                 ?: throw AssertionError("Complete renderer metadata must be persisted.")
@@ -307,9 +351,47 @@ class VideoTaskExecutionInstrumentedTest {
             mp4Uri?.let { context.contentResolver.delete(it, null, null) }
             srtUri?.let { context.contentResolver.delete(it, null, null) }
             thumbnailUri?.let { context.contentResolver.delete(it, null, null) }
+            // The production executor removes stale, uncommitted MediaStore rows before rerender.
+            // Do not issue a second delete against a URI whose row is already gone: MediaStore
+            // may reject that stale URI with SecurityException on API 33/34.
+            deleteIfPresent(context, staleVideoUri)
+            deleteIfPresent(context, staleCaptionsUri)
+            deleteIfPresent(context, staleThumbnailUri)
             taskId?.let { productionDao.deleteById(it) }
         }
     }
+
+    private fun insertStaleArtifact(
+        context: Context,
+        collection: Uri,
+        displayName: String,
+        mimeType: String,
+        relativePath: String
+    ): Uri {
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+            put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+            put(MediaStore.MediaColumns.IS_PENDING, 0)
+        }
+        return context.contentResolver.insert(collection, values)
+            ?: throw AssertionError("Could not insert stale MediaStore fixture: " + displayName)
+    }
+
+    private fun deleteIfPresent(context: Context, uri: Uri?) {
+        if (uri != null && mediaRowExists(context, uri)) {
+            context.contentResolver.delete(uri, null, null)
+        }
+    }
+
+    private fun mediaRowExists(context: Context, uri: Uri): Boolean =
+        context.contentResolver.query(
+            uri,
+            arrayOf(BaseColumns._ID),
+            null,
+            null,
+            null
+        )?.use { it.moveToFirst() } == true
 
     private fun parseSrtTimeMs(value: String): Long {
         val parts = value.trim().split(':', ',')

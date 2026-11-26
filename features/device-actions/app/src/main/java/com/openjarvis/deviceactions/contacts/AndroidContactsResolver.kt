@@ -1,18 +1,30 @@
 package com.openjarvis.deviceactions.contacts
 
 import android.Manifest
+import android.content.ContentResolver
 import android.content.Context
 import android.content.pm.PackageManager
 import android.provider.ContactsContract
 import android.provider.ContactsContract.CommonDataKinds.Phone
 
-class AndroidContactsResolver(context: Context) {
+class AndroidContactsResolver(
+    context: Context,
+    private val contentResolver: ContentResolver = context.applicationContext.contentResolver,
+    hasReadContactsPermission: () -> Boolean = {
+        context.applicationContext.checkSelfPermission(Manifest.permission.READ_CONTACTS) ==
+            PackageManager.PERMISSION_GRANTED
+    }
+) {
     private val appContext = context.applicationContext
+
+    /**
+     * Internal instrumentation seam. Production callers cannot configure or observe this;
+     * it remains null on the normal constructor path and allocates no callback.
+     */
+    internal var queryThreadObserverForTest: ((Thread) -> Unit)? = null
+
     private val useCase = ContactLookupUseCase(
-        hasReadContactsPermission = {
-            appContext.checkSelfPermission(Manifest.permission.READ_CONTACTS) ==
-                PackageManager.PERMISSION_GRANTED
-        },
+        hasReadContactsPermission = hasReadContactsPermission,
         loadPhoneRows = ::queryPhoneRows
     )
 
@@ -27,7 +39,9 @@ class AndroidContactsResolver(context: Context) {
             Phone.LABEL
         )
         val rows = mutableListOf<ContactPhoneRecord>()
-        appContext.contentResolver.query(
+        // Observe the actual caller before ContentResolver can cross into provider Binder code.
+        queryThreadObserverForTest?.invoke(Thread.currentThread())
+        contentResolver.query(
             Phone.CONTENT_URI,
             projection,
             null,

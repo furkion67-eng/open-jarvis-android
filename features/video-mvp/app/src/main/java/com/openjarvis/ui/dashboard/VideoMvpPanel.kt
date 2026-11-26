@@ -13,6 +13,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -20,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -27,6 +29,8 @@ import com.openjarvis.tasks.JarvisTaskEntity
 import com.openjarvis.tasks.JarvisTaskRepository
 import com.openjarvis.tasks.JarvisTaskStatus
 import com.openjarvis.tasks.JarvisTaskCheckpoint
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -46,8 +50,32 @@ internal fun shouldOfferVideoTaskRetry(task: JarvisTaskEntity): Boolean {
 fun VideoMvpPanel(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val repository = remember(context) { JarvisTaskRepository.getInstance(context) }
-    val tasks by repository.observeRecentTasks(limit = 30).collectAsState(initial = emptyList())
+    var repository by remember(context) { mutableStateOf<JarvisTaskRepository?>(null) }
+    var repositoryError by remember(context) { mutableStateOf<String?>(null) }
+    var repositoryLoading by remember(context) { mutableStateOf(true) }
+    var repositoryLoadAttempt by remember(context) { mutableStateOf(0) }
+    LaunchedEffect(context, repositoryLoadAttempt) {
+        repositoryLoading = true
+        repositoryError = null
+        try {
+            // Keep the video panel's initial frame cheap; bootstrap is shared with TaskControlCenter.
+            withFrameNanos { }
+            withFrameNanos { }
+            val sharedRepository = JarvisTaskRepository.getInstanceOnIo(context.applicationContext)
+            JarvisTaskRepository.recoverInterruptedTasksOnIo(sharedRepository)
+            repository = sharedRepository
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            repositoryError = error.localizedMessage ?: "Yerel görev deposu açılamadı."
+        } finally {
+            repositoryLoading = false
+        }
+    }
+    val tasksFlow = remember(repository) {
+        repository?.observeRecentTasks(limit = 30) ?: flowOf(emptyList())
+    }
+    val tasks by tasksFlow.collectAsState(initial = emptyList())
 
     var topic by rememberSaveable { mutableStateOf("İstanbul'un Fethi") }
     var taskId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -65,6 +93,22 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text("Türkçe sesli video üretimi", style = MaterialTheme.typography.titleMedium)
+            if (repository == null) {
+                Text(
+                    text = if (repositoryLoading) {
+                        "Görev hafızası ilk ekran çizildikten sonra hazırlanıyor…"
+                    } else {
+                        "Görev hafızası açılamadı: " + (repositoryError ?: "Bilinmeyen hata")
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (repositoryLoading) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
+                )
+                if (!repositoryLoading) {
+                    TextButton(onClick = { repositoryLoadAttempt++ }) {
+                        Text("Yeniden dene")
+                    }
+                }
+            }
             Text(
                 "JARVIS önce kalıcı bir plan hazırlar. Video yalnızca planı açıkça kabul ettiğinde cihazda üretilir; MP4 ve SRT doğrulanmadan görev tamamlandı sayılmaz.",
                 style = MaterialTheme.typography.bodySmall
@@ -74,17 +118,18 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
                 onValueChange = { topic = it.take(100) },
                 label = { Text("Video konusu") },
                 singleLine = true,
-                enabled = !creating && !accepting,
+                enabled = repository != null && !creating && !accepting,
                 modifier = Modifier.fillMaxWidth()
             )
             Button(
-                enabled = topic.isNotBlank() && !creating && !accepting,
+                enabled = repository != null && topic.isNotBlank() && !creating && !accepting,
                 onClick = {
+                    val taskRepository = repository ?: return@Button
                     scope.launch {
                         creating = true
                         message = "Kalıcı video planı hazırlanıyor…"
                         try {
-                            val id = repository.createTask(
+                            val id = taskRepository.createTask(
                                 goal = topic.trim() + " hakkında video oluştur",
                                 idempotencyKey = "video-panel:" + requestKey
                             )
@@ -103,6 +148,12 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
                 Text(if (creating) "Plan hazırlanıyor…" else "Video planı oluştur")
             }
 
+            if (repository == null && repositoryError == null) {
+                Text("Yerel görev deposu arka planda hazırlanıyor…", style = MaterialTheme.typography.bodySmall)
+            }
+            repositoryError?.let {
+                Text("Görev deposu açılamadı: " + it, color = MaterialTheme.colorScheme.error)
+            }
             Text(message, style = MaterialTheme.typography.bodySmall)
             if (task != null && status != null) {
                 Text(task.outputSummary.orEmpty(), style = MaterialTheme.typography.bodySmall)
@@ -110,13 +161,14 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
                     JarvisTaskStatus.WAITING_FOR_USER -> {
                         if (task.checkpoint == JarvisTaskCheckpoint.PLAN_CREATED && task.planAcceptedAt == null) {
                             Button(
-                                enabled = !accepting,
+                                enabled = repository != null && !accepting,
                                 onClick = {
+                                    val taskRepository = repository ?: return@Button
                                     scope.launch {
                                         accepting = true
                                         message = "Plan kabul edildi. Yerel video yürütücüsü başlatılıyor…"
                                         try {
-                                            repository.acceptPlan(task.id)
+                                            taskRepository.acceptPlan(task.id)
                                             message = "Görev sonucu bekleniyor. MP4 ve SRT doğrulanınca önizleme aşağıda açılacak."
                                         } catch (error: Exception) {
                                             message = "Plan yürütülemedi: " + (error.message ?: "bilinmeyen hata")
@@ -153,10 +205,12 @@ fun VideoMvpPanel(modifier: Modifier = Modifier) {
                         )
                         if (shouldOfferVideoTaskRetry(task)) {
                             Button(
+                                enabled = repository != null,
                                 onClick = {
+                                    val taskRepository = repository ?: return@Button
                                     scope.launch {
                                         message = "Yalnızca açık yeniden deneme isteği gönderiliyor; otomatik tekrar yapılmıyor."
-                                        repository.retry(task.id)
+                                        taskRepository.retry(task.id)
                                     }
                                 },
                                 modifier = Modifier.fillMaxWidth()

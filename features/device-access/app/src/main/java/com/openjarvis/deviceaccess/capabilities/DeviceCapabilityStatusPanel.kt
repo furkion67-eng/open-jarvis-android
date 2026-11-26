@@ -32,40 +32,73 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun DeviceCapabilityStatusPanel(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val reader = remember(context) { AndroidCapabilityStatusReader(context) }
-    var items by remember { mutableStateOf(reader.snapshot()) }
+    var items by remember { mutableStateOf(emptyList<CapabilityStatusItem>()) }
     var actionStatus by rememberSaveable { mutableStateOf<String?>(null) }
     var recognizedSpeech by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingCameraUri by rememberSaveable { mutableStateOf<String?>(null) }
+    var refreshing by remember { mutableStateOf(true) }
+    val scope = rememberCoroutineScope()
+
+    suspend fun refreshCapabilitySnapshot() {
+        refreshing = true
+        try {
+            items = withContext(Dispatchers.IO) { reader.snapshot() }
+        } catch (cancelled: CancellationException) {
+            // A collapsed/unmounted phone-tools section must cancel its snapshot read.
+            throw cancelled
+        } catch (error: Exception) {
+            actionStatus = "Android izin durumu okunamadı: " +
+                (error.localizedMessage ?: "bilinmeyen hata")
+        } finally {
+            refreshing = false
+        }
+    }
 
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         val uri = pendingCameraUri?.let(Uri::parse)
         pendingCameraUri = null
         if (uri == null) {
             actionStatus = "Kamera sonucu için kayıtlı hedef bulunamadı."
-        } else if (success) {
-            val finalized = runCatching { finalizePendingCameraCapture(context, uri) }
-            if (finalized.isSuccess) {
-                actionStatus = "Fotoğraf JARVIS klasörüne kaydedildi: Pictures/JARVIS"
-            } else {
-                context.contentResolver.delete(uri, null, null)
-                actionStatus = "Fotoğraf doğrulanamadı ve geçici kayıt temizlendi: " +
-                    (finalized.exceptionOrNull()?.localizedMessage ?: "bilinmeyen hata")
-            }
+            scope.launch { refreshCapabilitySnapshot() }
         } else {
-            context.contentResolver.delete(uri, null, null)
-            actionStatus = "Fotoğraf çekimi iptal edildi; boş medya kaydı temizlendi."
+            scope.launch {
+                if (success) {
+                    val finalized = withContext(Dispatchers.IO) {
+                        runCatching { finalizePendingCameraCapture(context, uri) }
+                    }
+                    if (finalized.isSuccess) {
+                        actionStatus = "Fotoğraf JARVIS klasörüne kaydedildi: Pictures/JARVIS"
+                    } else {
+                        withContext(Dispatchers.IO) {
+                            context.contentResolver.delete(uri, null, null)
+                        }
+                        actionStatus = "Fotoğraf doğrulanamadı ve geçici kayıt temizlendi: " +
+                            (finalized.exceptionOrNull()?.localizedMessage ?: "bilinmeyen hata")
+                    }
+                } else {
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.delete(uri, null, null)
+                    }
+                    actionStatus = "Fotoğraf çekimi iptal edildi; boş medya kaydı temizlendi."
+                }
+                refreshCapabilitySnapshot()
+            }
         }
-        items = reader.snapshot()
     }
 
     val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -83,7 +116,7 @@ fun DeviceCapabilityStatusPanel(modifier: Modifier = Modifier) {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         reader.recordPermissionRequestResult("notifications", granted)
-        items = reader.snapshot()
+        scope.launch { refreshCapabilitySnapshot() }
         actionStatus = if (granted) {
             if (postCapabilityTestNotification(context)) {
                 "Test bildirimi Android tarafından gönderildi."
@@ -95,7 +128,7 @@ fun DeviceCapabilityStatusPanel(modifier: Modifier = Modifier) {
         }
     }
 
-    LaunchedEffect(Unit) { items = reader.snapshot() }
+    LaunchedEffect(reader) { refreshCapabilitySnapshot() }
 
     val cameraAvailable = items.firstOrNull { it.id == "camera" }?.state == CapabilityState.ENABLED
     val microphoneAvailable = items.firstOrNull { it.id == "microphone" }?.state == CapabilityState.ENABLED
@@ -110,7 +143,13 @@ fun DeviceCapabilityStatusPanel(modifier: Modifier = Modifier) {
                 "JARVIS yalnızca Android'in verdiği izinler ve senin seçtiğin dosya/klasörler içinde işlem yapabilir. İzinleri Android ayarlarından istediğin zaman geri alabilirsin.",
                 style = MaterialTheme.typography.bodySmall
             )
-            Button(onClick = { items = reader.snapshot() }) { Text("Durumu yenile") }
+            Button(
+                enabled = !refreshing,
+                onClick = { scope.launch { refreshCapabilitySnapshot() } }
+            ) { Text(if (refreshing) "Durum okunuyor…" else "Durumu yenile") }
+            if (refreshing && items.isEmpty()) {
+                Text("Android izinleri ve dosya kapsamları arka planda okunuyor…", style = MaterialTheme.typography.bodySmall)
+            }
 
             Text("Kullanıcı başlatmalı cihaz işlemleri", style = MaterialTheme.typography.titleSmall)
             Button(
@@ -186,13 +225,16 @@ fun DeviceCapabilityStatusPanel(modifier: Modifier = Modifier) {
                             Text(item.title, style = MaterialTheme.typography.titleSmall)
                             Text(stateLabel(item.state), color = stateColor(item.state))
                             Text(item.detail, style = MaterialTheme.typography.bodySmall)
-                            if (item.state != CapabilityState.ENABLED &&
-                                item.state != CapabilityState.NOT_AVAILABLE &&
-                                !item.id.startsWith("shared-storage")
-                            ) {
+                            if (CapabilityStatusPolicy.shouldShowSettingsShortcut(item.id, item.state)) {
+                                val settingsLabel = when (item.id) {
+                                    "overlay" -> "Android üstte görünme ayarını aç / izni geri al"
+                                    "accessibility" -> "Android erişilebilirlik ayarını aç / servisi kapat"
+                                    "call-phone" -> "Android uygulama izinlerini aç / CALL_PHONE iznini geri al"
+                                    else -> "İlgili Android ayarını aç"
+                                }
                                 androidx.compose.material3.TextButton(
                                     onClick = { openCapabilitySettings(context, item.id) }
-                                ) { Text("İlgili Android ayarını aç") }
+                                ) { Text(settingsLabel) }
                             }
                         }
                     }
