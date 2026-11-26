@@ -13,6 +13,8 @@ from pathlib import Path, PurePosixPath
 
 
 def _assert_no_symlink_components(root: Path, candidate: Path) -> None:
+    if root.is_symlink():
+        raise SystemExit(f"approved root is symlinked: {root}")
     root = root.resolve(strict=True)
     try:
         relative = candidate.relative_to(root)
@@ -153,6 +155,10 @@ def _list_patch_files(patch_root: Path) -> list[Path]:
 
 
 def apply_feature_host_patches(project_root: Path, features_root: Path) -> list[str]:
+    if project_root.is_symlink():
+        raise SystemExit(f"project root is symlinked: {project_root}")
+    if features_root.is_symlink():
+        raise SystemExit(f"Feature source root is symlinked: {features_root}")
     project_root = project_root.resolve(strict=True)
     features_root = features_root.resolve(strict=True)
     patch_root = features_root / "host-integration" / "patches"
