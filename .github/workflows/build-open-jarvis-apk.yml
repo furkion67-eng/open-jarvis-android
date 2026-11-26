@@ -3,12 +3,16 @@ name: Build Open Jarvis APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, "feature/approval-toggle" ]
+    branches: [ main, "feature/approval-toggle", "feature/repair-overlay-input-digest-2026-11-21" ]
   pull_request:
     branches: [ main ]
 
 permissions:
   contents: read
+
+concurrency:
+  group: open-jarvis-apk-${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -18,6 +22,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Assert exact pushed commit
+        if: github.event_name == 'push'
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Extract source and locate project
         id: source
@@ -161,11 +169,22 @@ jobs:
           GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=1g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1
         run: gradle --no-daemon --max-workers=1 --stacktrace assembleDebug
 
-      - name: Run JVM unit tests and build instrumented test APK
+      - name: Verify Debug APK signature, package metadata and checksum
+        working-directory: ${{ steps.source.outputs.project_dir }}
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK" > app/build/outputs/apk/debug/apk-badging.txt
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK"
+          sha256sum "$APK" > "$APK.sha256"
+          cat "$APK.sha256"
+
+      - name: Run Debug and Release JVM tests and build instrumented test APK
         working-directory: ${{ steps.source.outputs.project_dir }}
         env:
           GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=1g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1
-        run: gradle --no-daemon --max-workers=1 --stacktrace testDebugUnitTest assembleDebugAndroidTest
+        run: gradle --no-daemon --max-workers=1 --stacktrace testDebugUnitTest testReleaseUnitTest assembleDebugAndroidTest
 
       - name: Upload unit test results
         if: always()
@@ -203,14 +222,20 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Open-Jarvis-APK
-          path: ${{ steps.source.outputs.project_dir }}/app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            ${{ steps.source.outputs.project_dir }}/app/build/outputs/apk/debug/app-debug.apk
+            ${{ steps.source.outputs.project_dir }}/app/build/outputs/apk/debug/app-debug.apk.sha256
           if-no-files-found: error
           retention-days: 14
 
   smoke-test:
-    name: Emulator launch smoke test (Android 13)
+    name: Emulator launch and instrumentation (API ${{ matrix.api-level }})
     runs-on: ubuntu-latest
     needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [33, 34]
     timeout-minutes: 30
     steps:
       - name: Checkout repository
@@ -254,7 +279,7 @@ jobs:
           APP_APK: apk/app-debug.apk
           TEST_APK: apk-tests/app-debug-androidTest.apk
         with:
-          api-level: 33
+          api-level: ${{ matrix.api-level }}
           target: google_apis
           arch: x86_64
           script: bash scripts/smoke_test.sh
@@ -263,7 +288,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Open-Jarvis-Smoke-Test
+          name: Open-Jarvis-Smoke-Test-API-${{ matrix.api-level }}
           path: |
             screen-*.png
             crashlog.txt

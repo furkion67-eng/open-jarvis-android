@@ -1,26 +1,219 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import hashlib
+import re
 import sys
+import tempfile
 
 root = Path(sys.argv[1])
+
+
+def _repair_input_digest(script_path: Path, features_root: Path) -> str:
+    """
+    Fingerprint the repair program and every feature source/resource it overlays.
+    A script-only marker can incorrectly skip a repair after Kotlin/resources change.
+    """
+    digest = hashlib.sha256()
+    digest.update(script_path.read_bytes())
+    if features_root.is_dir():
+        for source in sorted(features_root.rglob("*"), key=lambda item: item.as_posix()):
+            if not source.is_file():
+                continue
+            relative = source.relative_to(features_root)
+            if source.suffix != ".kt" and "res" not in relative.parts and source.name != "AndroidManifest.xml":
+                continue
+            digest.update(relative.as_posix().encode("utf-8"))
+            digest.update(b"\\0")
+            digest.update(source.read_bytes())
+            digest.update(b"\\0")
+    return digest.hexdigest()
+
+
+def _repair_input_digest_regression_test():
+    # Source-only test: unchanged inputs are stable, while Kotlin/resource changes invalidate
+    # the marker. Documentation-only edits do not force the generated host to be repaired again.
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        temporary_root = Path(temporary_directory)
+        script = temporary_root / "repair_sources.py"
+        script.write_bytes(b"repair-script-v1")
+        features = temporary_root / "features"
+        kotlin = features / "device-actions/app/src/main/java/Example.kt"
+        kotlin.parent.mkdir(parents=True)
+        kotlin.write_bytes(b"feature-source-v1")
+
+        first = _repair_input_digest(script, features)
+        if first != _repair_input_digest(script, features):
+            raise SystemExit("repair input digest is not deterministic")
+
+        kotlin.write_bytes(b"feature-source-v2")
+        second = _repair_input_digest(script, features)
+        if first == second:
+            raise SystemExit("repair input digest ignored a changed Kotlin source")
+
+        readme = features / "device-actions/README.md"
+        readme.write_text("documentation-only change", encoding="utf-8")
+        if second != _repair_input_digest(script, features):
+            raise SystemExit("documentation unexpectedly invalidated the source overlay digest")
+
+        resource = features / "device-access/app/src/main/res/values/strings.xml"
+        resource.parent.mkdir(parents=True)
+        resource.write_text("<resources/>", encoding="utf-8")
+        if second == _repair_input_digest(script, features):
+            raise SystemExit("repair input digest ignored a changed Android resource")
+
+
+_repair_input_digest_regression_test()
+repair_script_path = Path(__file__).resolve()
+feature_sources_root = repair_script_path.parent.parent / "features"
+repair_digest = _repair_input_digest(repair_script_path, feature_sources_root)
+repair_marker = root / ".openjarvis-repair-sources.sha256"
+if repair_marker.is_file() and repair_marker.read_text(encoding="utf-8").strip() == repair_digest:
+    print("Open Jarvis source repair already applied for this exact script; skipping duplicate pass")
+    raise SystemExit(0)
 
 def edit(rel, fn):
     p = root / rel
     s = p.read_text()
-    p.write_text(fn(s))
+    updated = fn(s)
+    if updated != s:
+        p.write_text(updated)
+
+def _kotlin_brace_balance(source):
+    depth = 0
+    index = 0
+    state = "code"
+    block_depth = 0
+    while index < len(source):
+        if state == "code":
+            if source.startswith("//", index):
+                state = "line"
+                index += 2
+            elif source.startswith("/*", index):
+                state = "block"
+                block_depth = 1
+                index += 2
+            elif source.startswith('"""', index):
+                state = "raw"
+                index += 3
+            elif source[index] == '"':
+                state = "string"
+                index += 1
+            elif source[index] == "'":
+                state = "char"
+                index += 1
+            elif source[index] == chr(96):
+                state = "backtick"
+                index += 1
+            elif source[index] == "{":
+                depth += 1
+                index += 1
+            elif source[index] == "}":
+                depth -= 1
+                if depth < 0:
+                    raise ValueError("unbalanced Kotlin closing brace")
+                index += 1
+            else:
+                index += 1
+        elif state == "line":
+            if source[index] == "\n":
+                state = "code"
+            index += 1
+        elif state == "block":
+            if source.startswith("/*", index):
+                block_depth += 1
+                index += 2
+            elif source.startswith("*/", index):
+                block_depth -= 1
+                index += 2
+                if block_depth == 0:
+                    state = "code"
+            else:
+                index += 1
+        elif state in ("string", "char"):
+            quote = '"' if state == "string" else "'"
+            if source[index] == "\\":
+                index += 2
+            elif source[index] == quote:
+                state = "code"
+                index += 1
+            else:
+                index += 1
+        elif state == "raw":
+            if source.startswith('"""', index):
+                state = "code"
+                index += 3
+            else:
+                index += 1
+        elif state == "backtick":
+            if source[index] == chr(96):
+                state = "code"
+            index += 1
+    if state in ("block", "string", "char", "raw", "backtick"):
+        raise ValueError("unterminated Kotlin lexical construct")
+    return depth
+
 
 def agent(s):
     marker = "\n    suspend fun testConnection(): Result<Long> {"
-    if marker not in s:
-        raise SystemExit("AgentCore.kt: testConnection marker not found")
-    # executeTask() opens scope.launch { taskMutex.withLock { ... } }.
-    # The packaged file closes those two lambdas but omits executeTask() itself.
-    before = s.split(marker, 1)[0]
-    trailing = before.rstrip().splitlines()[-2:]
-    indents = [len(line) - len(line.lstrip()) for line in trailing]
-    if indents != [4, 4]:
-        s = s.replace(marker, "\n    }\n\n    suspend fun testConnection(): Result<Long> {", 1)
-    return s
+    if s.count(marker) != 1:
+        raise SystemExit("AgentCore.kt: expected exactly one testConnection marker")
+    marker_index = s.index(marker)
+    declarations = list(re.finditer(
+        r"(?m)^[ \t]*(?:[\w]+\s+)*fun[ \t]+executeTask[ \t]*\(",
+        s[:marker_index]
+    ))
+    if len(declarations) != 1:
+        raise SystemExit("AgentCore.kt: expected exactly one executeTask declaration before testConnection")
+    start = declarations[0].start()
+    balance = _kotlin_brace_balance(s[start:marker_index])
+    if balance == 0:
+        return s
+    if balance != 1:
+        raise SystemExit("AgentCore.kt: executeTask brace balance is " + str(balance) + "; refusing unsafe repair")
+    indent = re.match(r"[ \t]*", s[start:]).group(0)
+    repaired = s[:marker_index] + "\n" + indent + "}" + s[marker_index:]
+    repaired_marker = repaired.index(marker)
+    if _kotlin_brace_balance(repaired[start:repaired_marker]) != 0:
+        raise SystemExit("AgentCore.kt: executeTask remains structurally unbalanced after repair")
+    return repaired
+
+
+def _agent_patch_regression_test():
+    broken = '''class AgentCore {
+    fun executeTask(cleanCommand: String) {
+        scope.launch {
+            taskMutex.withLock {
+                println("literal } {")
+                // A brace in a comment must not affect the balance: }
+                runCommand(cleanCommand)
+            }
+        }
+    suspend fun testConnection(): Result<Long> {
+        return Result.success(1L)
+    }
+}
+'''
+    repaired = agent(broken)
+    if repaired.count("suspend fun testConnection") != 1 or agent(repaired) != repaired:
+        raise SystemExit("AgentCore.kt: missing-brace regression test failed")
+    balanced = '''class AgentCore {
+    fun executeTask(cleanCommand: String) {
+        scope.launch {
+            taskMutex.withLock {
+                runCommand(cleanCommand)
+            }
+        }
+    }
+    suspend fun testConnection(): Result<Long> {
+        return Result.success(1L)
+    }
+}
+'''
+    if agent(balanced) != balanced:
+        raise SystemExit("AgentCore.kt: already-balanced regression test failed")
+
+
+_agent_patch_regression_test()
 def mcp(s):
     s = s.replace("import okhttp3.Request\n", "import okhttp3.Request\nimport okhttp3.MediaType.Companion.toMediaType\nimport okhttp3.RequestBody.Companion.toRequestBody\n")
     old = """okhttp3.RequestBody.create(
@@ -2214,4 +2407,1954 @@ def voice_confirmation_flow(s):
         raise SystemExit("VoiceCommandActivity: status label anchor not found")
     return s
 edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", voice_confirmation_flow)
+
+# Issue #voice: install one shared Turkish-first SpeechRecognizer policy.
+voice_feature_root = Path(__file__).resolve().parent.parent / "features" / "turkish-voice"
+if not voice_feature_root.is_dir():
+    raise SystemExit("Turkish voice policy overlay is missing")
+
+for source in sorted(voice_feature_root.rglob("*.kt")):
+    relative = source.relative_to(voice_feature_root)
+    destination = root / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(source.read_bytes())
+
+
+def patch_android_stt_turkish(s):
+    import re
+
+    if "import android.Manifest" not in s:
+        s = s.replace(
+            "import android.content.Context",
+            "import android.Manifest\nimport android.content.Context\nimport android.content.pm.PackageManager",
+            1
+        )
+    s = s.replace("import java.util.Locale\n", "")
+
+    old_errors = """                    val errorMessage = when (error) {
+                        SpeechRecognizer.ERROR_AUDIO -> "Audio recording error"
+                        SpeechRecognizer.ERROR_CLIENT -> "Client error"
+                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Missing permissions"
+                        SpeechRecognizer.ERROR_NETWORK -> "Network error"
+                        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network timeout"
+                        SpeechRecognizer.ERROR_NO_MATCH -> "No speech detected"
+                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Recognizer busy"
+                        SpeechRecognizer.ERROR_SERVER -> "Server error"
+                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Speech timeout"
+                        else -> "Unknown error"
+                    }"""
+    new_errors = """                    val errorMessage = TurkishSpeechPolicy.messageFor(
+                        TurkishSpeechPolicy.failureForAndroidError(error)
+                    )"""
+    if old_errors in s:
+        s = s.replace(old_errors, new_errors, 1)
+    elif new_errors not in s:
+        raise SystemExit("AndroidSTTEngine.kt: recognition error mapping anchor not found")
+
+    old_intent = """        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, SILENCE_TIMEOUT_MS)
+        }"""
+    new_intent = """        val intent = TurkishSpeechPolicy.createRecognizerIntent().apply {
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, SILENCE_TIMEOUT_MS)
+        }"""
+    if old_intent in s:
+        s = s.replace(old_intent, new_intent, 1)
+    elif "TurkishSpeechPolicy.createRecognizerIntent()" not in s:
+        raise SystemExit("AndroidSTTEngine.kt: recognizer intent anchor not found")
+
+    s = s.replace(
+        "val text = matches?.firstOrNull()?.trim()",
+        "val text = TurkishSpeechPolicy.normalizeTranscript(matches?.firstOrNull())",
+        1
+    )
+
+    old_start = "        recognizer?.startListening(intent)"
+    new_start = """        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            currentErrorCallback?.invoke(TurkishSpeechPolicy.messageFor(RecognitionFailure.PERMISSION))
+            return
+        }
+        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+            currentErrorCallback?.invoke("Bu cihazda konuşma tanıma hizmeti bulunamadı.")
+            return
+        }
+
+        // SpeechRecognizer is created on the main looper; start it on that same looper too.
+        mainHandler.post {
+            val activeRecognizer = recognizer
+            if (activeRecognizer == null) {
+                currentErrorCallback?.invoke(TurkishSpeechPolicy.messageFor(RecognitionFailure.CLIENT))
+                return@post
+            }
+            try {
+                activeRecognizer.startListening(intent)
+            } catch (_: SecurityException) {
+                _isListening.value = false
+                currentErrorCallback?.invoke(TurkishSpeechPolicy.messageFor(RecognitionFailure.PERMISSION))
+            } catch (_: IllegalStateException) {
+                _isListening.value = false
+                currentErrorCallback?.invoke(TurkishSpeechPolicy.messageFor(RecognitionFailure.BUSY))
+            } catch (_: RuntimeException) {
+                _isListening.value = false
+                currentErrorCallback?.invoke(TurkishSpeechPolicy.messageFor(RecognitionFailure.CLIENT))
+            }
+        }"""
+    if old_start in s:
+        s = s.replace(old_start, new_start, 1)
+    elif "SpeechRecognizer is created on the main looper" not in s:
+        raise SystemExit("AndroidSTTEngine.kt: startListening anchor not found")
+
+    old_capture = """        return try {
+            audioRecord = AudioRecord("""
+    new_capture = """        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            return false
+        }
+
+        return try {
+            audioRecord = AudioRecord("""
+    s = s.replace(old_capture, new_capture, 1)
+    return s
+
+
+def patch_voice_command_turkish(s):
+    if "import com.openjarvis.voice.TurkishSpeechPolicy" not in s:
+        s = s.replace(
+            "import com.openjarvis.voice.STTMode",
+            "import com.openjarvis.voice.STTMode\nimport com.openjarvis.voice.TurkishSpeechPolicy\nimport com.openjarvis.voice.RecognitionFailure",
+            1
+        )
+
+    s = s.replace(
+        "    private var recognitionRetryCount = 0",
+        "    private var recognitionRetryCount = 0\n    private var requestMicrophonePermission: (() -> Unit)? = null",
+        1
+    )
+
+    state_anchor = '                var message by remember { mutableStateOf("Mikrofon hazır") }'
+    state_replacement = state_anchor + """
+                var microphonePermissionGranted by remember {
+                    mutableStateOf(
+                        ContextCompat.checkSelfPermission(
+                            this@VoiceCommandActivity,
+                            Manifest.permission.RECORD_AUDIO
+                        ) == PackageManager.PERMISSION_GRANTED
+                    )
+                }"""
+    if state_anchor in s:
+        s = s.replace(state_anchor, state_replacement, 1)
+    elif "var microphonePermissionGranted by remember" not in s:
+        raise SystemExit("VoiceCommandActivity.kt: microphone permission state anchor not found")
+
+    old_permission_callback = """                ) { granted ->
+                    if (granted) startVoiceRecognition()
+                    else message = "Mikrofon izni verilmedi. Android uygulama ayarlarından Mikrofon iznini aç."
+                }"""
+    new_permission_callback = """                ) { granted ->
+                    microphonePermissionGranted = granted
+                    if (granted) startVoiceRecognition()
+                    else message = "Mikrofon izni verilmedi. Android uygulama ayarlarından JARVIS için Mikrofon iznini aç."
+                }
+                SideEffect {
+                    requestMicrophonePermission = {
+                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                }"""
+    if old_permission_callback in s:
+        s = s.replace(old_permission_callback, new_permission_callback, 1)
+    elif "requestMicrophonePermission = {" not in s:
+        raise SystemExit("VoiceCommandActivity.kt: permission launcher callback anchor not found")
+
+    s = s.replace(
+        "onDispose { runCatching { recognizer.destroy() } }",
+        "onDispose { requestMicrophonePermission = null; runCatching { recognizer.destroy() } }",
+        1
+    )
+
+    old_error_copy = """                            message = when (error) {
+                                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Mikrofon izni gerekli"
+                                SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Konuşma algılanmadı, tekrar dene"
+                                SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Ses tanıma için ağ bağlantısı gerekli"
+                                SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Ses tanıma meşgul, tekrar dene"
+                                else -> "Ses tanıma hatası (" + error + ")"
+                            }"""
+    new_error_copy = """                            message = TurkishSpeechPolicy.messageFor(
+                                TurkishSpeechPolicy.failureForAndroidError(error)
+                            )"""
+    if old_error_copy in s:
+        s = s.replace(old_error_copy, new_error_copy, 1)
+    elif new_error_copy not in s:
+        raise SystemExit("VoiceCommandActivity.kt: recognition error copy anchor not found")
+
+    s = s.replace(
+        "val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim().orEmpty()",
+        "val text = TurkishSpeechPolicy.normalizeTranscript(results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()).orEmpty()",
+        1
+    )
+    s = s.replace(
+        "val partial = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()",
+        "val partial = TurkishSpeechPolicy.normalizeTranscript(partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull())",
+        1
+    )
+
+    old_ui_anchor = """                    OutlinedButton(onClick = { recognizer.cancel(); listening = false; message = "Dinleme durduruldu" }, enabled = listening, modifier = Modifier.fillMaxWidth()) { Text("Dinlemeyi durdur") }"""
+    permission_button = """                    if (autoMode && !microphonePermissionGranted) {
+                        OutlinedButton(
+                            onClick = { micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Mikrofon izni ver") }
+                    }
+""" + old_ui_anchor
+    if old_ui_anchor in s and "Text(\"Mikrofon izni ver\")" not in s:
+        s = s.replace(old_ui_anchor, permission_button, 1)
+
+    old_missing_permission = """        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 2001)
+            return
+        }"""
+    new_missing_permission = """        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestMicrophonePermission?.invoke()
+            if (requestMicrophonePermission == null) {
+                android.widget.Toast.makeText(
+                    this,
+                    TurkishSpeechPolicy.messageFor(RecognitionFailure.PERMISSION),
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+            return
+        }"""
+    if old_missing_permission in s:
+        s = s.replace(old_missing_permission, new_missing_permission, 1)
+    elif "requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO)" in s:
+        raise SystemExit("VoiceCommandActivity.kt: legacy permission request remains")
+
+    old_intent = """        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "tr-TR")
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "tr-TR")
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+        }"""
+    if old_intent in s:
+        s = s.replace(old_intent, "        val intent = TurkishSpeechPolicy.createRecognizerIntent()", 1)
+    elif "TurkishSpeechPolicy.createRecognizerIntent()" not in s:
+        raise SystemExit("VoiceCommandActivity.kt: recognizer intent anchor not found")
+
+    old_failure = """        runCatching { recognizer.startListening(intent) }.onFailure {
+            android.widget.Toast.makeText(this, "Mikrofon başlatılamadı: " + it.message, android.widget.Toast.LENGTH_LONG).show()
+        }"""
+    new_failure = """        runCatching { recognizer.startListening(intent) }.onFailure {
+            val failure = if (it is SecurityException) RecognitionFailure.PERMISSION else RecognitionFailure.CLIENT
+            android.widget.Toast.makeText(
+                this,
+                TurkishSpeechPolicy.messageFor(failure),
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+        }"""
+    if old_failure in s:
+        s = s.replace(old_failure, new_failure, 1)
+    elif "val failure = if (it is SecurityException)" not in s:
+        raise SystemExit("VoiceCommandActivity.kt: recognizer start failure anchor not found")
+
+    return s
+
+
+edit("app/src/main/java/com/openjarvis/voice/AndroidSTTEngine.kt", patch_android_stt_turkish)
+edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", patch_voice_command_turkish)
+print("Installed shared tr-TR STT policy, Turkish error mapping and microphone permission handling")
+
 print("Added Turkish confirmation flow for local device actions (issue #5)")
+
+# Issue #10: install the durable local task model and Turkish task control center.
+feature_root = Path(__file__).resolve().parent.parent / "features" / "task-engine"
+if not feature_root.exists():
+    raise SystemExit("Issue #10 task-engine source overlay is missing")
+
+for source in sorted(feature_root.rglob("*.kt")):
+    relative = source.relative_to(feature_root)
+    destination = root / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(source.read_bytes())
+
+dashboard_path = root / "app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt"
+dashboard_text = dashboard_path.read_text()
+dashboard_anchor = "            RecentTasksSection(tasks = recentTasks, alpha = tasksAlpha)"
+if "TaskControlCenter(" not in dashboard_text:
+    if dashboard_anchor not in dashboard_text:
+        raise SystemExit("DashboardScreen task section anchor not found")
+    dashboard_text = dashboard_text.replace(
+        dashboard_anchor,
+        "            TaskControlCenter(modifier = Modifier.fillMaxWidth())\n"
+        "            Spacer(modifier = Modifier.height(16.dp))\n" + dashboard_anchor,
+        1
+    )
+dashboard_path.write_text(dashboard_text)
+print("Installed Issue #10 local task engine and Turkish task control center")
+
+
+# Issue #16: recover the Android SpeechRecognizer after TTS/cancel on HiOS devices.
+def voice_recognizer_restart(s):
+    s = s.replace(
+        "    private var recognitionRetryCount = 0",
+        "    private var recognitionRetryCount = 0\n    private var recognitionListener: RecognitionListener? = null",
+        1
+    )
+    old_listener = "                    recognizer.setRecognitionListener(object : RecognitionListener {"
+    new_listener = "                    val listener = object : RecognitionListener {"
+    if old_listener in s:
+        s = s.replace(old_listener, new_listener, 1)
+        old_end = "                    })\n                    onDispose { requestMicrophonePermission = null; runCatching { recognizer.destroy() } }"
+        new_end = """                    }
+                    recognitionListener = listener
+                    recognizer.setRecognitionListener(listener)
+                    onDispose {
+                        requestMicrophonePermission = null
+                        recognitionListener = null
+                        runCatching { recognizer.cancel() }
+                        runCatching { recognizer.destroy() }
+                    }"""
+        if old_end not in s:
+            raise SystemExit("VoiceCommandActivity: listener disposal anchor not found")
+        s = s.replace(old_end, new_end, 1)
+    elif "val listener = object : RecognitionListener" not in s:
+        raise SystemExit("VoiceCommandActivity: SpeechRecognizer listener anchor not found")
+
+    old_start = "        runCatching { recognizer.startListening(intent) }.onFailure {"
+    new_start = """        runCatching {
+            // HiOS/providers can retain a cancelled session after TTS. Recreate the
+            // recognizer before every new listening session, keeping the same UI listener.
+            runCatching { recognizer.cancel() }
+            runCatching { recognizer.destroy() }
+            recognizer = SpeechRecognizer.createSpeechRecognizer(this)
+            val listener = recognitionListener
+                ?: throw IllegalStateException("Ses dinleyicisi henüz hazır değil.")
+            recognizer.setRecognitionListener(listener)
+            recognizer.startListening(intent)
+        }.onFailure {"""
+    if old_start in s:
+        s = s.replace(old_start, new_start, 1)
+    elif "recognizer = SpeechRecognizer.createSpeechRecognizer(this)" not in s:
+        raise SystemExit("VoiceCommandActivity: startListening anchor not found")
+    return s
+
+edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", voice_recognizer_restart)
+
+
+# Android 11+ package visibility: allow resolving installed launcher activities.
+def launcher_package_visibility(s):
+    if "<queries>" in s:
+        return s
+    anchor = "    <application"
+    block = """    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
+    <application"""
+    if anchor not in s:
+        raise SystemExit("AndroidManifest.xml: application anchor not found")
+    return s.replace(anchor, block, 1)
+
+edit("app/src/main/AndroidManifest.xml", launcher_package_visibility)
+
+
+# Android 14+ requires the type-specific permission for DownloadService's dataSync FGS.
+def data_sync_permission(s):
+    permission = '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />'
+    if permission in s:
+        return s
+    anchor = '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />'
+    if anchor not in s:
+        raise SystemExit("AndroidManifest.xml: FOREGROUND_SERVICE permission anchor not found")
+    return s.replace(anchor, anchor + "\n" + permission, 1)
+
+edit("app/src/main/AndroidManifest.xml", data_sync_permission)
+print("Applied HiOS SpeechRecognizer session reset, Android package visibility and dataSync FGS permission")
+
+
+# Issue #8 Stage A: install a bounded local silent MP4 prototype.
+video_feature_root = Path(__file__).resolve().parent.parent / "features" / "video-mvp"
+if not video_feature_root.is_dir():
+    raise SystemExit("Issue #8 video-mvp source overlay is missing")
+
+for source in sorted(video_feature_root.rglob("*.kt")):
+    relative = source.relative_to(video_feature_root)
+    destination = root / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(source.read_bytes())
+
+video_dashboard_path = root / "app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt"
+video_dashboard_text = video_dashboard_path.read_text()
+video_dashboard_anchor = "            TaskControlCenter(modifier = Modifier.fillMaxWidth())"
+if "VideoMvpPanel(" not in video_dashboard_text:
+    if video_dashboard_anchor not in video_dashboard_text:
+        raise SystemExit("DashboardScreen task control center anchor not found for video MVP")
+    video_dashboard_text = video_dashboard_text.replace(
+        video_dashboard_anchor,
+        video_dashboard_anchor + "\n            VideoMvpPanel(modifier = Modifier.fillMaxWidth())",
+        1
+    )
+video_dashboard_path.write_text(video_dashboard_text)
+print("Installed Issue #8 local silent MP4 prototype")
+
+
+# Issue #28: Turkish-first TTS readiness, deterministic voice selection and STT handoff.
+tts_feature_root = Path(__file__).resolve().parent.parent / "features" / "turkish-tts"
+if not tts_feature_root.is_dir():
+    raise SystemExit("Issue #28 Turkish TTS source overlay is missing")
+
+for source in sorted(tts_feature_root.rglob("*.kt")):
+    relative = source.relative_to(tts_feature_root)
+    destination = root / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(source.read_bytes())
+
+def expose_turkish_tts_status(s):
+    anchor = "    private val ttsEngine = AndroidTTSEngine(context)"
+    property = "    val ttsStatus: StateFlow<TurkishTtsStatus> get() = ttsEngine.status"
+    if property not in s:
+        if anchor not in s:
+            raise SystemExit("VoiceManager.kt: TTS engine anchor not found")
+        s = s.replace(anchor, anchor + "\n" + property, 1)
+    return s
+
+edit("app/src/main/java/com/openjarvis/voice/VoiceManager.kt", expose_turkish_tts_status)
+
+def add_turkish_tts_status_ui(s):
+    if "import android.speech.tts.TextToSpeech" not in s:
+        anchor = "import android.speech.SpeechRecognizer"
+        if anchor not in s:
+            raise SystemExit("VoiceCommandActivity.kt: SpeechRecognizer import not found")
+        s = s.replace(anchor, anchor + "\nimport android.speech.tts.TextToSpeech", 1)
+
+    # VoiceCommandActivity is in com.openjarvis.ui; import the public TTS
+    # status/policy types from com.openjarvis.voice so the sealed when is exhaustive.
+    voice_import_anchor = "import android.speech.SpeechRecognizer"
+    required_voice_imports = (
+        "import com.openjarvis.voice.TurkishTtsPolicy",
+        "import com.openjarvis.voice.TurkishTtsStatus",
+    )
+    if voice_import_anchor not in s:
+        raise SystemExit("VoiceCommandActivity.kt: SpeechRecognizer import not found for TTS status imports")
+    missing_voice_imports = [item for item in required_voice_imports if item not in s]
+    if missing_voice_imports:
+        s = s.replace(
+            voice_import_anchor,
+            voice_import_anchor + "\n" + "\n".join(missing_voice_imports),
+            1
+        )
+
+    anchor = "                val agentState by agent.state.collectAsState()"
+    replacement = anchor + "\n                val ttsStatus by voice.ttsStatus.collectAsState()"
+    if "val ttsStatus by voice.ttsStatus.collectAsState()" not in s:
+        if anchor not in s:
+            raise SystemExit("VoiceCommandActivity.kt: agent state anchor not found")
+        s = s.replace(anchor, replacement, 1)
+
+    ui_anchor = "                    Text(message, style = MaterialTheme.typography.bodyLarge, color = Color.White)"
+    ui_block = """                    Text(message, style = MaterialTheme.typography.bodyLarge, color = Color.White)
+                    when (val ttsState = ttsStatus) {
+                        TurkishTtsStatus.Initializing -> Text(
+                            TurkishTtsPolicy.messageFor(ttsState),
+                            color = Color(0xFFB7AFC1)
+                        )
+                        is TurkishTtsStatus.Ready -> Text(
+                            "Türkçe ses hazır · " + ttsState.voiceLocale,
+                            color = Color(0xFF66D6A4)
+                        )
+                        TurkishTtsStatus.TurkishVoiceMissing,
+                        TurkishTtsStatus.InitializationFailed -> Column {
+                            Text(TurkishTtsPolicy.messageFor(ttsState), color = Color(0xFFFFC38A))
+                            OutlinedButton(
+                                onClick = {
+                                    val opened = runCatching {
+                                        startActivity(Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA))
+                                    }.isSuccess
+                                    if (!opened) {
+                                        android.widget.Toast.makeText(
+                                            this@VoiceCommandActivity,
+                                            "Android Türkçe ses verisi ekranı açılamadı. Ayarlar > Metin okuma bölümünü kontrol et.",
+                                            android.widget.Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("Türkçe ses verisini aç") }
+                        }
+                        TurkishTtsStatus.Released -> Unit
+                    }"""
+    if "Türkçe ses verisini aç" not in s:
+        if ui_anchor not in s:
+            raise SystemExit("VoiceCommandActivity.kt: message UI anchor not found")
+        s = s.replace(ui_anchor, ui_block, 1)
+
+    if "override fun onDestroy()" not in s:
+        closing = s.rfind("}")
+        if closing < 0:
+            raise SystemExit("VoiceCommandActivity.kt: class closing brace not found")
+        s = s[:closing] + """    override fun onDestroy() {
+        if (::recognizer.isInitialized) {
+            runCatching { recognizer.cancel() }
+            runCatching { recognizer.destroy() }
+        }
+        if (::voice.isInitialized) voice.release()
+        super.onDestroy()
+    }
+""" + s[closing:]
+    return s
+
+edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", add_turkish_tts_status_ui)
+
+def release_settings_voice_manager(s):
+    if "override fun onDestroy()" in s:
+        return s
+    closing = s.rfind("}")
+    if closing < 0:
+        raise SystemExit("SettingsActivity.kt: class closing brace not found")
+    return s[:closing] + """    override fun onDestroy() {
+        if (::voiceManager.isInitialized) voiceManager.release()
+        super.onDestroy()
+    }
+""" + s[closing:]
+
+edit("app/src/main/java/com/openjarvis/ui/SettingsActivity.kt", release_settings_voice_manager)
+
+def release_one_shot_watch_voice(s):
+    old = "                com.openjarvis.voice.VoiceManager(context).speak(watchAction.template)"
+    new = """                com.openjarvis.voice.VoiceManager(context).let { manager ->
+                    manager.speak(watchAction.template) { manager.release() }
+                }"""
+    return s.replace(old, new, 1) if old in s else s
+
+edit("app/src/main/java/com/openjarvis/watch/ScreenWatcher.kt", release_one_shot_watch_voice)
+print("Installed Turkish-only TTS selection, truthful readiness UI and owner lifecycle cleanup (issue #28)")
+
+
+
+# Issue #14: provider/MCP HTTP logging must never expose URLs, credentials or content.
+security_root = Path(__file__).resolve().parent.parent / "features" / "security-log-redaction"
+
+http_client_path = root / "app/src/main/java/com/openjarvis/llm/HttpClient.kt"
+http_client_path.write_text("""package com.openjarvis.llm
+
+import okhttp3.ConnectionPool
+import okhttp3.Interceptor
+import okhttp3.OkHttpClient
+import okhttp3.Response
+import java.io.IOException
+import java.util.concurrent.TimeUnit
+
+/**
+ * Allowlisted HTTP diagnostics: only method and response status are observable.
+ * URL/path/query, headers, request/response bodies and exception messages are never emitted.
+ */
+internal class SafeHttpMetadataInterceptor(
+    private val logSink: (String) -> Unit
+) : Interceptor {
+    override fun intercept(chain: Interceptor.Chain): Response {
+        val request = chain.request()
+        return try {
+            val response = chain.proceed(request)
+            logSink("HTTP " + request.method + " " + response.code)
+            response
+        } catch (error: IOException) {
+            logSink("HTTP " + request.method + " failed")
+            throw error
+        }
+    }
+}
+
+object HttpClient {
+    val client: OkHttpClient by lazy { buildClient() }
+
+    /**
+     * The same variant-independent client policy is used by debug and release.
+     * Production callers use the no-op sink; tests may inject a capture sink.
+     */
+    internal fun buildClient(
+        connectTimeoutSeconds: Long = 10,
+        readTimeoutSeconds: Long = 30,
+        writeTimeoutSeconds: Long = 10,
+        logSink: (String) -> Unit = {}
+    ): OkHttpClient {
+        return OkHttpClient.Builder()
+            .connectionPool(
+                ConnectionPool(
+                    maxIdleConnections = 5,
+                    keepAliveDuration = 5,
+                    timeUnit = TimeUnit.MINUTES
+                )
+            )
+            .connectTimeout(connectTimeoutSeconds, TimeUnit.SECONDS)
+            .readTimeout(readTimeoutSeconds, TimeUnit.SECONDS)
+            .writeTimeout(writeTimeoutSeconds, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .addInterceptor(SafeHttpMetadataInterceptor(logSink))
+            .build()
+    }
+}
+""")
+
+gemini_provider_path = root / "app/src/main/java/com/openjarvis/llm/providers/GeminiProvider.kt"
+gemini_provider_path.write_text("""package com.openjarvis.llm.providers
+
+import com.openjarvis.llm.HttpClient
+import com.openjarvis.llm.LLMProvider
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+
+class GeminiProvider(
+    private val apiKey: String,
+    private val model: String = "gemini-1.5-flash"
+) : LLMProvider {
+
+    override val name: String = "Google Gemini"
+    override val baseUrl: String = "https://generativelanguage.googleapis.com/v1beta"
+
+    override suspend fun complete(
+        systemPrompt: String,
+        userMessage: String
+    ): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val fullPrompt = "$systemPrompt\\n\\nUser: $userMessage"
+            val requestBody = JSONObject().apply {
+                put("contents", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("role", "user")
+                        put("parts", JSONArray().apply {
+                            put(JSONObject().apply { put("text", fullPrompt) })
+                        })
+                    })
+                })
+                put("generationConfig", JSONObject().apply {
+                    put("temperature", 0.1)
+                    put("maxOutputTokens", 1024)
+                })
+            }.toString()
+
+            val request = GeminiRequestFactory.generateContentRequest(
+                baseUrl = baseUrl,
+                model = model,
+                apiKey = apiKey,
+                requestBody = requestBody
+            )
+
+            HttpClient.client.newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: throw Exception("Empty response")
+                val json = JSONObject(body)
+                when {
+                    json.has("candidates") -> json.getJSONArray("candidates")
+                        .getJSONObject(0)
+                        .getJSONObject("content")
+                        .getJSONArray("parts")
+                        .getJSONObject(0)
+                        .getString("text")
+                    json.has("error") -> throw Exception(
+                        json.getJSONObject("error").getString("message")
+                    )
+                    else -> throw Exception("Unknown Gemini response")
+                }
+            }
+        }
+    }
+
+    override suspend fun testConnection(): Result<Long> = withContext(Dispatchers.IO) {
+        runCatching {
+            val startTime = System.currentTimeMillis()
+            val request = GeminiRequestFactory.listModelsRequest(baseUrl, apiKey)
+            HttpClient.client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw Exception("HTTP " + response.code)
+            }
+            System.currentTimeMillis() - startTime
+        }
+    }
+}
+""")
+
+mcp_client_path = root / "app/src/main/java/com/openjarvis/mcp/MCPClient.kt"
+mcp_client_path.write_text("""package com.openjarvis.mcp
+
+import com.openjarvis.llm.HttpClient
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
+
+class MCPClient(
+    val server: MCPServer
+) {
+    private val client = createHttpClient()
+
+    private var isConnected = false
+    private var availableTools = emptyList<MCPTool>()
+
+    suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val requestBody = JSONObject().apply {
+                put("jsonrpc", "2.0")
+                put("id", 1)
+                put("method", "initialize")
+                put("params", JSONObject().apply {
+                    put("protocolVersion", "2024-11-05")
+                    put("capabilities", JSONObject())
+                    put("clientInfo", JSONObject().apply {
+                        put("name", "open-jarvis")
+                        put("version", "1.0.0")
+                    })
+                })
+            }.toString()
+
+            val request = Request.Builder()
+                .url(server.url)
+                .post(requestBody.toRequestBody("application/json".toMediaType()))
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext false
+                val body = response.body?.string() ?: return@withContext false
+                val json = JSONObject(body)
+                if (json.has("error")) return@withContext false
+                isConnected = true
+                true
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    suspend fun listTools(): List<MCPTool> = withContext(Dispatchers.IO) {
+        if (!isConnected) {
+            disconnect()
+            return@withContext emptyList()
+        }
+
+        try {
+            val requestBody = JSONObject().apply {
+                put("jsonrpc", "2.0")
+                put("id", 2)
+                put("method", "tools/list")
+            }.toString()
+
+            val request = Request.Builder()
+                .url(server.url)
+                .post(requestBody.toRequestBody("application/json".toMediaType()))
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: return@withContext emptyList()
+                val json = JSONObject(body)
+                val toolsArray = json.optJSONObject("result")?.optJSONArray("tools")
+                    ?: JSONArray()
+
+                availableTools = (0 until toolsArray.length()).map { index ->
+                    val tool = toolsArray.getJSONObject(index)
+                    MCPTool(
+                        name = tool.getString("name"),
+                        description = tool.optString("description", ""),
+                        inputSchema = tool.optJSONObject("inputSchema")
+                    )
+                }
+                availableTools
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    suspend fun callTool(toolName: String, arguments: JSONObject): String =
+        withContext(Dispatchers.IO) {
+            if (!isConnected) {
+                disconnect()
+                return@withContext "Error: Not connected"
+            }
+
+            try {
+                val requestBody = JSONObject().apply {
+                    put("jsonrpc", "2.0")
+                    put("id", 3)
+                    put("method", "tools/call")
+                    put("params", JSONObject().apply {
+                        put("name", toolName)
+                        put("arguments", arguments)
+                    })
+                }.toString()
+
+                val request = Request.Builder()
+                    .url(server.url)
+                    .post(requestBody.toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                client.newCall(request).execute().use { response ->
+                    val body = response.body?.string()
+                        ?: return@withContext "Error: Empty response"
+                    val json = JSONObject(body)
+                    if (json.has("error")) {
+                        return@withContext "Error: " + json.getJSONObject("error").optString("message")
+                    }
+                    json.optJSONArray("result")
+                        ?.optJSONObject(0)
+                        ?.optString("content")
+                        ?: "Tool executed"
+                }
+            } catch (_: Exception) {
+                "Error: MCP request failed"
+            }
+        }
+
+    fun disconnect() {
+        isConnected = false
+        availableTools = emptyList()
+    }
+
+    fun isConnected(): Boolean = isConnected
+    fun getToolCount(): Int = availableTools.size
+
+    companion object {
+        const val HTTP = "http"
+        const val SSE = "sse"
+
+        internal fun createHttpClient(logSink: (String) -> Unit = {}): OkHttpClient =
+            HttpClient.buildClient(
+                connectTimeoutSeconds = 15,
+                readTimeoutSeconds = 30,
+                writeTimeoutSeconds = 10,
+                logSink = logSink
+            )
+    }
+}
+
+data class MCPServer(
+    val id: String,
+    val name: String,
+    val url: String,
+    val apiKey: String? = null,
+    val enabled: Boolean = true
+)
+
+data class MCPTool(
+    val name: String,
+    val description: String,
+    val inputSchema: JSONObject? = null
+)
+""")
+
+mcp_manager_path = root / "app/src/main/java/com/openjarvis/mcp/MCPManager.kt"
+if mcp_manager_path.exists():
+    manager_text = mcp_manager_path.read_text()
+    manager_text = manager_text.replace("import com.openjarvis.llm.HttpClient" + chr(10), "")
+    mcp_manager_path.write_text(manager_text)
+
+app_gradle_path = root / "app/build.gradle"
+if app_gradle_path.exists():
+    gradle_text = app_gradle_path.read_text()
+    gradle_text = gradle_text.replace(
+        "    implementation 'com.squareup.okhttp3:logging-interceptor:4.12.0'" + chr(10),
+        ""
+    )
+    if "mockwebserver:4.12.0" not in gradle_text:
+        anchor = "    testImplementation 'org.json:json:20231013'" + chr(10)
+        if anchor not in gradle_text:
+            raise SystemExit("Issue #14: app/build.gradle test dependency anchor not found")
+        gradle_text = gradle_text.replace(
+            anchor,
+            anchor + "    testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'" + chr(10),
+            1
+        )
+    app_gradle_path.write_text(gradle_text)
+else:
+    raise SystemExit("Issue #14: app/build.gradle not found")
+
+# Copy the reviewable request factory and regression tests into the extracted Android project.
+if not security_root.exists():
+    raise SystemExit("Issue #14 security-log-redaction overlay is missing")
+for source in sorted(security_root.rglob("*")):
+    if not source.is_file():
+        continue
+    relative = source.relative_to(security_root)
+    destination = root / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(source.read_bytes())
+
+print("Applied Issue #14 provider/MCP HTTP log redaction and sentinel regression tests")
+
+
+# Keep the local Llama provider on the same no-sensitive-logging HTTP policy.
+llama_provider_path = root / "app/src/main/java/com/openjarvis/llm/providers/LlamaProvider.kt"
+llama_text = llama_provider_path.read_text()
+old_llama_client = """    private val client = okhttp3.OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .build()"""
+new_llama_client = """    private val client = HttpClient.buildClient(
+        connectTimeoutSeconds = 30,
+        readTimeoutSeconds = 60,
+        writeTimeoutSeconds = 10
+    )"""
+if old_llama_client in llama_text:
+    llama_text = llama_text.replace(old_llama_client, new_llama_client, 1)
+elif new_llama_client not in llama_text:
+    raise SystemExit("Issue #14: LlamaProvider HTTP client anchor not found")
+llama_text = llama_text.replace("import java.util.concurrent.TimeUnit" + chr(10), "")
+llama_provider_path.write_text(llama_text)
+
+
+# Issue #16: allowlisted Android app launch for typed and recognized Turkish speech.
+app_launch_feature_root = Path(__file__).resolve().parent.parent / "features" / "app-launch"
+if not app_launch_feature_root.is_dir():
+    raise SystemExit("Issue #16 app-launch source overlay is missing")
+
+for source in sorted(app_launch_feature_root.rglob("*.kt")):
+    relative = source.relative_to(app_launch_feature_root)
+    destination = root / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(source.read_bytes())
+
+
+def install_allowlisted_app_dispatcher(s):
+    anchor = "    private val executor = AndroidActionExecutor(context)"
+    property_line = anchor + "\n    private val appLaunchDispatcher = AppLaunchDispatcher(AndroidAppLaunchPlatform(context))"
+    if "private val appLaunchDispatcher = AppLaunchDispatcher" not in s:
+        if anchor not in s:
+            raise SystemExit("DeviceActionCoordinator.kt: executor anchor not found")
+        s = s.replace(anchor, property_line, 1)
+
+    start_marker = "    private suspend fun handleOpenApp("
+    end_marker = "    private suspend fun handleSms("
+    start = s.find(start_marker)
+    end = s.find(end_marker, start)
+    if start < 0 or end < 0:
+        if "suspend fun openApp(appName: String" in s:
+            return s
+        raise SystemExit("DeviceActionCoordinator.kt: app-launch handler boundary not found")
+
+    replacement = """    private suspend fun handleOpenApp(routed: RoutedCommand.OpenApp, command: String, setState: (AgentState) -> Unit) {
+        openApp(routed.appName, command, setState)
+    }
+
+    suspend fun openApp(appName: String, command: String, setState: (AgentState) -> Unit) {
+        setState(AgentState.Running(appName + " için açılış hedefi kontrol ediliyor..."))
+        val result = appLaunchDispatcher.dispatch(appName)
+        when (result) {
+            is AppLaunchResult.LaunchRequested -> {
+                setState(AgentState.Done(AppLaunchMessages.forResult(result)))
+                graphifyRepo.logTask(command, "app launch requested: " + result.packageName, "local-action", 0)
+            }
+            else -> {
+                setState(AgentState.Error(AppLaunchMessages.forResult(result)))
+                logFailure(command, "app launch rejected")
+            }
+        }
+    }
+
+"""
+    s = s[:start] + replacement + s[end:]
+    return s
+
+
+edit("app/src/main/java/com/openjarvis/commands/DeviceActionCoordinator.kt", install_allowlisted_app_dispatcher)
+
+
+def remove_unrestricted_app_launch_helpers(s):
+    start = s.find("    fun resolveAppPackage(label: String): String? {")
+    if start >= 0:
+        end = s.rfind("\n}")
+        if end < start:
+            raise SystemExit("AndroidActionExecutor.kt: class closing brace not found")
+        s = s[:start] + s[end:]
+    return s
+
+
+edit("app/src/main/java/com/openjarvis/commands/AndroidActionExecutor.kt", remove_unrestricted_app_launch_helpers)
+
+
+def route_model_app_launch_through_allowlist(s):
+    old = """                Action.OPEN_APP -> {
+                    val label = action.label
+                    if (label != null) {
+                        val packageName = findPackageByLabel(label)
+                        if (packageName != null) {
+                            JarvisAccessibilityService.instance?.openAppByPackage(packageName)
+                            graphifyRepo.logAppOpened(packageName, label)
+                        } else {
+                            _state.value = AgentState.Error("App not found: $label")
+                            return
+                        }
+                    }
+                }"""
+    new = """                Action.OPEN_APP -> {
+                    val requestedName = action.label ?: action.packageName
+                    if (requestedName.isNullOrBlank()) {
+                        _state.value = AgentState.Error("Açılacak uygulamanın adı eksik.")
+                        return
+                    }
+                    deviceActions.openApp(requestedName, "uygulama aç: " + requestedName) { newState ->
+                        _state.value = newState
+                    }
+                    if (_state.value is AgentState.Error) return
+                }"""
+    if old in s:
+        s = s.replace(old, new, 1)
+    elif "deviceActions.openApp(requestedName" not in s:
+        raise SystemExit("AgentCore.kt: OPEN_APP branch not found")
+
+    start = s.find("    private fun findPackageByLabel(label: String): String? {")
+    if start >= 0:
+        end_marker = "    /** Confirms the pending device action"
+        end = s.find(end_marker, start)
+        if end < 0:
+            raise SystemExit("AgentCore.kt: app resolver end marker not found")
+        s = s[:start] + s[end:]
+
+    for import_line in (
+        "import android.content.Intent\n",
+        "import android.content.pm.PackageManager\n",
+        "import android.content.pm.ResolveInfo\n"
+    ):
+        s = s.replace(import_line, "")
+    return s
+
+
+edit("app/src/main/java/com/openjarvis/agent/AgentCore.kt", route_model_app_launch_through_allowlist)
+
+
+def install_shared_app_launch_input_adapters(s):
+    imports = (
+        "import com.openjarvis.commands.AndroidAppLaunchPlatform",
+        "import com.openjarvis.commands.AppLaunchCommandEntryPoint",
+        "import com.openjarvis.commands.AppLaunchDispatcher",
+        "import com.openjarvis.commands.AppLaunchInputAdapter",
+        "import com.openjarvis.commands.AppLaunchMessages",
+    )
+    anchor = "import com.openjarvis.agent.AgentState"
+    if anchor not in s:
+        raise SystemExit("VoiceCommandActivity.kt: AgentState import anchor not found")
+    missing = [item for item in imports if item not in s]
+    if missing:
+        s = s.replace(anchor, anchor + "\n" + "\n".join(missing), 1)
+
+    property_anchor = "    private lateinit var voice: VoiceManager\n"
+    property = property_anchor + "    private lateinit var appLaunchInputAdapter: AppLaunchInputAdapter\n"
+    if "private lateinit var appLaunchInputAdapter: AppLaunchInputAdapter" not in s:
+        if property_anchor not in s:
+            raise SystemExit("VoiceCommandActivity.kt: VoiceManager property anchor not found")
+        s = s.replace(property_anchor, property, 1)
+
+    init_anchor = "        voice = VoiceManager(applicationContext)\n"
+    init = init_anchor + """        appLaunchInputAdapter = AppLaunchInputAdapter(
+            AppLaunchCommandEntryPoint(
+                AppLaunchDispatcher(AndroidAppLaunchPlatform(this))
+            )
+        )
+"""
+    if "appLaunchInputAdapter = AppLaunchInputAdapter(" not in s:
+        if init_anchor not in s:
+            raise SystemExit("VoiceCommandActivity.kt: VoiceManager initialization anchor not found")
+        s = s.replace(init_anchor, init, 1)
+
+    speech_old = "submitCommand(text) { message = it }"
+    speech_new = "submitRecognizedSpeechCommand(text) { message = it }"
+    if speech_old in s:
+        s = s.replace(speech_old, speech_new, 1)
+    elif speech_new not in s:
+        raise SystemExit("VoiceCommandActivity.kt: recognized-speech submit anchor not found")
+
+    typed_old = "submitCommand(command.trim()) { message = it }"
+    typed_new = "submitTypedCommand(command.trim()) { message = it }"
+    if typed_old in s:
+        s = s.replace(typed_old, typed_new, 1)
+    elif typed_new not in s:
+        raise SystemExit("VoiceCommandActivity.kt: typed submit anchor not found")
+
+    if "private fun submitTypedCommand(" not in s:
+        closing = s.rfind("}")
+        if closing < 0:
+            raise SystemExit("VoiceCommandActivity.kt: class closing brace not found")
+        helpers = """
+    private fun submitTypedCommand(text: String, updateStatus: (String) -> Unit) {
+        val result = appLaunchInputAdapter.fromTypedInput(text)
+        if (result != null) {
+            updateStatus(AppLaunchMessages.forResult(result))
+            return
+        }
+        submitCommand(text, updateStatus)
+    }
+
+    private fun submitRecognizedSpeechCommand(text: String, updateStatus: (String) -> Unit) {
+        val result = appLaunchInputAdapter.fromRecognizedSpeech(text)
+        if (result != null) {
+            updateStatus(AppLaunchMessages.forResult(result))
+            return
+        }
+        submitCommand(text, updateStatus)
+    }
+"""
+        s = s[:closing] + helpers + s[closing:]
+    return s
+
+
+edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", install_shared_app_launch_input_adapters)
+print("Installed Issue #16 allowlisted app launch dispatcher and shared typed/speech input adapters")
+
+# Feature-owned DownloadService lifecycle replacement. Manifest permissions and service type
+# remain in the infrastructure-owned integration audit.
+download_service_feature_root = Path(__file__).resolve().parent.parent / "features" / "download-service"
+if not download_service_feature_root.is_dir():
+    raise SystemExit("DownloadService lifecycle source overlay is missing")
+
+for source in sorted(download_service_feature_root.rglob("*.kt")):
+    relative = source.relative_to(download_service_feature_root)
+    destination = root / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(source.read_bytes())
+
+print("Installed DownloadService startId/generation lifecycle guard")
+
+
+# Compose UI assertions for the task review vs external-action approval states.
+def task_compose_test_dependencies(s):
+    if "androidx.compose.ui:ui-test-junit4" in s:
+        return s
+    anchor = "    androidTestImplementation 'androidx.test:runner:1.5.2'"
+    if anchor not in s:
+        raise SystemExit("app/build.gradle: AndroidX test runner dependency anchor not found")
+    return s.replace(
+        anchor,
+        anchor + "\n    androidTestImplementation platform('androidx.compose:compose-bom:2023.10.01')"
+        + "\n    androidTestImplementation 'androidx.compose.ui:ui-test-junit4'",
+        1
+    )
+
+edit("app/build.gradle", task_compose_test_dependencies)
+
+
+
+# Issue #8: route typed and recognized Turkish CREATE_VIDEO intents through the durable task gate.
+def install_video_command_routing(s):
+    imports = [
+        "import com.openjarvis.tasks.JarvisTaskRepository",
+        "import com.openjarvis.video.VideoCommandOrigin",
+        "import com.openjarvis.video.VideoCommandRouter",
+        "import java.util.UUID",
+    ]
+    anchor = "import com.openjarvis.agent.AgentState"
+    if anchor not in s:
+        raise SystemExit("VoiceCommandActivity.kt: video command import anchor not found")
+    missing = [item for item in imports if item not in s]
+    if missing:
+        s = s.replace(anchor, anchor + "\n" + "\n".join(missing), 1)
+
+    typed_anchor = """    private fun submitTypedCommand(text: String, updateStatus: (String) -> Unit) {
+        val result = appLaunchInputAdapter.fromTypedInput(text)"""
+    typed_replacement = """    private fun submitTypedCommand(text: String, updateStatus: (String) -> Unit) {
+        if (submitVideoCommandIfMatched(text, VideoCommandOrigin.TYPED, updateStatus)) return
+        val result = appLaunchInputAdapter.fromTypedInput(text)"""
+    if typed_anchor in s:
+        s = s.replace(typed_anchor, typed_replacement, 1)
+    elif "submitVideoCommandIfMatched(text, VideoCommandOrigin.TYPED" not in s:
+        raise SystemExit("VoiceCommandActivity.kt: typed video routing anchor not found")
+
+    speech_anchor = """    private fun submitRecognizedSpeechCommand(text: String, updateStatus: (String) -> Unit) {
+        val result = appLaunchInputAdapter.fromRecognizedSpeech(text)"""
+    speech_replacement = """    private fun submitRecognizedSpeechCommand(text: String, updateStatus: (String) -> Unit) {
+        if (submitVideoCommandIfMatched(text, VideoCommandOrigin.RECOGNIZED_SPEECH, updateStatus)) return
+        val result = appLaunchInputAdapter.fromRecognizedSpeech(text)"""
+    if speech_anchor in s:
+        s = s.replace(speech_anchor, speech_replacement, 1)
+    elif "submitVideoCommandIfMatched(text, VideoCommandOrigin.RECOGNIZED_SPEECH" not in s:
+        raise SystemExit("VoiceCommandActivity.kt: recognized-speech video routing anchor not found")
+
+    property_anchor = "    private lateinit var appLaunchInputAdapter: AppLaunchInputAdapter\n"
+    property = property_anchor + "    private var videoCommandSubmissionInFlight = false\n"
+    if "private var videoCommandSubmissionInFlight = false" not in s:
+        if property_anchor not in s:
+            raise SystemExit("VoiceCommandActivity.kt: app launch adapter property anchor not found")
+        s = s.replace(property_anchor, property, 1)
+
+    if "private fun submitVideoCommandIfMatched(" not in s:
+        closing = s.rfind("}")
+        if closing < 0:
+            raise SystemExit("VoiceCommandActivity.kt: class closing brace not found")
+        helper = """
+    private fun submitVideoCommandIfMatched(
+        text: String,
+        origin: VideoCommandOrigin,
+        updateStatus: (String) -> Unit
+    ): Boolean {
+        val intent = VideoCommandRouter.parse(text, origin) ?: return false
+        val topic = intent.topic
+        if (topic.isNullOrBlank()) {
+            val prompt = "Video konusu eksik. Konuyu da içeren komutu tekrar söyle: İstanbul'un Fethi hakkında video oluştur."
+            updateStatus(prompt)
+            speakAndResume(prompt)
+            return true
+        }
+
+        if (videoCommandSubmissionInFlight) {
+            updateStatus("Video planı zaten kaydediliyor; aynı komut yeniden eklenmedi.")
+            return true
+        }
+        videoCommandSubmissionInFlight = true
+        lifecycleScope.launch {
+            updateStatus("Video planı görev merkezine kaydediliyor…")
+            try {
+                val taskId = JarvisTaskRepository.getInstance(applicationContext).createTask(
+                    goal = "$topic hakkında video oluştur",
+                    idempotencyKey = VideoCommandRouter.requestIdempotencyKey(topic, System.currentTimeMillis())
+                )
+                val message = "“$topic” için video planı kaydedildi. Henüz video oluşturulmadı. Görev kontrol merkezinde planı kabul ettiğinde Türkçe sesli MP4 üretimi başlayacak. Görev kimliği: $taskId"
+                updateStatus(message)
+                speakAndResume(message)
+            } catch (error: Exception) {
+                val message = error.localizedMessage ?: "Video planı kaydedilemedi."
+                updateStatus(message)
+                speakAndResume(message)
+            } finally {
+                videoCommandSubmissionInFlight = false
+            }
+        }
+        return true
+    }
+
+"""
+        s = s[:closing] + helper + s[closing:]
+    return s
+
+edit("app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt", install_video_command_routing)
+print("Installed typed/recognized CREATE_VIDEO routing through plan acceptance and verified local video executor")
+
+
+
+# Architect assignment 20 Nov 2026: install permission-transparent device panels
+# into the immutable extracted host. This block is intentionally idempotent.
+import re
+
+def copy_feature_app_sources(feature_name):
+    feature_root = Path(__file__).resolve().parent.parent / "features" / feature_name
+    if not feature_root.is_dir():
+        raise SystemExit(feature_name + " feature source overlay is missing")
+    copied = 0
+    for source in sorted(feature_root.rglob("*")):
+        if not source.is_file():
+            continue
+        relative = source.relative_to(feature_root)
+        if len(relative.parts) < 3 or relative.parts[0:2] != ("app", "src"):
+            continue
+        if relative.as_posix() == "app/src/main/AndroidManifest.xml":
+            continue
+        is_kotlin = source.suffix == ".kt"
+        is_resource = "res" in relative.parts
+        if not is_kotlin and not is_resource:
+            continue
+        destination = root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        payload = source.read_bytes()
+        if not destination.exists() or destination.read_bytes() != payload:
+            destination.write_bytes(payload)
+        copied += 1
+    print("Installed " + feature_name + " feature sources/resources (" + str(copied) + " files)")
+
+copy_feature_app_sources("device-access")
+copy_feature_app_sources("device-actions")
+
+
+# Merge only the runtime permissions and optional telephony feature required by Contacts/SMS.
+manifest_path = root / "app/src/main/AndroidManifest.xml"
+if not manifest_path.is_file():
+    raise SystemExit("Host AndroidManifest.xml not found")
+manifest_text = manifest_path.read_text(encoding="utf-8")
+
+def insert_manifest_declaration(text, tag, name, extra_attributes=""):
+    pattern = r"<" + tag + r"\b(?=[^>]*android:name=[\"']" + re.escape(name) + r"[\"'])[^>]*>"
+    match = re.search(pattern, text)
+    if match:
+        declaration = match.group(0)
+        if tag == "uses-feature":
+            if re.search(r"android:required=[\"']true[\"']", declaration):
+                declaration = re.sub(
+                    r"android:required=[\"']true[\"']",
+                    'android:required="false"',
+                    declaration,
+                    count=1
+                )
+                text = text[:match.start()] + declaration + text[match.end():]
+            elif "android:required=" not in declaration:
+                declaration = declaration[:-1] + ' android:required="false">'
+                text = text[:match.start()] + declaration + text[match.end():]
+        return text
+    application = re.search(r"<application\b", text)
+    if not application:
+        raise SystemExit("Host manifest application element not found")
+    declaration = "    <" + tag + ' android:name="' + name + '"' + extra_attributes + " />\n"
+    return text[:application.start()] + declaration + text[application.start():]
+
+for permission in (
+    "android.permission.READ_CONTACTS",
+    "android.permission.SEND_SMS",
+    "android.permission.POST_NOTIFICATIONS",
+):
+    manifest_text = insert_manifest_declaration(
+        manifest_text, "uses-permission", permission
+    )
+
+manifest_text = insert_manifest_declaration(
+    manifest_text,
+    "uses-feature",
+    "android.hardware.telephony.messaging",
+    ' android:required="false"'
+)
+if manifest_path.read_text(encoding="utf-8") != manifest_text:
+    manifest_path.write_text(manifest_text, encoding="utf-8")
+print("Merged only READ_CONTACTS, SEND_SMS and optional telephony messaging declarations")
+
+
+# The host already uses Compose/Room/WorkManager. Add activity-compose only if absent.
+gradle_groovy = root / "app/build.gradle"
+gradle_kts = root / "app/build.gradle.kts"
+if gradle_groovy.is_file():
+    gradle_text = gradle_groovy.read_text(encoding="utf-8")
+    if "androidx.activity:activity-compose" not in gradle_text:
+        anchor = "dependencies {"
+        if anchor not in gradle_text:
+            raise SystemExit("app/build.gradle: dependencies block not found")
+        gradle_text = gradle_text.replace(
+            anchor,
+            anchor + "\n    implementation 'androidx.activity:activity-compose:1.8.2'",
+            1
+        )
+        gradle_groovy.write_text(gradle_text, encoding="utf-8")
+elif gradle_kts.is_file():
+    gradle_text = gradle_kts.read_text(encoding="utf-8")
+    if "androidx.activity:activity-compose" not in gradle_text:
+        anchor = "dependencies {"
+        if anchor not in gradle_text:
+            raise SystemExit("app/build.gradle.kts: dependencies block not found")
+        gradle_text = gradle_text.replace(
+            anchor,
+            anchor + '\n    implementation("androidx.activity:activity-compose:1.8.2")',
+            1
+        )
+        gradle_kts.write_text(gradle_text, encoding="utf-8")
+else:
+    raise SystemExit("Host app Gradle file not found")
+
+
+# Wire the panels into the real dashboard entry point; repeated repair runs add nothing twice.
+dashboard_path = root / "app/src/main/java/com/openjarvis/ui/dashboard/DashboardScreen.kt"
+if not dashboard_path.is_file():
+    raise SystemExit("Host DashboardScreen.kt not found")
+dashboard_text = dashboard_path.read_text(encoding="utf-8")
+package_anchor = "package com.openjarvis.ui.dashboard\n"
+panel_imports = (
+    "import com.openjarvis.deviceaccess.capabilities.DeviceCapabilityStatusPanel",
+    "import com.openjarvis.deviceaccess.storage.StorageAccessPanel",
+    "import com.openjarvis.deviceactions.ui.SmsComposePanel",
+    "import com.openjarvis.ui.player.VideoArtifactPlayerPanel",
+)
+missing_imports = [item for item in panel_imports if item not in dashboard_text]
+if missing_imports:
+    if package_anchor not in dashboard_text:
+        raise SystemExit("DashboardScreen package anchor not found")
+    dashboard_text = dashboard_text.replace(
+        package_anchor,
+        package_anchor + "\n" + "\n".join(missing_imports) + "\n",
+        1
+    )
+
+panel_marker = "// JARVIS_DEVICE_FEATURE_PANELS"
+if panel_marker not in dashboard_text:
+    video_anchor = "            VideoMvpPanel(modifier = Modifier.fillMaxWidth())"
+    if video_anchor not in dashboard_text:
+        raise SystemExit("DashboardScreen VideoMvpPanel anchor not found")
+    panel_block = """
+            // JARVIS_DEVICE_FEATURE_PANELS
+            Spacer(modifier = Modifier.height(16.dp))
+            VideoArtifactPlayerPanel(modifier = Modifier.fillMaxWidth())
+            Spacer(modifier = Modifier.height(16.dp))
+            DeviceCapabilityStatusPanel(modifier = Modifier.fillMaxWidth())
+            Spacer(modifier = Modifier.height(16.dp))
+            StorageAccessPanel(modifier = Modifier.fillMaxWidth())
+            Spacer(modifier = Modifier.height(16.dp))
+            SmsComposePanel(modifier = Modifier.fillMaxWidth())
+"""
+    dashboard_text = dashboard_text.replace(
+        video_anchor,
+        video_anchor + panel_block,
+        1
+    )
+
+dashboard_path.write_text(dashboard_text, encoding="utf-8")
+print("Wired embedded video player, capability status, SAF files and contact-first SMS into DashboardScreen")
+
+# Register the embedded-player test host only in the extracted host's DEBUG app manifest.
+# The Activity class is copied from the Feature-owned ui/player source by the video-mvp Kotlin
+# overlay above. Keeping its declaration in src/debug prevents it from being launchable in Release.
+player_test_activity = "com.openjarvis.ui.player.DashboardPlayerTestActivity"
+player_test_activity_source = (
+    video_feature_root
+    / "app/src/main/java/com/openjarvis/ui/player/DashboardPlayerTestActivity.kt"
+)
+if not player_test_activity_source.is_file():
+    raise SystemExit("Feature-owned debug player host Activity source is missing")
+player_test_activity_source_text = player_test_activity_source.read_text(encoding="utf-8")
+if "class DashboardPlayerTestActivity" not in player_test_activity_source_text:
+    raise SystemExit("Player test host source does not declare DashboardPlayerTestActivity")
+if "InstrumentationRegistry" in player_test_activity_source_text or "androidx.test" in player_test_activity_source_text:
+    raise SystemExit("Debug player host must not depend on androidTest-only APIs")
+
+# Ensure the main-source Kotlin overlay copied the host Activity into the extracted app.
+host_player_activity_source = (
+    root / "app/src/main/java/com/openjarvis/ui/player/DashboardPlayerTestActivity.kt"
+)
+host_player_activity_source.parent.mkdir(parents=True, exist_ok=True)
+player_source_bytes = player_test_activity_source.read_bytes()
+if not host_player_activity_source.is_file() or host_player_activity_source.read_bytes() != player_source_bytes:
+    host_player_activity_source.write_bytes(player_source_bytes)
+
+def ensure_debug_player_activity(manifest_text, activity_name):
+    manifest_match = re.search(r"<manifest\b[^>]*>", manifest_text)
+    if not manifest_match:
+        raise SystemExit("Host debug manifest has no manifest root element")
+    manifest_open = manifest_match.group(0)
+    if "xmlns:android=" not in manifest_open:
+        updated_open = manifest_open[:-1] + ' xmlns:android="http://schemas.android.com/apk/res/android">'
+        manifest_text = (
+            manifest_text[:manifest_match.start()]
+            + updated_open
+            + manifest_text[manifest_match.end():]
+        )
+
+    activity_pattern = re.compile(
+        r"<activity\b(?=[^>]*\bandroid:name\s*=\s*['\"]"
+        + re.escape(activity_name)
+        + r"['\"])[^>]*/?>",
+        re.DOTALL
+    )
+    matches = list(activity_pattern.finditer(manifest_text))
+    if matches:
+        # Collapse any stale duplicate declarations to one private, in-process Activity.
+        for duplicate in reversed(matches[1:]):
+            manifest_text = manifest_text[:duplicate.start()] + manifest_text[duplicate.end():]
+        match = activity_pattern.search(manifest_text)
+        declaration = match.group(0)
+        declaration = re.sub(
+            r"\s+android:exported\s*=\s*(['\"])[^'\"]*\1",
+            "",
+            declaration,
+            count=1
+        )
+        declaration = re.sub(
+            r"\s+android:process\s*=\s*(['\"])[^'\"]*\1",
+            "",
+            declaration,
+            count=1
+        )
+        insertion = declaration.rfind("/>")
+        if insertion < 0:
+            insertion = declaration.rfind(">")
+        declaration = (
+            declaration[:insertion]
+            + ' android:exported="false"'
+            + declaration[insertion:]
+        )
+        # Canonical spacing makes the second repair pass byte-identical.
+        declaration = re.sub(r"[ \t]{2,}", " ", declaration)
+        declaration = re.sub(r"\s*/>", " />", declaration)
+        return (
+            manifest_text[:match.start()]
+            + declaration
+            + manifest_text[match.end():]
+        )
+
+    activity_declaration = (
+        '        <activity android:name="' + activity_name
+        + '" android:exported="false" />\n'
+    )
+    self_closing_application = re.search(r"<application\b[^>]*/>", manifest_text)
+    if self_closing_application:
+        replacement_application = (
+            "    <application>\n"
+            + activity_declaration
+            + "    </application>"
+        )
+        return (
+            manifest_text[:self_closing_application.start()]
+            + replacement_application
+            + manifest_text[self_closing_application.end():]
+        )
+
+    application_open = re.search(r"<application\b[^>]*>", manifest_text)
+    if application_open:
+        application_close = re.search(
+            r"</application\s*>",
+            manifest_text[application_open.end():]
+        )
+        if not application_close:
+            raise SystemExit("Host debug manifest application element is not closed")
+        close_index = application_open.end() + application_close.start()
+        return manifest_text[:close_index] + activity_declaration + manifest_text[close_index:]
+
+    manifest_close = re.search(r"</manifest\s*>", manifest_text)
+    if not manifest_close:
+        raise SystemExit("Host debug manifest has no closing manifest element")
+    application_block = (
+        "    <application>\n"
+        + activity_declaration
+        + "    </application>\n"
+    )
+    return (
+        manifest_text[:manifest_close.start()]
+        + application_block
+        + manifest_text[manifest_close.start():]
+    )
+
+def _debug_player_manifest_regression_test():
+    activity_name = "com.openjarvis.ui.player.DashboardPlayerTestActivity"
+    fixture = (
+        '<manifest><application></application></manifest>\n'
+    )
+    once = ensure_debug_player_activity(fixture, activity_name)
+    twice = ensure_debug_player_activity(once, activity_name)
+    if once != twice or once.count(activity_name) != 1:
+        raise SystemExit("Debug player manifest insertion is not idempotent")
+    if 'android:exported="false"' not in once or "android:process=" in once:
+        raise SystemExit("Debug player Activity must remain private and in-process")
+
+    stale = (
+        '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+        '<application><activity android:name="' + activity_name
+        + '" android:exported="true" android:process=":player" /></application></manifest>'
+    )
+    repaired = ensure_debug_player_activity(stale, activity_name)
+    if (
+        repaired.count(activity_name) != 1
+        or 'android:exported="false"' not in repaired
+        or "android:process=" in repaired
+    ):
+        raise SystemExit("Debug player manifest did not harden an existing Activity declaration")
+
+_debug_player_manifest_regression_test()
+
+debug_manifest_path = root / "app/src/debug/AndroidManifest.xml"
+debug_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+if debug_manifest_path.is_file():
+    debug_manifest_text = debug_manifest_path.read_text(encoding="utf-8")
+else:
+    debug_manifest_text = (
+        '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
+        '    <application>\n'
+        '    </application>\n'
+        '</manifest>\n'
+    )
+repaired_debug_manifest = ensure_debug_player_activity(
+    debug_manifest_text,
+    player_test_activity
+)
+if not debug_manifest_path.is_file() or debug_manifest_path.read_text(encoding="utf-8") != repaired_debug_manifest:
+    debug_manifest_path.write_text(repaired_debug_manifest, encoding="utf-8")
+
+# Remove only the obsolete test-APK declaration from an extracted project previously repaired
+# by an older script revision. Do not touch any other instrumentation manifest entries.
+legacy_test_manifest = root / "app/src/androidTest/AndroidManifest.xml"
+if legacy_test_manifest.is_file():
+    legacy_text = legacy_test_manifest.read_text(encoding="utf-8")
+    legacy_activity_pattern = re.compile(
+        r"\s*<activity\b(?=[^>]*\bandroid:name\s*=\s*['\"]"
+        + re.escape(player_test_activity)
+        + r"['\"])[^>]*/?>",
+        re.DOTALL
+    )
+    cleaned_legacy_text = legacy_activity_pattern.sub("", legacy_text)
+    if cleaned_legacy_text != legacy_text:
+        legacy_test_manifest.write_text(cleaned_legacy_text, encoding="utf-8")
+
+print("Registered the embedded-player test host in the extracted host's debug-only manifest; production and test-APK manifests remain unchanged")
+
+
+
+# Architect-approved 21 Nov 2026: Accessibility and Overlay are optional device
+# capabilities, not prerequisites for opening normal chat, Dashboard or video archive.
+def _kotlin_matching_delimiter(source, opening_index, opening, closing):
+    if opening_index < 0 or opening_index >= len(source) or source[opening_index] != opening:
+        raise ValueError("Kotlin delimiter opening token not found")
+
+    depth = 0
+    index = opening_index
+    state = "code"
+    block_depth = 0
+    while index < len(source):
+        if state == "code":
+            if source.startswith("//", index):
+                state = "line"
+                index += 2
+            elif source.startswith("/*", index):
+                state = "block"
+                block_depth = 1
+                index += 2
+            elif source.startswith('"""', index):
+                state = "raw"
+                index += 3
+            elif source[index] == '"':
+                state = "string"
+                index += 1
+            elif source[index] == "'":
+                state = "char"
+                index += 1
+            elif source[index] == chr(96):
+                state = "backtick"
+                index += 1
+            elif source[index] == opening:
+                depth += 1
+                index += 1
+            elif source[index] == closing:
+                depth -= 1
+                if depth == 0:
+                    return index
+                if depth < 0:
+                    raise ValueError("unbalanced Kotlin closing delimiter")
+                index += 1
+            else:
+                index += 1
+        elif state == "line":
+            if source[index] == "\n":
+                state = "code"
+            index += 1
+        elif state == "block":
+            if source.startswith("/*", index):
+                block_depth += 1
+                index += 2
+            elif source.startswith("*/", index):
+                block_depth -= 1
+                index += 2
+                if block_depth == 0:
+                    state = "code"
+            else:
+                index += 1
+        elif state in ("string", "char"):
+            quote = '"' if state == "string" else "'"
+            if source[index] == "\\":
+                index += 2
+            elif source[index] == quote:
+                state = "code"
+                index += 1
+            else:
+                index += 1
+        elif state == "raw":
+            if source.startswith('"""', index):
+                state = "code"
+                index += 3
+            else:
+                index += 1
+        elif state == "backtick":
+            if source[index] == chr(96):
+                state = "code"
+            index += 1
+
+    if state in ("block", "string", "char", "raw", "backtick"):
+        raise ValueError("unterminated Kotlin lexical construct")
+    raise ValueError("unterminated Kotlin delimiter")
+
+
+def _kotlin_find_next_code_brace(source, start_index):
+    index = start_index
+    state = "code"
+    block_depth = 0
+    while index < len(source):
+        if state == "code":
+            if source.startswith("//", index):
+                state = "line"
+                index += 2
+            elif source.startswith("/*", index):
+                state = "block"
+                block_depth = 1
+                index += 2
+            elif source.startswith('"""', index):
+                state = "raw"
+                index += 3
+            elif source[index] == '"':
+                state = "string"
+                index += 1
+            elif source[index] == "'":
+                state = "char"
+                index += 1
+            elif source[index] == chr(96):
+                state = "backtick"
+                index += 1
+            elif source[index] == "{":
+                return index
+            else:
+                index += 1
+        elif state == "line":
+            if source[index] == "\n":
+                state = "code"
+            index += 1
+        elif state == "block":
+            if source.startswith("/*", index):
+                block_depth += 1
+                index += 2
+            elif source.startswith("*/", index):
+                block_depth -= 1
+                index += 2
+                if block_depth == 0:
+                    state = "code"
+            else:
+                index += 1
+        elif state in ("string", "char"):
+            quote = '"' if state == "string" else "'"
+            if source[index] == "\\":
+                index += 2
+            elif source[index] == quote:
+                state = "code"
+                index += 1
+            else:
+                index += 1
+        elif state == "raw":
+            if source.startswith('"""', index):
+                state = "code"
+                index += 3
+            else:
+                index += 1
+        elif state == "backtick":
+            if source[index] == chr(96):
+                state = "code"
+            index += 1
+
+    if state in ("block", "string", "char", "raw", "backtick"):
+        raise ValueError("unterminated Kotlin lexical construct")
+    return -1
+
+
+def remove_global_accessibility_overlay_gate(source):
+    # Match the actual host gate by its condition, not by the indentation of a preceding
+    # declaration. The immutable source ZIP has inconsistent indentation on that declaration.
+    gate_pattern = re.compile(
+        r"(?m)^(?P<indent>[ \t]*)if[ \t]*\([ \t]*![ \t]*accessibilityEnabled[ \t]*\|\|[ \t]*![ \t]*overlayEnabled[ \t]*\)[ \t]*\{"
+    )
+    gate_matches = list(gate_pattern.finditer(source))
+    if len(gate_matches) > 1:
+        raise SystemExit("MainActivity.kt: multiple global Accessibility/Overlay gates found")
+    if gate_matches:
+        gate_match = gate_matches[0]
+        if_open = gate_match.end() - 1
+        try:
+            if_close = _kotlin_matching_delimiter(source, if_open, "{", "}")
+            else_match = re.match(r"[ \t\r\n]*else[ \t]*\{", source[if_close + 1:])
+            if not else_match:
+                raise ValueError("permission gate else branch not found")
+            else_open = if_close + 1 + else_match.end() - 1
+            else_close = _kotlin_matching_delimiter(source, else_open, "{", "}")
+        except ValueError as error:
+            raise SystemExit("MainActivity.kt: refusing unsafe permission-gate replacement: " + str(error))
+
+        indent = gate_match.group("indent")
+        child = indent + "    "
+        dashboard = "\n".join((
+            indent + "DashboardScreen(",
+            child + "onStartOverlay = { startActivity(Intent(this, VoiceCommandActivity::class.java)) },",
+            child + "onOpenSettings = { openSettings() },",
+            child + "graphifyRepo = graphifyRepo,",
+            child + "modifier = Modifier.fillMaxSize()",
+            indent + ")"
+        ))
+        source = source[:gate_match.start()] + dashboard + source[else_close + 1:]
+    elif re.search(
+        r"if[ \t]*\([ \t]*![ \t]*accessibilityEnabled[ \t]*\|\|[ \t]*![ \t]*overlayEnabled[ \t]*\)",
+        source
+    ):
+        raise SystemExit("MainActivity.kt: unexpected global permission-gate shape")
+
+    # Remove only the obsolete local permission probes after replacing the gate.
+    source = re.sub(
+        r"(?m)^[ \t]*val accessibilityEnabled = isAccessibilityServiceEnabled\(\)[ \t]*\n",
+        "",
+        source
+    )
+    source = re.sub(
+        r"(?m)^[ \t]*val overlayEnabled = Settings\.canDrawOverlays\(this\)[ \t]*\n",
+        "",
+        source
+    )
+
+    helper_start = source.find("\n    private fun isAccessibilityServiceEnabled(): Boolean {")
+    if helper_start >= 0:
+        helper_end = source.find("\n    private fun startOverlayService() {", helper_start)
+        if helper_end < 0:
+            raise SystemExit("MainActivity.kt: optional capability helper end anchor not found")
+        source = source[:helper_start] + source[helper_end:]
+    elif "private fun isAccessibilityServiceEnabled()" in source:
+        raise SystemExit("MainActivity.kt: unexpected accessibility helper shape")
+
+    screen_pattern = re.compile(r"(?m)^@Composable[ \t]*\nfun[ \t]+PermissionScreen[ \t]*\(")
+    screen_matches = list(screen_pattern.finditer(source))
+    if len(screen_matches) > 1:
+        raise SystemExit("MainActivity.kt: multiple PermissionScreen declarations found")
+    if screen_matches:
+        screen_start = screen_matches[0].start()
+        if _kotlin_brace_balance(source[:screen_start]) != 0:
+            raise SystemExit("MainActivity.kt: PermissionScreen is not a top-level declaration")
+        parameter_open = screen_matches[0].end() - 1
+        try:
+            parameter_close = _kotlin_matching_delimiter(source, parameter_open, "(", ")")
+            body_open = _kotlin_find_next_code_brace(source, parameter_close + 1)
+            if body_open < 0:
+                raise ValueError("PermissionScreen body not found")
+            body_close = _kotlin_matching_delimiter(source, body_open, "{", "}")
+        except ValueError as error:
+            raise SystemExit("MainActivity.kt: refusing unsafe PermissionScreen removal: " + str(error))
+
+        body = source[body_open + 1:body_close]
+        if re.search(
+            r"(?m)^(?:@Composable\b|(?:(?:private|internal|public|protected)[ \t]+)?"
+            r"(?:fun|class|object|interface|typealias)\b)",
+            body
+        ):
+            raise SystemExit(
+                "MainActivity.kt: another top-level declaration appears inside PermissionScreen; refusing to truncate source"
+            )
+        source = source[:screen_start] + source[body_close + 1:]
+    elif "PermissionScreen(" in source:
+        raise SystemExit("MainActivity.kt: unexpected PermissionScreen reference remains")
+
+    # These two settings launchers were only reachable from PermissionScreen, which is removed.
+    # The Dashboard capability panel owns the optional, user-invoked settings entry points.
+    for obsolete_method in ("startAccessibilitySettings", "startOverlaySettings"):
+        declaration = re.compile(
+            r"(?m)^[ \t]*private fun " + re.escape(obsolete_method) + r"[ \t]*\([^)]*\)[ \t]*\{"
+        )
+        matches = list(declaration.finditer(source))
+        if len(matches) > 1:
+            raise SystemExit("MainActivity.kt: duplicate obsolete permission launcher: " + obsolete_method)
+        if matches:
+            method_open = source.find("{", matches[0].start(), matches[0].end())
+            try:
+                method_close = _kotlin_matching_delimiter(source, method_open, "{", "}")
+            except ValueError as error:
+                raise SystemExit("MainActivity.kt: refusing unsafe removal of " + obsolete_method + ": " + str(error))
+            source = source[:matches[0].start()] + source[method_close + 1:]
+        elif re.search(r"\b" + re.escape(obsolete_method) + r"\s*\(", source):
+            raise SystemExit("MainActivity.kt: unexpected reference to obsolete permission launcher: " + obsolete_method)
+
+    for import_line in (
+        "import android.content.ComponentName\n",
+        "import android.provider.Settings\n",
+        "import com.openjarvis.accessibility.JarvisAccessibilityService\n",
+        "import com.openjarvis.agent.AgentState\n",
+        "import androidx.compose.ui.platform.LocalContext\n",
+    ):
+        source = source.replace(import_line, "")
+    source = source.replace("                val context = LocalContext.current\n", "")
+
+    if (
+        "isAccessibilityServiceEnabled" in source
+        or "PermissionScreen(" in source
+        or "accessibilityEnabled" in source
+        or "overlayEnabled" in source
+        or "Settings.canDrawOverlays(this)" in source
+        or "startAccessibilitySettings(" in source
+        or "startOverlaySettings(" in source
+    ):
+        raise SystemExit("MainActivity.kt: obsolete global permission-gate references remain")
+    if "DashboardScreen(" not in source:
+        raise SystemExit("MainActivity.kt: permission-independent Dashboard call is missing")
+    return source
+
+def _dashboard_permission_gate_regression_test():
+    fixture = """package com.openjarvis.ui
+import android.content.ComponentName
+import android.content.Intent
+import android.provider.Settings
+import com.openjarvis.accessibility.JarvisAccessibilityService
+import com.openjarvis.agent.AgentState
+import androidx.compose.ui.platform.LocalContext
+
+class MainActivity {
+    fun content() {
+        setContent {
+            OpenJarvisTheme {
+                val context = LocalContext.current
+val accessibilityEnabled = isAccessibilityServiceEnabled()
+                val overlayEnabled = Settings.canDrawOverlays(this)
+
+                val agentState by agentCore.state.collectAsState()
+
+                if (!accessibilityEnabled || !overlayEnabled) {
+                    PermissionScreen(
+                        accessibilityEnabled = accessibilityEnabled,
+                        overlayEnabled = overlayEnabled,
+                        onEnableAccessibility = { startAccessibilitySettings() },
+                        onEnableOverlay = { startOverlaySettings() }
+                    )
+                } else {
+                    DashboardScreen(
+                        onStartOverlay = { startActivity(Intent(this, VoiceCommandActivity::class.java)) },
+                        onOpenSettings = { openSettings() },
+                        graphifyRepo = graphifyRepo,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+        }
+    }
+
+    private fun isAccessibilityServiceEnabled(): Boolean { return false }
+    private fun startAccessibilitySettings() {}
+    private fun startOverlaySettings() {}
+    private fun startOverlayService() {}
+}
+
+@Composable
+fun PermissionScreen() {
+    val literal = "a closing brace } and an opening brace {"
+    // A comment brace must not affect the bounded removal: }
+    if (true) { println("nested } brace") }
+}
+
+@Composable
+fun RetainedStatusPanel() {
+    val literal = "{ trailing declaration must remain }"
+}
+"""
+    once = remove_global_accessibility_overlay_gate(fixture)
+    twice = remove_global_accessibility_overlay_gate(once)
+    if once != twice:
+        raise SystemExit("MainActivity.kt: permission-independent Dashboard repair is not idempotent")
+    if (
+        once.count("DashboardScreen(") != 1
+        or "PermissionScreen(" in once
+        or "isAccessibilityServiceEnabled" in once
+        or "Settings.canDrawOverlays(this)" in once
+        or "onStartOverlay = { startActivity(Intent(this, VoiceCommandActivity::class.java)) }" not in once
+        or "fun RetainedStatusPanel()" not in once
+        or "startAccessibilitySettings(" in once
+        or "startOverlaySettings(" in once
+    ):
+        raise SystemExit("MainActivity.kt: permission-independent Dashboard regression failed")
+
+    malformed = fixture.replace(
+        "    if (true) { println(\"nested } brace\") }\n}\n\n@Composable\nfun RetainedStatusPanel()",
+        "    if (true) { println(\"nested } brace\") }\n\n@Composable\nfun RetainedStatusPanel()",
+        1
+    )
+    try:
+        remove_global_accessibility_overlay_gate(malformed)
+    except SystemExit:
+        pass
+    else:
+        raise SystemExit("MainActivity.kt: malformed PermissionScreen was not rejected fail-closed")
+
+
+_dashboard_permission_gate_regression_test()
+edit("app/src/main/java/com/openjarvis/ui/MainActivity.kt", remove_global_accessibility_overlay_gate)
+print("Removed only the global Accessibility/Overlay launcher gate; optional capability actions remain user-controlled")
+
+repair_marker.write_text(repair_digest + "\n", encoding="utf-8")
+print("OPEN_JARVIS_REPAIR_IDEMPOTENT_MARKER_WRITTEN")
