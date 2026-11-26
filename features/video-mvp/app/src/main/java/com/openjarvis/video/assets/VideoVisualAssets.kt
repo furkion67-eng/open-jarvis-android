@@ -10,6 +10,7 @@ import java.net.URI
 import java.net.URLDecoder
 import java.net.URL
 import java.security.MessageDigest
+import java.time.Instant
 import java.util.Locale
 import java.util.Properties
 
@@ -29,7 +30,13 @@ data class VideoVisualAssetDescriptor(
     val commercialUseAllowed: Boolean = true,
     val derivativesAllowed: Boolean = true,
     val shareAlikeRequired: Boolean = false,
-    val requiredOutputLicense: String? = null
+    val requiredOutputLicense: String? = null,
+    val expectedUploadSha1: String = "",
+    val pinnedPageRevisionTimestamp: String = "",
+    val uploadTimestamp: String = "",
+    val sourceVerificationUrl: String? = null,
+    val sourceVerificationMimeType: String = expectedMimeType,
+    val sourceVerificationMaxBytes: Long = maxBytes
 )
 
 data class VideoAssetAttribution(
@@ -38,6 +45,9 @@ data class VideoAssetAttribution(
     val assetId: String,
     val sha256: String,
     val sourceUrl: String,
+    val sourceUploadSha1: String,
+    val pinnedPageRevisionTimestamp: String,
+    val uploadTimestamp: String,
     val creator: String,
     val licenseId: String,
     val licenseVersion: String,
@@ -55,6 +65,7 @@ data class VideoAssetAttribution(
         if (sceneIndex < 0 || sceneId.isBlank() || assetId.isBlank() ||
             !sha256.matches(Regex("[a-f0-9]{64}")) ||
             !VideoAssetLicensePolicy.isPinnedCommonsSource(sourceUrl) ||
+            !VideoAssetLicensePolicy.isValidUploadEvidence(sourceUploadSha1, pinnedPageRevisionTimestamp, uploadTimestamp) ||
             creator.isBlank() || licenseId.isBlank() || licenseVersion.isBlank() ||
             attributionText.isBlank() ||
             !attributionText.contains(creator) ||
@@ -85,7 +96,9 @@ data class ResolvedSceneVisual(
 data class DownloadedVisualAsset(
     val bytes: ByteArray,
     val mimeType: String,
-    val finalUrl: String
+    val finalUrl: String,
+    val sourceVerificationBytes: ByteArray? = null,
+    val sourceVerificationMimeType: String? = null
 )
 
 data class CachedVisualAsset(
@@ -163,6 +176,13 @@ object VideoAssetLicensePolicy {
             rule.outputLicense == requiredOutputLicense
     }
 
+    fun isValidUploadEvidence(expectedSha1: String, pinnedPageRevisionTimestamp: String, uploadTimestamp: String): Boolean {
+        if (!expectedSha1.matches(Regex("[a-f0-9]{40}"))) return false
+        val pinned = runCatching { Instant.parse(pinnedPageRevisionTimestamp) }.getOrNull() ?: return false
+        val uploaded = runCatching { Instant.parse(uploadTimestamp) }.getOrNull() ?: return false
+        return !uploaded.isAfter(pinned) && !pinned.isAfter(Instant.now())
+    }
+
     fun validate(descriptor: VideoVisualAssetDescriptor) {
         require(descriptor.assetId.matches(Regex("[a-z0-9][a-z0-9-]{4,79}"))) {
             "Görsel varlık kimliği geçersiz."
@@ -181,6 +201,16 @@ object VideoAssetLicensePolicy {
         }
         require(isDownloadForPinnedSource(descriptor.sourceUrl, descriptor.downloadUrl)) {
             "İndirilen dosyanın adı sabitlenmiş Wikimedia kaynak sayfasındaki dosyayla eşleşmiyor."
+        }
+        require(isValidUploadEvidence(descriptor.expectedUploadSha1, descriptor.pinnedPageRevisionTimestamp, descriptor.uploadTimestamp)) {
+            "Sabit Commons sayfa revizyonuna ait özgün yükleme SHA-1 kanıtı eksik veya tarih sırası geçersiz."
+        }
+        val verificationUrl = descriptor.sourceVerificationUrl ?: descriptor.downloadUrl
+        require(isOriginalDownloadUrl(verificationUrl) && isDownloadForPinnedSource(descriptor.sourceUrl, verificationUrl)) {
+            "Özgün dosya doğrulama adresi sabitlenmiş Commons dosyasına bağlı değil."
+        }
+        require(descriptor.sourceVerificationMimeType in setOf("image/jpeg", "image/png", "image/svg+xml") && descriptor.sourceVerificationMaxBytes in 1_024L..5_000_000L) {
+            "Özgün dosya doğrulama biçimi veya boyut sınırı geçersiz."
         }
         require(descriptor.expectedMimeType in ALLOWED_IMAGE_MIME_TYPES) {
             "Görsel biçimi desteklenmiyor."
@@ -287,6 +317,13 @@ object VideoAssetLicensePolicy {
             uri.rawFragment == null
     }
 
+    internal fun isOriginalDownloadUrl(value: String): Boolean {
+        val uri = runCatching { URI(value) }.getOrNull() ?: return false
+        return uri.scheme == "https" && uri.host == "upload.wikimedia.org" &&
+            uri.rawUserInfo == null && (uri.port == -1 || uri.port == 443) &&
+            uri.path.startsWith("/wikipedia/commons/") && !uri.path.contains("/thumb/") && uri.rawFragment == null
+    }
+
     internal fun isValidCacheMetadata(value: String, retrievedAtEpochMs: Long): Boolean {
         val entries = value.split(';')
         if (entries.size != 4) return false
@@ -356,7 +393,11 @@ class VideoVisualAssetResolver(
                 descriptor.sourceUrl,
                 descriptor.creator,
                 descriptor.licenseId,
-                descriptor.licenseVersion
+                descriptor.licenseVersion,
+                descriptor.expectedUploadSha1,
+                descriptor.pinnedPageRevisionTimestamp,
+                descriptor.uploadTimestamp,
+                descriptor.sourceVerificationUrl.orEmpty()
             ).joinToString("|")
         )
         val cached = cache.read(cacheKey, now) ?: run {
@@ -394,6 +435,9 @@ class VideoVisualAssetResolver(
             assetId = descriptor.assetId,
             sha256 = cached.sha256,
             sourceUrl = descriptor.sourceUrl,
+            sourceUploadSha1 = descriptor.expectedUploadSha1,
+            pinnedPageRevisionTimestamp = descriptor.pinnedPageRevisionTimestamp,
+            uploadTimestamp = descriptor.uploadTimestamp,
             creator = descriptor.creator,
             licenseId = descriptor.licenseId,
             licenseVersion = descriptor.licenseVersion,
@@ -424,6 +468,15 @@ class VideoVisualAssetResolver(
         }
         require(downloaded.bytes.isNotEmpty() && downloaded.bytes.size.toLong() <= descriptor.maxBytes) {
             "Görsel boş veya izin verilen boyut sınırını aşıyor."
+        }
+        require((descriptor.sourceVerificationUrl == null) == (downloaded.sourceVerificationBytes == null)) {
+            "Sabit kaynak dosyasının doğrulama baytları eksik veya beklenmedik."
+        }
+        val sourceBytes = downloaded.sourceVerificationBytes ?: downloaded.bytes
+        val sourceMime = downloaded.sourceVerificationMimeType ?: downloaded.mimeType
+        require(sourceMime == descriptor.sourceVerificationMimeType && sourceBytes.isNotEmpty() &&
+            sourceBytes.size.toLong() <= descriptor.sourceVerificationMaxBytes && sha1(sourceBytes) == descriptor.expectedUploadSha1) {
+            "İndirilen özgün dosya, sabit Commons yükleme SHA-1 değeriyle eşleşmiyor."
         }
         val signatureValid = when (downloaded.mimeType) {
             "image/jpeg" -> downloaded.bytes.size >= 3 &&
@@ -592,35 +645,83 @@ class FileVideoVisualAssetCache(
 class WikimediaCommonsVisualAssetDownloader : VideoVisualAssetDownloader {
     override fun download(descriptor: VideoVisualAssetDescriptor): DownloadedVisualAsset {
         VideoAssetLicensePolicy.validate(descriptor)
-        var current = URL(descriptor.downloadUrl)
+        val originalUrl = descriptor.sourceVerificationUrl ?: descriptor.downloadUrl
+        val original = fetch(
+            originalUrl,
+            descriptor.sourceVerificationMimeType,
+            descriptor.sourceVerificationMaxBytes,
+            descriptor,
+            requireOriginal = true
+        )
+        if (sha1(original.bytes) != descriptor.expectedUploadSha1) {
+            throw IOException("Commons özgün yükleme SHA-1 değeri sabit revizyonla eşleşmiyor.")
+        }
+        if (descriptor.sourceVerificationUrl == null) {
+            return DownloadedVisualAsset(original.bytes, original.mimeType, original.finalUrl)
+        }
+        val visual = fetch(
+            descriptor.downloadUrl,
+            descriptor.expectedMimeType,
+            descriptor.maxBytes,
+            descriptor,
+            requireOriginal = false
+        )
+        // Re-check the original after the thumbnail request to close a file-replacement race.
+        val originalAfterThumbnail = fetch(
+            originalUrl,
+            descriptor.sourceVerificationMimeType,
+            descriptor.sourceVerificationMaxBytes,
+            descriptor,
+            requireOriginal = true
+        )
+        if (sha1(originalAfterThumbnail.bytes) != descriptor.expectedUploadSha1 ||
+            sha1(originalAfterThumbnail.bytes) != sha1(original.bytes)) {
+            throw IOException("Commons özgün dosyası küçük resim alınırken değişti; görsel reddedildi.")
+        }
+        return DownloadedVisualAsset(
+            bytes = visual.bytes,
+            mimeType = visual.mimeType,
+            finalUrl = visual.finalUrl,
+            sourceVerificationBytes = originalAfterThumbnail.bytes,
+            sourceVerificationMimeType = originalAfterThumbnail.mimeType
+        )
+    }
+
+    private data class FetchedFile(val bytes: ByteArray, val mimeType: String, val finalUrl: String)
+
+    private fun fetch(
+        initialUrl: String,
+        expectedMimeType: String,
+        maxBytes: Long,
+        descriptor: VideoVisualAssetDescriptor,
+        requireOriginal: Boolean
+    ): FetchedFile {
+        var current = URL(initialUrl)
         repeat(MAX_REDIRECTS + 1) {
-            validateUrl(current, descriptor)
+            validateUrl(current, descriptor, requireOriginal)
             val connection = current.openConnection() as HttpURLConnection
             try {
                 connection.connectTimeout = CONNECT_TIMEOUT_MS
                 connection.readTimeout = READ_TIMEOUT_MS
                 connection.instanceFollowRedirects = false
                 connection.setRequestProperty("User-Agent", USER_AGENT)
-                connection.setRequestProperty("Accept", descriptor.expectedMimeType)
+                connection.setRequestProperty("Accept", expectedMimeType)
                 when (val status = connection.responseCode) {
                     in 300..399 -> {
                         val location = connection.getHeaderField("Location")
                             ?: throw IOException("Wikimedia görsel yönlendirmesi eksik.")
                         current = URL(current, location)
+                        validateUrl(current, descriptor, requireOriginal)
                     }
                     HttpURLConnection.HTTP_OK -> {
-                        val mimeType = connection.contentType
-                            ?.substringBefore(';')
-                            ?.trim()
+                        val mimeType = connection.contentType?.substringBefore(';')?.trim()
                             ?.lowercase(Locale.ROOT)
                             ?: throw IOException("Wikimedia görsel MIME türünü bildirmedi.")
-                        if (mimeType != descriptor.expectedMimeType) {
+                        if (mimeType != expectedMimeType) {
                             throw IOException("Wikimedia beklenmeyen görsel biçimi döndürdü.")
                         }
                         val length = connection.getHeaderFieldLong("Content-Length", -1L)
-                        if (length > descriptor.maxBytes) {
-                            throw IOException("Wikimedia görseli boyut sınırını aşıyor.")
-                        }
+                        if (length > maxBytes) throw IOException("Wikimedia görseli boyut sınırını aşıyor.")
                         val bytes = connection.inputStream.use { input ->
                             val output = ByteArrayOutputStream()
                             val buffer = ByteArray(8_192)
@@ -629,14 +730,12 @@ class WikimediaCommonsVisualAssetDownloader : VideoVisualAssetDownloader {
                                 val count = input.read(buffer)
                                 if (count < 0) break
                                 total += count
-                                if (total > descriptor.maxBytes) {
-                                    throw IOException("Wikimedia görseli boyut sınırını aşıyor.")
-                                }
+                                if (total > maxBytes) throw IOException("Wikimedia görseli boyut sınırını aşıyor.")
                                 output.write(buffer, 0, count)
                             }
                             output.toByteArray()
                         }
-                        return DownloadedVisualAsset(bytes, mimeType, current.toExternalForm())
+                        return FetchedFile(bytes, mimeType, current.toExternalForm())
                     }
                     else -> throw IOException("Wikimedia görseli indirilemedi (HTTP $status).")
                 }
@@ -647,9 +746,19 @@ class WikimediaCommonsVisualAssetDownloader : VideoVisualAssetDownloader {
         throw IOException("Wikimedia görseli için çok fazla yönlendirme yapıldı.")
     }
 
-    private fun validateUrl(url: URL, descriptor: VideoVisualAssetDescriptor) {
-        require(VideoAssetLicensePolicy.isDownloadForPinnedSource(descriptor.sourceUrl, url.toExternalForm())) {
+    private fun validateUrl(url: URL, descriptor: VideoVisualAssetDescriptor, requireOriginal: Boolean) {
+        val value = url.toExternalForm()
+        require(VideoAssetLicensePolicy.isDownloadForPinnedSource(descriptor.sourceUrl, value)) {
             "Wikimedia yönlendirmesi sabitlenmiş dosya adından uzaklaştı."
+        }
+        if (requireOriginal) {
+            require(VideoAssetLicensePolicy.isOriginalDownloadUrl(value)) {
+                "Özgün yükleme doğrulaması küçük resim veya farklı bir host üzerinden yapılamaz."
+            }
+        } else {
+            require(VideoAssetLicensePolicy.isAllowedDownloadUrl(value)) {
+                "Görsel indirme yönlendirmesi izin verilmeyen Wikimedia hostuna geçti."
+            }
         }
     }
 
@@ -671,33 +780,39 @@ object Wikimedia1453AssetCatalog {
             assetId = "commons-constantinople-1453-miniature",
             sceneId = "1453-hook-siege",
             title = "Fall of Constantinople, c. 1455–1500",
-            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/f/fa/Constantinople_1453.jpg?utm_campaign=index&utm_content=original&utm_source=commons.wikimedia.org",
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/f/fa/Constantinople_1453.jpg",
             sourceUrl = "https://commons.wikimedia.org/w/index.php?title=File:Constantinople_1453.jpg&oldid=1222147207",
             creator = "Jean Le Tavernier",
             licenseId = "Public Domain Mark",
             licenseVersion = "1.0",
             licenseUrl = PDM_URL,
             attributionText = "Jean Le Tavernier, “Fall of Constantinople” (c. 1455–1500), Gallica/BnF via Wikimedia Commons; Public Domain Mark 1.0. 9:16 kadraj için kırpıldı. Kaynak: https://commons.wikimedia.org/w/index.php?title=File:Constantinople_1453.jpg&oldid=1222147207 Lisans: https://creativecommons.org/publicdomain/mark/1.0/",
-            expectedMimeType = "image/jpeg"
+            expectedMimeType = "image/jpeg",
+            expectedUploadSha1 = "28aec6604eb74d307dfdf4d530c2382212e09bbd",
+            pinnedPageRevisionTimestamp = "2026-05-29T09:10:49Z",
+            uploadTimestamp = "2023-01-26T14:24:28Z"
         ),
         VideoVisualAssetDescriptor(
             assetId = "commons-mehmed-ii-portrait",
             sceneId = "1453-mehmed",
             title = "The Sultan Mehmet II, Gentile Bellini",
-            downloadUrl = "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/6e/Bellini%2C_Gentile_-_Sultan_Mehmet_II.jpg/960px-Bellini%2C_Gentile_-_Sultan_Mehmet_II.jpg?utm_campaign=index&utm_content=thumbnail&utm_source=commons.wikimedia.org",
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/6/6e/Bellini%2C_Gentile_-_Sultan_Mehmet_II.jpg",
             sourceUrl = "https://commons.wikimedia.org/w/index.php?title=File:Bellini,_Gentile_-_Sultan_Mehmet_II.jpg&oldid=1284749530",
             creator = "Gentile Bellini",
             licenseId = "Public Domain Mark",
             licenseVersion = "1.0",
             licenseUrl = PDM_URL,
             attributionText = "Gentile Bellini, “The Sultan Mehmet II” (c. 1480), Wikimedia Commons; Public Domain Mark 1.0. 9:16 kadraj için kırpıldı. Kaynak: https://commons.wikimedia.org/w/index.php?title=File:Bellini,_Gentile_-_Sultan_Mehmet_II.jpg&oldid=1284749530 Lisans: https://creativecommons.org/publicdomain/mark/1.0/",
-            expectedMimeType = "image/jpeg"
+            expectedMimeType = "image/jpeg",
+            expectedUploadSha1 = "6ce889b4d2b97ff7fffdcafea463e2e49254f1b8",
+            pinnedPageRevisionTimestamp = "2026-10-08T21:43:09Z",
+            uploadTimestamp = "2024-04-28T10:57:43Z"
         ),
         VideoVisualAssetDescriptor(
             assetId = "commons-rumeli-hisari-2025",
             sceneId = "1453-rumeli",
             title = "Rumeli Hisarı Fortress in 2025",
-            downloadUrl = "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/49/Rumeli_Hisar%C4%B1_Fortress_in_2025.jpg/1280px-Rumeli_Hisar%C4%B1_Fortress_in_2025.jpg?utm_campaign=index&utm_content=thumbnail&utm_source=commons.wikimedia.org",
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/4/49/Rumeli_Hisar%C4%B1_Fortress_in_2025.jpg",
             sourceUrl = "https://commons.wikimedia.org/w/index.php?title=File:Rumeli_Hisar%C4%B1_Fortress_in_2025.jpg&oldid=1118525609",
             creator = "mike",
             licenseId = "CC BY-SA",
@@ -706,13 +821,17 @@ object Wikimedia1453AssetCatalog {
             attributionText = "mike, “Rumeli Hisarı Fortress in 2025” (2025), Wikimedia Commons; CC BY-SA 4.0. 9:16 kadraj için kırpıldı; bu görselin uyarlaması CC BY-SA 4.0 ile paylaşılmalıdır. Kaynak: https://commons.wikimedia.org/w/index.php?title=File:Rumeli_Hisar%C4%B1_Fortress_in_2025.jpg&oldid=1118525609 Lisans: https://creativecommons.org/licenses/by-sa/4.0/",
             expectedMimeType = "image/jpeg",
             shareAlikeRequired = true,
-            requiredOutputLicense = "CC BY-SA 4.0"
+            requiredOutputLicense = "CC BY-SA 4.0",
+            maxBytes = 4_900_000L,
+            expectedUploadSha1 = "74395103cd95488caae9454fac23aa2dad9890ef",
+            pinnedPageRevisionTimestamp = "2025-11-19T18:56:30Z",
+            uploadTimestamp = "2025-09-07T14:33:08Z"
         ),
         VideoVisualAssetDescriptor(
             assetId = "commons-1453-siege-map-en",
             sceneId = "1453-halic-map",
             title = "Siege of Constantinople 1453 map-en",
-            downloadUrl = "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a6/Siege_of_Constantinople_1453_map-en.svg/1280px-Siege_of_Constantinople_1453_map-en.svg.png?utm_campaign=index&utm_content=thumbnail&utm_source=commons.wikimedia.org",
+            downloadUrl = "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a6/Siege_of_Constantinople_1453_map-en.svg/1280px-Siege_of_Constantinople_1453_map-en.svg.png",
             sourceUrl = "https://commons.wikimedia.org/w/index.php?title=File:Siege_of_Constantinople_1453_map-en.svg&oldid=1287462680",
             creator = "Sémhur",
             licenseId = "CC BY-SA",
@@ -721,13 +840,19 @@ object Wikimedia1453AssetCatalog {
             attributionText = "Sémhur, “Siege of Constantinople 1453 map-en” (2020), Wikimedia Commons; CC BY-SA 4.0. PNG küçük resmi kullanıldı ve 9:16 kadraj için kırpıldı; bu görselin uyarlaması CC BY-SA 4.0 ile paylaşılmalıdır. Kaynak: https://commons.wikimedia.org/w/index.php?title=File:Siege_of_Constantinople_1453_map-en.svg&oldid=1287462680 Lisans: https://creativecommons.org/licenses/by-sa/4.0/",
             expectedMimeType = "image/png",
             shareAlikeRequired = true,
-            requiredOutputLicense = "CC BY-SA 4.0"
+            requiredOutputLicense = "CC BY-SA 4.0",
+            sourceVerificationUrl = "https://upload.wikimedia.org/wikipedia/commons/a/a6/Siege_of_Constantinople_1453_map-en.svg",
+            sourceVerificationMimeType = "image/svg+xml",
+            sourceVerificationMaxBytes = 300_000L,
+            expectedUploadSha1 = "b5482a15226ada4bdd07780518c13aef2f45c19b",
+            pinnedPageRevisionTimestamp = "2026-10-15T10:24:34Z",
+            uploadTimestamp = "2024-09-18T07:11:01Z"
         ),
         VideoVisualAssetDescriptor(
             assetId = "commons-golden-horn-wall",
             sceneId = "1453-walls",
             title = "Golden Horn Wall",
-            downloadUrl = "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/54/Golden_Horn_Wall.jpg/1280px-Golden_Horn_Wall.jpg?utm_campaign=index&utm_content=thumbnail&utm_source=commons.wikimedia.org",
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/5/54/Golden_Horn_Wall.jpg",
             sourceUrl = "https://commons.wikimedia.org/w/index.php?title=File:Golden_Horn_Wall.jpg&oldid=1237207514",
             creator = "Isabeau",
             licenseId = "CC BY-SA",
@@ -736,7 +861,10 @@ object Wikimedia1453AssetCatalog {
             attributionText = "Isabeau, “Golden Horn Wall” (2018), Wikimedia Commons; CC BY-SA 4.0. 9:16 kadraj için kırpıldı; bu görselin uyarlaması CC BY-SA 4.0 ile paylaşılmalıdır. Kaynak: https://commons.wikimedia.org/w/index.php?title=File:Golden_Horn_Wall.jpg&oldid=1237207514 Lisans: https://creativecommons.org/licenses/by-sa/4.0/",
             expectedMimeType = "image/jpeg",
             shareAlikeRequired = true,
-            requiredOutputLicense = "CC BY-SA 4.0"
+            requiredOutputLicense = "CC BY-SA 4.0",
+            expectedUploadSha1 = "a4840825d4178818dcf4ac5d0b378198f83c48e7",
+            pinnedPageRevisionTimestamp = "2026-06-23T23:09:02Z",
+            uploadTimestamp = "2025-09-17T14:17:45Z"
         )
     )
 
@@ -744,6 +872,113 @@ object Wikimedia1453AssetCatalog {
 
     fun find(assetId: String): VideoVisualAssetDescriptor? = byId[assetId]
 }
+
+object WikimediaSinanAssetCatalog {
+    private const val BY_SA_URL = "https://creativecommons.org/licenses/by-sa/4.0/"
+
+    val assets: List<VideoVisualAssetDescriptor> = listOf(
+        VideoVisualAssetDescriptor(
+            assetId = "commons-sinan-sehzade-minarets",
+            sceneId = "sinan-sehzade",
+            title = "Sehzade Mosque minarets",
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/7/70/Sehzade_Mosque_DSCF3265.jpg",
+            sourceUrl = "https://commons.wikimedia.org/w/index.php?title=File:Sehzade_Mosque_DSCF3265.jpg&oldid=1207014206",
+            creator = "R Prazeres",
+            licenseId = "CC BY-SA",
+            licenseVersion = "4.0",
+            licenseUrl = BY_SA_URL,
+            attributionText = "R Prazeres, Sehzade Mosque minarets; CC BY-SA 4.0. 9:16 kadraj için kırpıldı; uyarlama CC BY-SA 4.0 ile paylaşılmalıdır. Kaynak: https://commons.wikimedia.org/w/index.php?title=File:Sehzade_Mosque_DSCF3265.jpg&oldid=1207014206 Lisans: https://creativecommons.org/licenses/by-sa/4.0/",
+            expectedMimeType = "image/jpeg",
+            shareAlikeRequired = true,
+            requiredOutputLicense = "CC BY-SA 4.0",
+            expectedUploadSha1 = "e516513bd9eb1ba9e46878751476984b5895e331",
+            pinnedPageRevisionTimestamp = "2026-05-02T09:49:35Z",
+            uploadTimestamp = "2022-09-27T06:03:19Z"
+        ),
+        VideoVisualAssetDescriptor(
+            assetId = "commons-sinan-suleymaniye-exterior",
+            sceneId = "sinan-suleymaniye",
+            title = "Süleymaniye Mosque Istanbul",
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/d/d0/S%C3%BCleymaniye_Mosque_Istanbul.JPG",
+            sourceUrl = "https://commons.wikimedia.org/w/index.php?title=File:S%C3%BCleymaniye_Mosque_Istanbul.JPG&oldid=1049867755",
+            creator = "Mattias Hill",
+            licenseId = "CC BY-SA",
+            licenseVersion = "4.0",
+            licenseUrl = BY_SA_URL,
+            attributionText = "Mattias Hill, Süleymaniye Mosque Istanbul; CC BY-SA 4.0. 9:16 kadraj için kırpıldı; uyarlama CC BY-SA 4.0 ile paylaşılmalıdır. Kaynak: https://commons.wikimedia.org/w/index.php?title=File:S%C3%BCleymaniye_Mosque_Istanbul.JPG&oldid=1049867755 Lisans: https://creativecommons.org/licenses/by-sa/4.0/",
+            expectedMimeType = "image/jpeg",
+            maxBytes = 4_400_000L,
+            shareAlikeRequired = true,
+            requiredOutputLicense = "CC BY-SA 4.0",
+            expectedUploadSha1 = "95c5931aca24a2fde8d24ab046a85a920b567c70",
+            pinnedPageRevisionTimestamp = "2025-06-28T07:46:53Z",
+            uploadTimestamp = "2015-05-22T13:14:32Z"
+        ),
+        VideoVisualAssetDescriptor(
+            assetId = "commons-sinan-selimiye-monument",
+            sceneId = "sinan-selimiye",
+            title = "Selimiye Mosque and Mimar Sinan monument",
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/0/09/Selimiye_Mosque_in_Edirne_and_a_monument_to_its_builder%2C_architect_Mimar_Sinan.jpg",
+            sourceUrl = "https://commons.wikimedia.org/w/index.php?title=File:Selimiye_Mosque_in_Edirne_and_a_monument_to_its_builder,_architect_Mimar_Sinan.jpg&oldid=1140027221",
+            creator = "BuhaM",
+            licenseId = "CC BY-SA",
+            licenseVersion = "4.0",
+            licenseUrl = BY_SA_URL,
+            attributionText = "BuhaM, Selimiye Mosque and Mimar Sinan monument; CC BY-SA 4.0. 9:16 kadraj için kırpıldı; uyarlama CC BY-SA 4.0 ile paylaşılmalıdır. Kaynak: https://commons.wikimedia.org/w/index.php?title=File:Selimiye_Mosque_in_Edirne_and_a_monument_to_its_builder,_architect_Mimar_Sinan.jpg&oldid=1140027221 Lisans: https://creativecommons.org/licenses/by-sa/4.0/",
+            expectedMimeType = "image/jpeg",
+            maxBytes = 4_400_000L,
+            shareAlikeRequired = true,
+            requiredOutputLicense = "CC BY-SA 4.0",
+            expectedUploadSha1 = "ab5c598321266333cdaa20e00cd8c00529ca3e3e",
+            pinnedPageRevisionTimestamp = "2026-01-01T15:10:05Z",
+            uploadTimestamp = "2025-06-09T11:20:26Z"
+        ),
+        VideoVisualAssetDescriptor(
+            assetId = "commons-sinan-sculpture",
+            sceneId = "sinan-mimarbasi",
+            title = "Koca Mimar Sinan sculpture",
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/1/18/Koca_Mimar_Sinan.jpg",
+            sourceUrl = "https://commons.wikimedia.org/w/index.php?title=File:Koca_Mimar_Sinan.jpg&oldid=1181793138",
+            creator = "Yahia",
+            licenseId = "CC BY-SA",
+            licenseVersion = "4.0",
+            licenseUrl = BY_SA_URL,
+            attributionText = "Yahia, Koca Mimar Sinan sculpture; CC BY-SA 4.0. Heykel fotoğrafı 9:16 kadraj için kırpıldı; uyarlama CC BY-SA 4.0 ile paylaşılmalıdır. Kaynak: https://commons.wikimedia.org/w/index.php?title=File:Koca_Mimar_Sinan.jpg&oldid=1181793138 Lisans: https://creativecommons.org/licenses/by-sa/4.0/",
+            expectedMimeType = "image/jpeg",
+            shareAlikeRequired = true,
+            requiredOutputLicense = "CC BY-SA 4.0",
+            expectedUploadSha1 = "019896c72049ccf8f7f37d9f0514a71be541285c",
+            pinnedPageRevisionTimestamp = "2026-03-15T22:40:24Z",
+            uploadTimestamp = "2025-06-13T07:31:20Z"
+        ),
+        VideoVisualAssetDescriptor(
+            assetId = "commons-sinan-tomb",
+            sceneId = "sinan-legacy",
+            title = "Mimar Sinan Tomb",
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/2/2c/Mimar_Sinan_Tomb.jpg",
+            sourceUrl = "https://commons.wikimedia.org/w/index.php?title=File:Mimar_Sinan_Tomb.jpg&oldid=1289199267",
+            creator = "Sahar.Ahmed",
+            licenseId = "CC BY-SA",
+            licenseVersion = "4.0",
+            licenseUrl = BY_SA_URL,
+            attributionText = "Sahar.Ahmed, Mimar Sinan Tomb; CC BY-SA 4.0. 9:16 kadraj için kırpıldı; uyarlama CC BY-SA 4.0 ile paylaşılmalıdır. Kaynak: https://commons.wikimedia.org/w/index.php?title=File:Mimar_Sinan_Tomb.jpg&oldid=1289199267 Lisans: https://creativecommons.org/licenses/by-sa/4.0/",
+            expectedMimeType = "image/jpeg",
+            maxBytes = 4_400_000L,
+            shareAlikeRequired = true,
+            requiredOutputLicense = "CC BY-SA 4.0",
+            expectedUploadSha1 = "bda6a4f3949a3c4a2daf731c101a0cd02c4e5927",
+            pinnedPageRevisionTimestamp = "2026-10-19T21:13:14Z",
+            uploadTimestamp = "2018-04-26T10:35:21Z"
+        )
+    )
+
+    private val byId = assets.associateBy { it.assetId }
+
+    fun find(assetId: String): VideoVisualAssetDescriptor? = byId[assetId]
+}
+
+private fun sha1(bytes: ByteArray): String =
+    MessageDigest.getInstance("SHA-1").digest(bytes).toHex()
 
 private fun sha256(value: String): String = sha256(value.toByteArray(Charsets.UTF_8))
 

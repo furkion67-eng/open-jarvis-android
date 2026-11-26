@@ -177,12 +177,50 @@ internal object VideoNarrationTimeline {
             "Türkçe anlatım video süresini aşıyor; daha kısa bir konu metni kullan."
         }
         var cursor = 0L
-        return spokenTexts.mapIndexed { index, text ->
-            val start = cursor
-            cursor += segmentDurationsMs[index]
-            TimedVideoCaption(start, cursor, text)
+        return buildList {
+            spokenTexts.forEachIndexed { index, text ->
+                val chunks = splitReadableCaption(text)
+                val segmentDuration = segmentDurationsMs[index]
+                require(segmentDuration >= chunks.size * MIN_CAPTION_CUE_DURATION_MS) {
+                    "Konuşma, okunabilir altyazı parçaları için yeterli süre vermedi; metni kısalt."
+                }
+                val cueDuration = segmentDuration / chunks.size
+                chunks.forEachIndexed { chunkIndex, chunk ->
+                    val start = cursor
+                    val end = if (chunkIndex == chunks.lastIndex) {
+                        cursor + segmentDuration
+                    } else {
+                        cursor + cueDuration
+                    }
+                    add(TimedVideoCaption(start, end, chunk))
+                    cursor = end
+                }
+            }
         }
     }
+
+    /** Keeps each SRT cue to at most two short lines on a 9:16 phone screen. */
+    private fun splitReadableCaption(text: String): List<String> {
+        val words = text.trim().split(Regex("\\s+"))
+        val chunks = mutableListOf<String>()
+        val current = StringBuilder()
+        words.forEach { word ->
+            require(word.length <= MAX_CAPTION_CHARS) {
+                "Tek bir kelime altyazı genişliğini aşıyor."
+            }
+            if (current.isNotEmpty() && current.length + 1 + word.length > MAX_CAPTION_CHARS) {
+                chunks += current.toString()
+                current.setLength(0)
+            }
+            if (current.isNotEmpty()) current.append(' ')
+            current.append(word)
+        }
+        if (current.isNotEmpty()) chunks += current.toString()
+        return chunks
+    }
+
+    private const val MAX_CAPTION_CHARS = 42
+    private const val MIN_CAPTION_CUE_DURATION_MS = 650L
 }
 internal data class NarratedVideoResult(
     val video: VideoRenderResult,

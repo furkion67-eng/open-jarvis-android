@@ -12,6 +12,7 @@ import com.openjarvis.video.assets.FileVideoVisualAssetCache
 import com.openjarvis.video.assets.VideoAssetAttribution
 import com.openjarvis.video.assets.VideoVisualAssetResolver
 import com.openjarvis.video.assets.Wikimedia1453AssetCatalog
+import com.openjarvis.video.assets.WikimediaSinanAssetCatalog
 import com.openjarvis.video.assets.WikimediaCommonsVisualAssetDownloader
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -67,6 +68,7 @@ class VideoStoryPipeline(context: Context) {
             val assetId = scene.visualAssetId
                 ?: throw VideoRenderException("Sahne için doğrulanmış görsel kimliği eksik.")
             val descriptor = Wikimedia1453AssetCatalog.find(assetId)
+                ?: WikimediaSinanAssetCatalog.find(assetId)
                 ?: throw VideoRenderException("Bu sahne için lisanslı görsel kataloğu bulunamadı.")
             if (descriptor.sceneId != scene.sceneId) {
                 throw VideoRenderException("Görsel ile storyboard sahnesinin kimliği eşleşmiyor.")

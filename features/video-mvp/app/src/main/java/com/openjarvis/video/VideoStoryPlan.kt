@@ -1,5 +1,8 @@
 package com.openjarvis.video
 
+import java.net.URI
+import java.time.LocalDate
+import java.time.ZoneOffset
 import java.util.Locale
 
 data class TimedVideoCaption(
@@ -73,6 +76,11 @@ object VideoStoryQualityPolicy {
         "önce temel soruyu"
     )
 
+    private val trustedResearchPublishers = mapOf(
+        "ttk.gov.tr" to "Türk Tarih Kurumu",
+        "islamansiklopedisi.org.tr" to "TDV İslâm Ansiklopedisi"
+    )
+
     fun validate(plan: VideoStoryPlan) {
         require(plan.hookText.isNotBlank() && plan.hookText.length <= 40) {
             "İlk iki saniye için kısa ve özgün bir kanca gerekli."
@@ -84,10 +92,10 @@ object VideoStoryQualityPolicy {
             "Anlatım ilk iki saniyelik kancayla başlamalı."
         }
         require(plan.scenes.size in 3..6) { "Kaynaklı hikâye 3–6 sahne içermeli." }
-        require(
-            normalizeForComparison(plan.scenes.first().heading) != normalizeForComparison(plan.hookText)
-        ) {
-            "İlk sahne başlığı, ilk iki saniyelik ayrı kancayı tekrar etmemeli."
+        require(plan.scenes.none {
+            normalizeForComparison(it.heading) == normalizeForComparison(plan.hookText)
+        }) {
+            "İlk iki saniyelik kanca sonraki sahne başlıklarında tekrar edilmemeli."
         }
         require(plan.scenes.all { it.sceneId.isNotBlank() && !it.visualAssetId.isNullOrBlank() }) {
             "Her sahneye ayrı bir kaynak görsel bağlanmalı."
@@ -98,8 +106,11 @@ object VideoStoryQualityPolicy {
         require(plan.scenes.map { it.visualAssetId }.distinct().size == plan.scenes.size) {
             "Her sahnede farklı bir görsel kullanılmalı."
         }
-        require(plan.scenes.map { it.caption }.distinct().size == plan.scenes.size) {
-            "Hikâyede yinelenen sahne metni kullanılamaz."
+        require(plan.scenes.map { normalizeForComparison(it.heading) }.distinct().size == plan.scenes.size) {
+            "Noktalama farkıyla yinelenen sahne başlığı kullanılamaz."
+        }
+        require(plan.scenes.map { normalizeForComparison(it.caption) }.distinct().size == plan.scenes.size) {
+            "Noktalama farkıyla yinelenen sahne anlatımı kullanılamaz."
         }
         require(plan.scenes.all { it.claimIds.isNotEmpty() }) {
             "Her sahnenin en az bir doğrulanabilir bilgi kaynağı olmalı."
@@ -109,14 +120,16 @@ object VideoStoryQualityPolicy {
             "Araştırma kaynakları eksik veya yinelenmiş."
         }
         val claimsById = plan.claimSources.associateBy { it.claimId }
+        val usedClaimIds = plan.scenes.flatMap { it.claimIds }.toSet()
+        require(usedClaimIds == claimsById.keys) {
+            "Araştırma kaynakları sahnelere bire bir bağlanmalı; sahipsiz veya eksik kaynak bulunamaz."
+        }
         plan.scenes.forEach { scene ->
             scene.claimIds.forEach { claimId ->
                 val source = claimsById[claimId]
                     ?: throw IllegalArgumentException("Sahne için doğrulanmış kaynak bulunamadı.")
                 require(source.sceneId == scene.sceneId &&
-                    source.sourceUrl.startsWith("https://") &&
-                    source.publisher.isNotBlank() &&
-                    source.checkedOn.isNotBlank() &&
+                    isTrustedResearchSource(source) &&
                     source.supportedClaim.isNotBlank()) {
                     "Sahne kaynağının kimliği veya desteklediği iddia eksik."
                 }
@@ -128,11 +141,39 @@ object VideoStoryQualityPolicy {
         }) {
             "Genel dolgu metni kaynaklı hikâyede kullanılamaz."
         }
+        val durationMs = plan.renderSpec.durationSeconds * 1_000L
+        require(plan.captions.isNotEmpty() && plan.captions.all {
+            it.startMs >= 0L && it.endMs > it.startMs &&
+                it.endMs <= durationMs && it.text.isNotBlank()
+        }) {
+            "Altyazı aralıkları pozitif, metinli ve video süresi içinde olmalı."
+        }
+        require(plan.captions.zipWithNext().all { (current, next) ->
+            next.startMs >= current.endMs
+        }) {
+            "Altyazılar zaman sırasına uymalı ve birbiriyle çakışmamalı."
+        }
         require(plan.captions.firstOrNull()?.let {
             it.startMs == 0L && it.text == plan.hookText && it.endMs in 1L..2_000L
         } == true) {
             "Kanca altyazısı videonun ilk iki saniyesinde başlamalı."
         }
+    }
+
+    private fun isTrustedResearchSource(source: VideoClaimSource): Boolean {
+        val uri = runCatching { URI(source.sourceUrl) }.getOrNull() ?: return false
+        val host = uri.host?.lowercase(Locale.ROOT) ?: return false
+        val expectedPublisher = trustedResearchPublishers[host] ?: return false
+        val checkedDate = runCatching { LocalDate.parse(source.checkedOn) }.getOrNull()
+        val validDate = checkedDate != null && !checkedDate.isAfter(LocalDate.now(ZoneOffset.UTC))
+        return uri.scheme == "https" &&
+            uri.rawUserInfo == null &&
+            (uri.port == -1 || uri.port == 443) &&
+            uri.rawFragment == null &&
+            uri.rawQuery == null &&
+            !uri.path.isNullOrBlank() &&
+            source.publisher == expectedPublisher &&
+            validDate
     }
 
     private fun normalizeForComparison(value: String): String =
@@ -156,14 +197,30 @@ object VideoStoryPlanBuilder {
         "1453"
     )
 
+    private val mimarSinanAliases = listOf(
+        "mimar sinan",
+        "sinan",
+        "şehzade camii",
+        "sehzade camii",
+        "süleymaniye",
+        "suleymaniye",
+        "selimiye"
+    )
+
     fun build(prompt: String): VideoStoryPlan {
         val clean = prompt.trim().take(VideoRenderSpec.MAX_TITLE_LENGTH)
         require(clean.isNotBlank()) { "Video konusu boş olamaz." }
         val normalized = clean.lowercase(Locale.forLanguageTag("tr-TR"))
-        require(istanbulConquestAliases.any(normalized::contains)) {
-            "Bu konu için doğrulanmış araştırma ve lisanslı sahne görselleri bulunamadı. Video üretilmedi."
+        return when {
+            mimarSinanAliases.any(normalized::contains) -> buildMimarSinan()
+            istanbulConquestAliases.any(normalized::contains) -> buildIstanbulConquest()
+            else -> throw IllegalArgumentException(
+                "Bu konu için doğrulanmış araştırma ve lisanslı sahne görselleri bulunamadı. Video üretilmedi."
+            )
         }
+    }
 
+    private fun buildIstanbulConquest(): VideoStoryPlan {
         val hook = "Gemiler karadan Haliç'e!"
         val scenes = listOf(
             VideoScene(
@@ -188,7 +245,7 @@ object VideoStoryPlanBuilder {
                 claimIds = listOf("rumeli-hisari")
             ),
             VideoScene(
-                heading = "Gemiler karadan Haliç'e",
+                heading = "Galata sırtlarından Haliç'e",
                 caption = "Osmanlı gemilerinin bir bölümü karadan Haliç'e indirildi. Kaynaklar gemi sayısı, güzergâh ve sürede farklılaşıyor.",
                 sceneId = "1453-halic-map",
                 visualAssetId = "commons-1453-siege-map-en",
@@ -263,6 +320,115 @@ object VideoStoryPlanBuilder {
             }).joinToString(" "),
             captions = captions,
             sourceLabel = "Türk Tarih Kurumu + TDV İslâm Ansiklopedisi · Wikimedia Commons PD/CC BY-SA",
+            hookText = hook,
+            claimSources = sources
+        )
+        VideoStoryQualityPolicy.validate(plan)
+        plan.renderSpec.copy(requireLicensedVisualAssets = false).validate()
+        return plan
+    }
+
+    private fun buildMimarSinan(): VideoStoryPlan {
+        val hook = "Süleymaniye yedi yılda!"
+        val scenes = listOf(
+            VideoScene(
+                heading = "Kalfalık eseri: Süleymaniye",
+                caption = "Temel töreninden yedi yıl sonra, 15 Ekim 1557'de açıldı. Sinan bu yapıyı kalfalık eseri olarak tanımladı.",
+                sceneId = "sinan-suleymaniye",
+                visualAssetId = "commons-sinan-suleymaniye-exterior",
+                claimIds = listOf("sinan-journeyman")
+            ),
+            VideoScene(
+                heading = "48 yaşında mimarbaşı",
+                caption = "Prut üzerindeki köprüsüyle dikkat çeken Sinan, 48 yaşındayken mimarbaşılığa getirildi.",
+                sceneId = "sinan-mimarbasi",
+                visualAssetId = "commons-sinan-sculpture",
+                claimIds = listOf("sinan-chief-architect")
+            ),
+            VideoScene(
+                heading = "Çıraklık eseri: Şehzade",
+                caption = "Sinan, 1548'de Şehzade Camii'ni tamamladı; bu yapıyı çıraklık eseri diye anlattı.",
+                sceneId = "sinan-sehzade",
+                visualAssetId = "commons-sinan-sehzade-minarets",
+                claimIds = listOf("sinan-apprentice")
+            ),
+            VideoScene(
+                heading = "Ustalık eseri: Selimiye",
+                caption = "Edirne'de II. Selim adına yaptığı Selimiye, Sinan'ın en büyük eseri olarak gösterilir.",
+                sceneId = "sinan-selimiye",
+                visualAssetId = "commons-sinan-selimiye-monument",
+                claimIds = listOf("sinan-master")
+            ),
+            VideoScene(
+                heading = "Süleymaniye'de son iz",
+                caption = "Sinan 1588'de vefat etti. Mezarı, Süleymaniye Külliyesi'nin bir köşesinde bulunuyor.",
+                sceneId = "sinan-legacy",
+                visualAssetId = "commons-sinan-tomb",
+                claimIds = listOf("sinan-legacy")
+            )
+        )
+        val sourceUrl = "https://islamansiklopedisi.org.tr/sinan"
+        val publisher = "TDV İslâm Ansiklopedisi"
+        val checkedOn = "2026-11-23"
+        val sources = listOf(
+            VideoClaimSource(
+                "sinan-apprentice",
+                "sinan-sehzade",
+                sourceUrl,
+                publisher,
+                checkedOn,
+                "Sinan, Şehzade Camii'ni 1548'de tamamladı ve bu yapıyı çıraklık eseri olarak tanımladı."
+            ),
+            VideoClaimSource(
+                "sinan-journeyman",
+                "sinan-suleymaniye",
+                "https://islamansiklopedisi.org.tr/suleymaniye-camii-ve-kulliyesi",
+                publisher,
+                "2026-11-24",
+                "Süleymaniye Camii, temel atıldıktan yedi yıl sonra 15 Ekim 1557'de tamamlandı; Sinan bu yapıyı kalfalık eseri olarak tanımladı."
+            ),
+            VideoClaimSource(
+                "sinan-master",
+                "sinan-selimiye",
+                sourceUrl,
+                publisher,
+                checkedOn,
+                "II. Selim adına Edirne'de yapılan Selimiye, Sinan'ın en büyük eseri olarak gösterilir."
+            ),
+            VideoClaimSource(
+                "sinan-chief-architect",
+                "sinan-mimarbasi",
+                sourceUrl,
+                publisher,
+                checkedOn,
+                "Sinan, Prut üzerindeki köprü çalışmasından sonra 48 yaşında mimarbaşılığa getirildi."
+            ),
+            VideoClaimSource(
+                "sinan-legacy",
+                "sinan-legacy",
+                sourceUrl,
+                publisher,
+                checkedOn,
+                "Sinan 1588'de vefat etti ve mezarı Süleymaniye Külliyesi'nin bir köşesindedir."
+            )
+        )
+        val captions = buildList {
+            add(TimedVideoCaption(0L, 2_000L, hook))
+            val sceneSpan = (45_000L - 2_000L) / scenes.size
+            scenes.forEachIndexed { index, scene ->
+                val start = 2_000L + index * sceneSpan
+                val spokenText = if (index == 0) scene.caption else scene.heading + ". " + scene.caption
+                add(TimedVideoCaption(start, start + sceneSpan, spokenText))
+            }
+        }
+        val plan = VideoStoryPlan(
+            title = "Mimar Sinan: Üç eser, bir ömür",
+            scenes = scenes,
+            narrationText = (listOf(hook) + scenes.mapIndexed { index, scene ->
+                if (index == 0) scene.caption else scene.heading + ". " + scene.caption
+            }).joinToString(" "),
+            captions = captions,
+            sourceLabel = "TDV İslâm Ansiklopedisi · Wikimedia Commons CC BY-SA 4.0",
             hookText = hook,
             claimSources = sources
         )

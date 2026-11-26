@@ -130,6 +130,53 @@ class VideoNarrationComposerTest {
     }
 
     @Test
+    fun longNarrationIsSplitIntoReadableWordBoundedCuesUsingMeasuredSpeechTime() {
+        val spoken = "Osmanlı gemileri gece boyunca Galata sırtlarından dikkatle Haliç'e indirildi ve savunma hattını şaşırttı."
+        val captions = VideoNarrationTimeline.captionsForSpeechSegments(
+            listOf(spoken),
+            listOf(4_800L),
+            6_000L
+        )
+
+        assertTrue(captions.size > 1)
+        assertTrue(captions.all { it.text.length <= 42 })
+        assertEquals(0L, captions.first().startMs)
+        assertEquals(4_800L, captions.last().endMs)
+        captions.zipWithNext().forEach { (left, right) ->
+            assertEquals(left.endMs, right.startMs)
+        }
+        assertEquals(spoken, captions.joinToString(" ") { it.text })
+    }
+
+    @Test
+    fun narrationFailsClosedWhenReadableCaptionChunksWouldFlashTooQuickly() {
+        val spoken = "Osmanlı gemileri gece boyunca Galata sırtlarından dikkatle Haliç'e indirildi ve savunma hattını şaşırttı."
+        val error = runCatching {
+            VideoNarrationTimeline.captionsForSpeechSegments(
+                listOf(spoken),
+                listOf(1_200L),
+                3_000L
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is IllegalArgumentException)
+    }
+
+    @Test
+    fun shortHookRemainsOneCueAndKeepsItsMeasuredDuration() {
+        val captions = VideoNarrationTimeline.captionsForSpeechSegments(
+            listOf("Gemiler karadan Haliç'e!"),
+            listOf(1_650L),
+            3_000L
+        )
+
+        assertEquals(1, captions.size)
+        assertEquals(0L, captions.single().startMs)
+        assertEquals(1_650L, captions.single().endMs)
+        assertEquals("Gemiler karadan Haliç'e!", captions.single().text)
+    }
+
+    @Test
     fun actualTtsVoiceMustBePresentAndExactlyTurkishAfterSelection() {
         assertTrue(!isActualVoiceExactTurkish(null))
         assertTrue(!isActualVoiceExactTurkish(Locale.forLanguageTag("en-US")))

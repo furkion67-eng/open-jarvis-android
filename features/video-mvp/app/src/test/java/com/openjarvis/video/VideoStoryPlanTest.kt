@@ -30,6 +30,52 @@ class VideoStoryPlanTest {
     }
 
     @Test
+    fun mimarSinanCreatesFiveSourceBackedScenesAndFortyFiveSecondDraft() {
+        val plan = VideoStoryPlanBuilder.build("Mimar Sinan")
+        assertEquals(5, plan.scenes.size)
+        assertEquals(45, plan.renderSpec.durationSeconds)
+        assertEquals(720, plan.renderSpec.width)
+        assertEquals(1_280, plan.renderSpec.height)
+        assertEquals(6, plan.captions.size)
+        assertEquals("Süleymaniye yedi yılda!", plan.hookText)
+        assertEquals("sinan-suleymaniye", plan.scenes.first().sceneId)
+        assertEquals("commons-sinan-suleymaniye-exterior", plan.scenes.first().visualAssetId)
+        assertEquals(0L, plan.captions.first().startMs)
+        assertEquals(2_000L, plan.captions.first().endMs)
+        assertEquals(plan.hookText, plan.captions.first().text)
+        assertTrue(plan.narrationText.startsWith(plan.hookText))
+        assertTrue(plan.narrationText.contains("1548"))
+        assertTrue(plan.narrationText.contains("15 Ekim 1557"))
+        assertTrue(plan.narrationText.contains("1588"))
+        assertEquals(5, plan.claimSources.size)
+        val suleymaniyeClaim = plan.claimSources.single { it.claimId == "sinan-journeyman" }
+        assertEquals(
+            "https://islamansiklopedisi.org.tr/suleymaniye-camii-ve-kulliyesi",
+            suleymaniyeClaim.sourceUrl
+        )
+        assertTrue(suleymaniyeClaim.supportedClaim.contains("15 Ekim 1557"))
+        assertTrue(plan.claimSources.filterNot { it.claimId == "sinan-journeyman" }.all {
+            it.sourceUrl == "https://islamansiklopedisi.org.tr/sinan" &&
+                it.publisher == "TDV İslâm Ansiklopedisi"
+        })
+        assertEquals(5, plan.scenes.map { it.visualAssetId }.distinct().size)
+        assertEquals(5, plan.scenes.map { it.sceneId }.distinct().size)
+        assertTrue(plan.scenes.all { it.claimIds.isNotEmpty() && it.visualAssetId != null })
+        assertTrue(plan.sourceLabel.contains("CC BY-SA 4.0"))
+        plan.renderSpec.copy(requireLicensedVisualAssets = false).validate()
+    }
+
+    @Test
+    fun mimarSinanAliasesResolveTheSameCuratedStory() {
+        val canonical = VideoStoryPlanBuilder.build("Mimar Sinan")
+        listOf("Şehzade Camii", "Süleymaniye", "Selimiye").forEach { alias ->
+            val plan = VideoStoryPlanBuilder.build(alias)
+            assertEquals(canonical.title, plan.title)
+            assertEquals(canonical.scenes.map { it.sceneId }, plan.scenes.map { it.sceneId })
+        }
+    }
+
+    @Test
     fun storyQualityRejectsAFirstSceneHeadingThatRepeatsTheSeparateHook() {
         val plan = VideoStoryPlanBuilder.build("İstanbul'un Fethi")
         val repeatedHeading = plan.hookText.removeSuffix("!")
@@ -39,6 +85,73 @@ class VideoStoryPlanTest {
             }
         )
         assertTrue(runCatching { VideoStoryQualityPolicy.validate(invalid) }.isFailure)
+    }
+
+    @Test
+    fun storyQualityRejectsUntrustedResearchHostPublisherAndInvalidCheckDate() {
+        val plan = VideoStoryPlanBuilder.build("İstanbul'un Fethi")
+        val first = plan.claimSources.first()
+        val invalidSources = listOf(
+            first.copy(sourceUrl = "https://islamansiklopedisi.org.tr.evil.example/halic"),
+            first.copy(publisher = "Unverified publisher"),
+            first.copy(checkedOn = "2026-02-31"),
+            first.copy(checkedOn = "2099-01-01")
+        )
+        invalidSources.forEach { invalid ->
+            val invalidPlan = plan.copy(
+                claimSources = plan.claimSources.map {
+                    if (it.claimId == first.claimId) invalid else it
+                }
+            )
+            assertTrue(runCatching { VideoStoryQualityPolicy.validate(invalidPlan) }.isFailure)
+        }
+    }
+
+    @Test
+    fun storyQualityRejectsTheOpeningHookRepeatedByAnyLaterSceneHeading() {
+        val plan = VideoStoryPlanBuilder.build("1453")
+        val invalid = plan.copy(
+            scenes = plan.scenes.toMutableList().also { scenes ->
+                scenes[4] = scenes[4].copy(heading = plan.hookText.removeSuffix("!"))
+            }
+        )
+        assertTrue(runCatching { VideoStoryQualityPolicy.validate(invalid) }.isFailure)
+    }
+
+    @Test
+    fun storyQualityRejectsSceneHeadingsRepeatedWithDifferentPunctuation() {
+        val plan = VideoStoryPlanBuilder.build("1453")
+        val invalid = plan.copy(
+            scenes = plan.scenes.toMutableList().also { scenes ->
+                scenes[1] = scenes[1].copy(heading = scenes[0].heading + "!!!")
+            }
+        )
+        assertTrue(runCatching { VideoStoryQualityPolicy.validate(invalid) }.isFailure)
+    }
+
+    @Test
+    fun storyQualityRejectsSceneCaptionsRepeatedWithDifferentPunctuation() {
+        val plan = VideoStoryPlanBuilder.build("1453")
+        val invalid = plan.copy(
+            scenes = plan.scenes.toMutableList().also { scenes ->
+                scenes[1] = scenes[1].copy(caption = scenes[0].caption + "!!!")
+            }
+        )
+        assertTrue(runCatching { VideoStoryQualityPolicy.validate(invalid) }.isFailure)
+    }
+
+    @Test
+    fun storyQualityRejectsResearchClaimsNotBoundToAnyScene() {
+        val plan = VideoStoryPlanBuilder.build("1453")
+        val orphan = plan.claimSources.first().copy(
+            claimId = "orphan-research-claim",
+            supportedClaim = "Bu kaynak hiçbir sahnede kullanılmamalı."
+        )
+        assertTrue(
+            runCatching {
+                VideoStoryQualityPolicy.validate(plan.copy(claimSources = plan.claimSources + orphan))
+            }.isFailure
+        )
     }
 
     @Test
@@ -104,6 +217,32 @@ class VideoStoryPlanTest {
         assertEquals(2, spec.sceneIndexForFrame(299))
         assertEquals(2, spec.sceneIndexForFrame(478))
         spec.validate()
+    }
+
+    @Test
+    fun storyQualityRejectsOverlappingCaptionIntervals() {
+        val plan = VideoStoryPlanBuilder.build("1453")
+        val invalid = plan.copy(
+            captions = plan.captions.toMutableList().also { cues ->
+                cues[2] = cues[2].copy(startMs = cues[1].endMs - 1L)
+            }
+        )
+        assertTrue(runCatching { VideoStoryQualityPolicy.validate(invalid) }.isFailure)
+    }
+
+    @Test
+    fun storyQualityRejectsCaptionIntervalsOutsideVideoDurationOrBlankText() {
+        val plan = VideoStoryPlanBuilder.build("1453")
+        val beyondDuration = plan.copy(
+            captions = plan.captions.dropLast(1) + plan.captions.last().copy(endMs = 45_001L)
+        )
+        val blankCue = plan.copy(
+            captions = plan.captions.toMutableList().also { cues ->
+                cues[1] = cues[1].copy(text = "  ")
+            }
+        )
+        assertTrue(runCatching { VideoStoryQualityPolicy.validate(beyondDuration) }.isFailure)
+        assertTrue(runCatching { VideoStoryQualityPolicy.validate(blankCue) }.isFailure)
     }
 
     @Test
