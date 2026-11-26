@@ -1,0 +1,6 @@
+diff --git a/app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt b/app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt
+--- a/app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt
++++ b/app/src/main/java/com/openjarvis/ui/VoiceCommandActivity.kt
+@@ -476,1 +476,1 @@
+-                val taskId = JarvisTaskRepository.getInstance(applicationContext).createTask(
++                val taskId = JarvisTaskRepository.getInstanceOnIo(applicationContext).createTask(
