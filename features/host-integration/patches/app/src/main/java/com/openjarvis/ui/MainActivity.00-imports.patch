@@ -1,0 +1,15 @@
+diff --git a/app/src/main/java/com/openjarvis/ui/MainActivity.kt b/app/src/main/java/com/openjarvis/ui/MainActivity.kt
+--- a/app/src/main/java/com/openjarvis/ui/MainActivity.kt
++++ b/app/src/main/java/com/openjarvis/ui/MainActivity.kt
+@@ -9,3 +9,9 @@
+ import androidx.activity.enableEdgeToEdge
++import androidx.lifecycle.lifecycleScope
+ import androidx.compose.foundation.layout.*
++import androidx.compose.material3.*
+ import androidx.compose.runtime.*
++import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.unit.dp
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
