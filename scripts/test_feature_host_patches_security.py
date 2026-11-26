@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+import shutil
 from pathlib import Path
 
 from apply_feature_host_patches import apply_feature_host_patches
@@ -91,7 +92,7 @@ def test_rejects_symlinked_patch_root_and_target_components() -> None:
         real_patches = features / "real-patches"
         real_patches.mkdir()
         linked_patches = features / "host-integration" / "patches"
-        linked_patches.unlink(missing_ok=True)
+        shutil.rmtree(linked_patches)
         linked_patches.symlink_to(real_patches, target_is_directory=True)
         expect_failure("symlinked patch root", lambda: apply_feature_host_patches(project, features))
 
@@ -103,6 +104,7 @@ def test_rejects_symlinked_patch_root_and_target_components() -> None:
         outside = root / "outside"
         outside.mkdir()
         (outside / "MainActivity.kt").write_text("before\n", encoding="utf-8")
+        (ui / "MainActivity.kt").unlink()
         ui.rmdir()
         ui.symlink_to(outside, target_is_directory=True)
         expect_failure("symlinked target parent", lambda: apply_feature_host_patches(project, features))
