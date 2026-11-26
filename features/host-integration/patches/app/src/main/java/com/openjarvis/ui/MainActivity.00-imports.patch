@@ -1,7 +1,7 @@
 diff --git a/app/src/main/java/com/openjarvis/ui/MainActivity.kt b/app/src/main/java/com/openjarvis/ui/MainActivity.kt
 --- a/app/src/main/java/com/openjarvis/ui/MainActivity.kt
 +++ b/app/src/main/java/com/openjarvis/ui/MainActivity.kt
-@@ -9,3 +9,9 @@
+@@ -9,5 +9,11 @@
  import androidx.activity.enableEdgeToEdge
 +import androidx.lifecycle.lifecycleScope
  import androidx.compose.foundation.layout.*
