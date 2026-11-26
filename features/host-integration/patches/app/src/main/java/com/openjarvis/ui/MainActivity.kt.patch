@@ -1,0 +1,62 @@
+diff --git a/app/src/main/java/com/openjarvis/ui/MainActivity.kt b/app/src/main/java/com/openjarvis/ui/MainActivity.kt
+--- a/app/src/main/java/com/openjarvis/ui/MainActivity.kt
++++ b/app/src/main/java/com/openjarvis/ui/MainActivity.kt
+@@ -57,19 +57,39 @@
+-        val graphifyRepo = try {
+-            GraphifyRepository(applicationContext)
+-        } catch (e: Exception) {
+-            android.util.Log.e("OpenJarvis", "Graphify database initialization failed", e)
+-            null
+-        }
+-        
+-        setContent {
+-            OpenJarvisTheme {
+-                
+-                
+-                DashboardScreen(
+-                    onStartOverlay = { startActivity(Intent(this, VoiceCommandActivity::class.java)) },
+-                    onOpenSettings = { openSettings() },
+-                    graphifyRepo = graphifyRepo,
+-                    modifier = Modifier.fillMaxSize()
+-                )
+-            }
+-        }
++        val graphifyRepoState = mutableStateOf<Result<GraphifyRepository>?>(null)
++        lifecycleScope.launch {
++            graphifyRepoState.value = withContext(Dispatchers.IO) {
++                runCatching { GraphifyRepository(applicationContext) }
++            }
++        }
++
++        setContent {
++            OpenJarvisTheme {
++                val repoResult by graphifyRepoState
++                val result = repoResult
++                when {
++                    result == null -> Surface(modifier = Modifier.fillMaxSize()) {
++                        Column(
++                            modifier = Modifier.fillMaxSize().padding(24.dp),
++                            horizontalAlignment = Alignment.CenterHorizontally,
++                            verticalArrangement = Arrangement.Center
++                        ) {
++                            Text("JARVIS", style = MaterialTheme.typography.headlineMedium)
++                            CircularProgressIndicator()
++                            Text("Yerel hafıza hazırlanıyor…")
++                        }
++                    }
++                    result.isFailure -> Surface(modifier = Modifier.fillMaxSize()) {
++                        Text(
++                            text = "Yerel hafıza başlatılamadı.\n" +
++                                (result.exceptionOrNull()?.message ?: "Bilinmeyen hata"),
++                            modifier = Modifier.padding(24.dp)
++                        )
++                    }
++                    else -> DashboardScreen(
++                        onStartOverlay = { startActivity(Intent(this, VoiceCommandActivity::class.java)) },
++                        onOpenSettings = { openSettings() },
++                        graphifyRepo = result.getOrThrow(),
++                        modifier = Modifier.fillMaxSize()
++                    )
++                }
++            }
++        }

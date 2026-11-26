@@ -82,4 +82,21 @@ class ContactResolutionTest {
         )
         assertTrue(useCase.resolve("İpek") is ContactLookupResult.PermissionDenied)
     }
+    @Test
+    fun duplicateContactCandidatesAreOrderedDeterministically() {
+        val duplicateRows = listOf(
+            ContactPhoneRecord(30, "Ali Demir", "+90 555 000 0030", "Cep"),
+            ContactPhoneRecord(10, "Ali Demir", "+90 555 000 0010", "Cep"),
+            ContactPhoneRecord(20, "Ali Demir", "+90 555 000 0020", "Cep")
+        )
+
+        val result = ContactResolver.resolve("Ali Demir", duplicateRows)
+        assertTrue(result is ContactLookupResult.ChooseContact)
+        assertEquals(
+            listOf(10L, 20L, 30L),
+            (result as ContactLookupResult.ChooseContact).candidates.map { it.contactId }
+        )
+    }
+
+
 }

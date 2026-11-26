@@ -148,16 +148,28 @@ class SafStorageGateway(context: Context) {
     fun read(uri: Uri, maxBytes: Int = MAX_READ_BYTES): ByteArray {
         require(maxBytes in 1..MAX_READ_BYTES) { "Dosya okuma sınırı geçersiz." }
         requireAccess(uri, requireWrite = false)
-        val input = resolver.openInputStream(uri)
+        val input = inputStreamOpener(uri)
             ?: throw IOException("Dosya okunamadı veya erişim izni kaldırılmış.")
         return input.use { stream ->
             val output = ByteArrayOutputStream(minOf(maxBytes, 8 * 1024))
             val buffer = ByteArray(8 * 1024)
             var total = 0
             while (true) {
-                val count = stream.read(buffer)
+                // Re-check the persisted SAF authority before every provider read. A revoked
+                // grant must stop the next chunk even if an already-open stream remains usable.
+                requireAccess(uri, requireWrite = false)
+                val remainingBytes = maxBytes - total
+                // Read at most one byte beyond the remaining allowance to detect overflow.
+                val requestedBytes = if (remainingBytes >= buffer.size) {
+                    buffer.size
+                } else {
+                    remainingBytes + 1
+                }
+                val count = stream.read(buffer, 0, requestedBytes)
                 if (count < 0) break
-                if (total + count > maxBytes) throw IOException("Dosya ${maxBytes} bayt sınırını aşıyor; büyük medya belleğe alınmadı.")
+                if (count > remainingBytes) {
+                    throw IOException("Dosya ${maxBytes} bayt sınırını aşıyor; büyük medya belleğe alınmadı.")
+                }
                 output.write(buffer, 0, count)
                 total += count
             }

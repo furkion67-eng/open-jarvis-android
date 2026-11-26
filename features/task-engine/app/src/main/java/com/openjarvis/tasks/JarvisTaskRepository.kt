@@ -1,14 +1,36 @@
 package com.openjarvis.tasks
 
 import android.content.Context
+import android.os.Build
+import android.os.SystemClock
+import android.os.Trace
+import android.util.Log
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 class JarvisTaskRepository(
     private val dao: JarvisTaskDao,
     private val orchestrator: JarvisTaskOrchestrator
 ) {
+    // Each repository owns the recovery gate for its database. Production uses one
+    // process-scoped repository; isolated in-memory test repositories must not share a gate.
+    private val startupRecoveryGate = JarvisStartupRecoveryGate()
     fun observeRecentTasks(limit: Int = 8): Flow<List<JarvisTaskEntity>> = dao.observeRecent(limit)
+
+    /** A bounded page of successful tasks with both persisted video and captions URIs. */
+    fun observeSuccessfulVideoArtifacts(
+        limit: Int = 9,
+        offset: Int = 0
+    ): Flow<List<JarvisTaskEntity>> = dao.observeSuccessfulVideoArtifacts(
+        succeededStatus = JarvisTaskStatus.SUCCEEDED.storageValue,
+        limit = limit.coerceIn(1, 51),
+        offset = offset.coerceAtLeast(0)
+    )
+
+    /** Keeps a selected archive item observable while the user changes archive pages. */
+    fun observeTaskById(id: String): Flow<JarvisTaskEntity?> = dao.observeById(id)
 
     /**
      * Persist a typed device-action result with a fixed summary. Arbitrary caller text is not
@@ -36,10 +58,19 @@ class JarvisTaskRepository(
     fun observeRecentDeviceActionEvents(limit: Int = 20): Flow<List<DeviceActionEventEntity>> =
         dao.observeRecentDeviceActionEvents(limit.coerceIn(1, MAX_DEVICE_ACTION_EVENTS))
 
+    /**
+     * Startup recovery is a repository invariant, not only a Dashboard lifecycle convention.
+     * Every path that can submit or claim task work waits for recovery before changing task state.
+     */
+    private suspend fun ensureStartupRecovery() {
+        recoverInterruptedTasksOnIo(this)
+    }
+
     suspend fun createTask(
         goal: String,
         idempotencyKey: String = UUID.randomUUID().toString()
     ): String {
+        ensureStartupRecovery()
         val normalizedGoal = goal.trim()
         require(normalizedGoal.isNotEmpty()) { "Görev metni boş olamaz." }
         require(normalizedGoal.length <= 1000) { "Görev metni 1000 karakterden kısa olmalı." }
@@ -76,6 +107,7 @@ class JarvisTaskRepository(
 
     /** A plan-review tap is accepted once and never grants an external side-effect approval. */
     suspend fun acceptPlan(id: String) {
+        ensureStartupRecovery()
         val accepted = dao.acceptPlanCheckpoint(
             id = id,
             expectedStatus = JarvisTaskStatus.WAITING_FOR_USER.storageValue,
@@ -88,6 +120,7 @@ class JarvisTaskRepository(
     }
 
     suspend fun retry(id: String) {
+        ensureStartupRecovery()
         val task = dao.findById(id) ?: return
         when (val status = JarvisTaskStatus.fromStorage(task.status)) {
             JarvisTaskStatus.WAITING_FOR_NETWORK,
@@ -142,35 +175,91 @@ class JarvisTaskRepository(
 
     /** Interrupted work is paused, never replayed automatically after process death. */
     suspend fun recoverInterruptedTasks() {
-        val active = dao.findByStatuses(
-            listOf(
+        // The supplied statuses are exactly the state-machine transitions that may become
+        // INTERRUPTED. One SQL update avoids a Room read plus one update per abandoned task.
+        dao.markActiveTasksInterrupted(
+            expectedStatuses = listOf(
                 JarvisTaskStatus.QUEUED.storageValue,
                 JarvisTaskStatus.PLANNING.storageValue,
                 JarvisTaskStatus.RUNNING.storageValue
-            )
+            ),
+            interruptedStatus = JarvisTaskStatus.INTERRUPTED.storageValue,
+            currentStep = "Güvenli kurtarma beklemesi",
+            errorCode = "APP_RESTARTED",
+            errorMessage = "Uygulama yeniden başlatıldı. Yinelenen işlem riski olmaması için görev otomatik yürütülmedi.",
+            updatedAt = System.currentTimeMillis()
         )
-        active.forEach { task ->
-            val status = JarvisTaskStatus.fromStorage(task.status)
-            if (JarvisTaskStateMachine.canTransition(status, JarvisTaskStatus.INTERRUPTED)) {
-                dao.markInterruptedIfCurrent(
-                    id = task.id,
-                    expectedStatus = status.storageValue,
-                    interruptedStatus = JarvisTaskStatus.INTERRUPTED.storageValue,
-                    currentStep = "Güvenli kurtarma beklemesi",
-                    errorCode = "APP_RESTARTED",
-                    errorMessage = "Uygulama yeniden başlatıldı. Yinelenen işlem riski olmaması için görev otomatik yürütülmedi.",
-                    updatedAt = System.currentTimeMillis()
-                )
-            }
-        }
     }
 
     companion object {
         private const val MAX_DEVICE_ACTION_EVENTS = 100
+        private const val STARTUP_RECOVERY_TRACE_COOKIE = 731
 
-        fun getInstance(context: Context): JarvisTaskRepository {
+        private val repositoryBootstrap = JarvisTaskRepositoryBootstrap<JarvisTaskRepository>()
+
+        private fun getInstance(context: Context): JarvisTaskRepository {
             val dao = JarvisTaskDatabase.getInstance(context).taskDao()
             return createWithRegistry(dao, createDefaultRegistry(context.applicationContext))
+        }
+
+        /**
+         * Process-wide single-flight repository construction. This deliberately does not
+         * query Room or recover tasks; Dashboard consumers defer those operations until
+         * after the first visible frame, then call [recoverInterruptedTasksOnIo].
+         */
+        suspend fun getInstanceOnIo(context: Context): JarvisTaskRepository =
+            withContext(Dispatchers.IO) {
+                repositoryBootstrap.getOrCreate {
+                    traceSection("JARVIS.task.repository.bootstrap") {
+                        getInstance(context.applicationContext)
+                    }
+                }
+            }
+
+        /**
+         * Marks abandoned active tasks INTERRUPTED exactly once after the first interactive
+         * frame. This is a state repair only and never replays an executor.
+         */
+        suspend fun recoverInterruptedTasksOnIo(repository: JarvisTaskRepository) =
+            withContext(Dispatchers.IO) {
+                repository.startupRecoveryGate.runOnce {
+                    val recoveryStartedAt = SystemClock.elapsedRealtime()
+                    if (Build.VERSION.SDK_INT >= 29) {
+                        Trace.beginAsyncSection("JARVIS.task.restore", STARTUP_RECOVERY_TRACE_COOKIE)
+                    }
+                    try {
+                        traceSection("JARVIS.task.restore.database") {
+                            repository.recoverInterruptedTasks()
+                        }
+                    } finally {
+                        if (Build.VERSION.SDK_INT >= 29) {
+                            Trace.endAsyncSection("JARVIS.task.restore", STARTUP_RECOVERY_TRACE_COOKIE)
+                        }
+                        val elapsedMs = SystemClock.elapsedRealtime() - recoveryStartedAt
+                        if (elapsedMs > 250L) {
+                            Log.w("JARVISStartup", "task.restore_ms=" + elapsedMs + " budget_ms=250")
+                        }
+                    }
+                }
+            }
+
+        /** Test-only reset paired with [JarvisTaskDatabase.closeInstanceForTesting]. */
+        internal fun resetProcessBootstrapForTesting() {
+            repositoryBootstrap.resetForTesting()
+        }
+
+        private inline fun <T> traceSection(name: String, block: () -> T): T {
+            Trace.beginSection(name)
+            val startedAt = SystemClock.elapsedRealtime()
+            return try {
+                block()
+            } finally {
+                Trace.endSection()
+                val elapsedMs = SystemClock.elapsedRealtime() - startedAt
+                if (elapsedMs > 250L) {
+                    Log.w("JARVISStartup", name + "_ms=" + elapsedMs + " budget_ms=250")
+                }
+            }
         }
 
         /** The production repository and end-to-end tests share this exact capability/executor registration. */
