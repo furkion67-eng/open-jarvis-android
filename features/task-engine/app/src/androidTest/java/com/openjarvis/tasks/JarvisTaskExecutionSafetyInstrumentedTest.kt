@@ -3,12 +3,16 @@ package com.openjarvis.tasks
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -177,6 +181,82 @@ class JarvisTaskExecutionSafetyInstrumentedTest {
         assertEquals(JarvisTaskStatus.SUCCEEDED.storageValue, completed.status)
     }
 
+    @Test
+    fun cancellationDuringPlanPreparationPersistsInterruptedWithoutAutomaticReplay() = runBlocking {
+        val enteredCapability = CompletableDeferred<Unit>()
+        val blockingCapability = object : JarvisTaskCapability {
+            override val id: String = "blocking.plan"
+            override fun supports(goal: String): Boolean = true
+            override suspend fun buildPlan(goal: String): JarvisTaskPlan {
+                enteredCapability.complete(Unit)
+                awaitCancellation()
+            }
+        }
+        val orchestrator = JarvisTaskOrchestrator(
+            dao,
+            JarvisTaskCapabilityRegistry(capabilities = listOf(blockingCapability))
+        )
+        val queued = task(
+            id = "cancelled-plan",
+            status = JarvisTaskStatus.QUEUED,
+            checkpoint = null,
+            planAcceptedAt = null
+        )
+        dao.insert(queued)
+
+        val job = launch { orchestrator.prepare(queued.id) }
+        enteredCapability.await()
+        job.cancelAndJoin()
+
+        val interrupted = dao.findById(queued.id)!!
+        assertEquals(JarvisTaskStatus.INTERRUPTED.storageValue, interrupted.status)
+        assertEquals("PLAN_PREPARATION_CANCELLED", interrupted.errorCode)
+        assertEquals(0, interrupted.progressPercent)
+
+        // Recovery observes only active states and must not restart this cancelled plan.
+        JarvisTaskRepository(dao, orchestrator).recoverInterruptedTasks()
+        assertEquals(JarvisTaskStatus.INTERRUPTED.storageValue, dao.findById(queued.id)!!.status)
+    }
+
+    @Test
+    fun cancellationDuringExecutionPersistsInterruptedUntilExplicitRetry() = runBlocking {
+        val firstCallStarted = CompletableDeferred<Unit>()
+        val executor = CancellingOnceExecutor(firstCallStarted)
+        val registry = JarvisTaskCapabilityRegistry(
+            capabilities = listOf(LocalPlanPreviewCapability()),
+            executors = listOf(executor)
+        )
+        val orchestrator = JarvisTaskOrchestrator(dao, registry)
+        val repository = JarvisTaskRepository(dao, orchestrator)
+        val accepted = task(
+            id = "cancelled-execution",
+            status = JarvisTaskStatus.WAITING_FOR_USER,
+            checkpoint = JarvisTaskCheckpoint.PLAN_REVIEWED,
+            planAcceptedAt = System.currentTimeMillis()
+        )
+        dao.insert(accepted)
+
+        val job = launch { orchestrator.execute(accepted.id) }
+        firstCallStarted.await()
+        job.cancelAndJoin()
+
+        val interrupted = dao.findById(accepted.id)!!
+        assertEquals(JarvisTaskStatus.INTERRUPTED.storageValue, interrupted.status)
+        assertEquals("EXECUTION_CANCELLED", interrupted.errorCode)
+        assertEquals(0, interrupted.progressPercent)
+        assertEquals(1, executor.calls)
+
+        // Startup recovery must not replay a cancellation while the process remains alive.
+        repository.recoverInterruptedTasks()
+        assertEquals(1, executor.calls)
+        assertEquals(JarvisTaskStatus.INTERRUPTED.storageValue, dao.findById(accepted.id)!!.status)
+
+        // A distinct, explicit user retry is the only path that can claim the interrupted task.
+        repository.retry(accepted.id)
+        assertEquals(2, executor.calls)
+        assertEquals(JarvisTaskStatus.SUCCEEDED.storageValue, dao.findById(accepted.id)!!.status)
+    }
+
     private fun orchestrator(executor: RecordingExecutor): JarvisTaskOrchestrator {
         val registry = JarvisTaskCapabilityRegistry(
             capabilities = listOf(LocalPlanPreviewCapability()),
@@ -205,6 +285,31 @@ class JarvisTaskExecutionSafetyInstrumentedTest {
         updatedAt = System.currentTimeMillis(),
         idempotencyKey = "stable-key-" + id
     )
+
+    private class CancellingOnceExecutor(
+        private val firstCallStarted: CompletableDeferred<Unit>
+    ) : JarvisTaskExecutor {
+        override val capabilityId: String = "local.plan-preview"
+        private val callCounter = AtomicInteger()
+        val calls: Int
+            get() = callCounter.get()
+
+        override suspend fun execute(
+            task: JarvisTaskEntity,
+            idempotencyKey: String
+        ): JarvisTaskExecutionResult {
+            val attempt = callCounter.incrementAndGet()
+            if (attempt == 1) {
+                firstCallStarted.complete(Unit)
+                awaitCancellation()
+            }
+            return JarvisTaskExecutionResult(
+                outputSummary = "Test sonucu doğrulandı",
+                evidenceReference = "test://verified/" + task.id,
+                verified = true
+            )
+        }
+    }
 
     private class RecordingExecutor(
         private val failFirst: Boolean = false,

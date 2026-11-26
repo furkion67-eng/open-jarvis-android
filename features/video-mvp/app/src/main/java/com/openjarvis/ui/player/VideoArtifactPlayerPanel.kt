@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
 import android.net.Uri
+import android.os.Trace
 import android.widget.ImageView
 import android.widget.MediaController
 import android.widget.VideoView
@@ -13,7 +14,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -28,17 +32,20 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.openjarvis.tasks.JarvisTaskEntity
 import com.openjarvis.tasks.JarvisTaskRepository
 import com.openjarvis.tasks.JarvisTaskStatus
 import com.openjarvis.tasks.VideoArtifactMetadata
 import com.openjarvis.tasks.VideoArtifactMetadataCodec
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
@@ -91,12 +98,11 @@ internal object VideoArtifactPlaybackValidator {
                 runCatching { retriever.release() }
             }
 
-            val captionsText = context.contentResolver.openInputStream(captionsUri)?.bufferedReader(Charsets.UTF_8)?.use {
-                it.readText()
-            } ?: return PlaybackAvailability.Unavailable("SRT altyazısı artık okunamıyor. İzin kaldırılmış olabilir.")
-            if (captionsText.isBlank() || !captionsText.contains("-->")) {
-                return PlaybackAvailability.Unavailable("SRT altyazı içeriği doğrulanamadı.")
-            }
+            val captionsText = context.contentResolver.openInputStream(captionsUri)?.use { input ->
+                VideoCaptionsContentPolicy.readValidated(input)
+            } ?: return PlaybackAvailability.Unavailable(
+                "SRT altyazısı okunamıyor, bozuk veya 2 MB doğrulama sınırını aşıyor. İzin kaldırılmış olabilir."
+            )
             val thumbnailUri = metadata.thumbnailUri?.let(::parseContentUri)
             val readableThumbnail = thumbnailUri?.takeIf { candidate ->
                 runCatching {
@@ -118,24 +124,56 @@ internal object VideoArtifactPlaybackValidator {
     }.getOrNull()
 }
 
+private const val VIDEO_ARCHIVE_PAGE_SIZE = 8
+
+internal fun resolveVideoArchiveSelection(
+    selectedId: String?,
+    visiblePage: List<JarvisTaskEntity>
+): String? = selectedId ?: visiblePage.firstOrNull()?.id
+
 /** Embedded player restored from the last verified durable task; it never launches an external player. */
 @Composable
 fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val repository = remember(context) { JarvisTaskRepository.getInstance(context) }
-    val tasks by repository.observeRecentTasks(limit = 30).collectAsState(initial = emptyList())
-    val latest = tasks.firstOrNull {
-        it.status == JarvisTaskStatus.SUCCEEDED.storageValue &&
-            !it.videoUri.isNullOrBlank() &&
-            !it.captionsUri.isNullOrBlank()
+    var repository by remember(context) { mutableStateOf<JarvisTaskRepository?>(null) }
+    var repositoryError by remember(context) { mutableStateOf<String?>(null) }
+    LaunchedEffect(context) {
+        try {
+            repository = JarvisTaskRepository.getInstanceOnIo(context)
+        } catch (error: Exception) {
+            repositoryError = error.localizedMessage ?: "Yerel görev arşivi açılamadı."
+        }
+    }
+    var archivePage by rememberSaveable { mutableStateOf(0) }
+    var selectedTaskId by rememberSaveable { mutableStateOf<String?>(null) }
+    val archiveFlow = remember(repository, archivePage) {
+        repository?.observeSuccessfulVideoArtifacts(
+            limit = VIDEO_ARCHIVE_PAGE_SIZE + 1,
+            offset = archivePage * VIDEO_ARCHIVE_PAGE_SIZE
+        ) ?: flowOf(emptyList())
+    }
+    val archiveRows by archiveFlow.collectAsState(initial = emptyList())
+    val archiveItems = archiveRows.take(VIDEO_ARCHIVE_PAGE_SIZE)
+    val hasNextArchivePage = archiveRows.size > VIDEO_ARCHIVE_PAGE_SIZE
+    val selectedTaskFlow = remember(repository, selectedTaskId) {
+        selectedTaskId?.let { repository?.observeTaskById(it) } ?: flowOf(null)
+    }
+    val selectedTaskFromStore by selectedTaskFlow.collectAsState(initial = null)
+    val selectedTask = selectedTaskFromStore
+        ?: archiveItems.firstOrNull { it.id == selectedTaskId }
+        ?: if (selectedTaskId == null) archiveItems.firstOrNull() else null
+
+    LaunchedEffect(archiveItems, selectedTaskId) {
+        val nextSelection = resolveVideoArchiveSelection(selectedTaskId, archiveItems)
+        if (nextSelection != selectedTaskId) selectedTaskId = nextSelection
     }
 
-    var retryKey by remember(latest?.id, latest?.videoUri) { mutableStateOf(0) }
-    var availability by remember(latest?.id, latest?.videoUri) {
+    var retryKey by remember(selectedTask?.id, selectedTask?.videoUri) { mutableStateOf(0) }
+    var availability by remember(selectedTask?.id, selectedTask?.videoUri) {
         mutableStateOf<PlaybackAvailability>(PlaybackAvailability.Empty)
     }
-    var player by remember(latest?.id, latest?.videoUri, retryKey) { mutableStateOf<VideoView?>(null) }
-    val playerAttemptId = "${latest?.id?.toString().orEmpty()}|${latest?.videoUri.orEmpty()}|$retryKey"
+    var player by remember(selectedTask?.id, selectedTask?.videoUri, retryKey) { mutableStateOf<VideoView?>(null) }
+    val playerAttemptId = "${selectedTask?.id?.toString().orEmpty()}|${selectedTask?.videoUri.orEmpty()}|$retryKey"
     var playerPreparation by remember(playerAttemptId) {
         mutableStateOf(VideoPlayerPreparationState.preparing(playerAttemptId))
     }
@@ -152,23 +190,28 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
     }
 
     LaunchedEffect(
-        latest?.id,
-        latest?.videoUri,
-        latest?.captionsUri,
-        latest?.videoArtifactMetadataJson,
+        selectedTask?.id,
+        selectedTask?.videoUri,
+        selectedTask?.captionsUri,
+        selectedTask?.videoArtifactMetadataJson,
         retryKey
     ) {
         
-        val task = latest
+        val task = selectedTask
         availability = if (task == null) PlaybackAvailability.Empty else PlaybackAvailability.Loading
         if (task != null) {
             availability = withContext(Dispatchers.IO) {
-                VideoArtifactPlaybackValidator.inspect(
-                    context = context,
-                    videoUriText = task.videoUri,
-                    captionsUriText = task.captionsUri,
-                    metadataJson = task.videoArtifactMetadataJson
-                )
+                Trace.beginSection("JARVIS.player.restore")
+                try {
+                    VideoArtifactPlaybackValidator.inspect(
+                        context = context,
+                        videoUriText = task.videoUri,
+                        captionsUriText = task.captionsUri,
+                        metadataJson = task.videoArtifactMetadataJson
+                    )
+                } finally {
+                    Trace.endSection()
+                }
             }
         }
     }
@@ -179,14 +222,67 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text("JARVIS video arşivi", style = MaterialTheme.typography.titleMedium)
-            if (latest == null) {
+            if (repository == null && repositoryError == null) {
                 Text(
-                    "Henüz doğrulanmış bir video görevi yok. Video üretimi tamamlandığında önizleme burada görünür.",
+                    "Kalıcı görev arşivi ve önceki görev durumları arka planda yükleniyor…",
                     style = MaterialTheme.typography.bodySmall
                 )
+            } else if (repositoryError != null) {
+                Text(
+                    "Görev arşivi açılamadı: " + repositoryError,
+                    color = MaterialTheme.colorScheme.error
+                )
             } else {
-                Text(latest.goal, style = MaterialTheme.typography.titleSmall)
-                when (val state = availability) {
+                Text("Kaydedilmiş videolar", style = MaterialTheme.typography.titleSmall)
+                if (archiveItems.isEmpty()) {
+                    Text(
+                        if (archivePage == 0) {
+                            "Henüz doğrulanmış bir video görevi yok. Video üretimi tamamlandığında arşive eklenir."
+                        } else {
+                            "Bu arşiv sayfasında başka video yok."
+                        },
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        items(archiveItems, key = { it.id }) { artifact ->
+                            TextButton(
+                                onClick = { selectedTaskId = artifact.id },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    (if (artifact.id == selectedTaskId) "✓ " else "") + artifact.goal,
+                                    color = if (artifact.id == selectedTaskId) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Sayfa " + (archivePage + 1), style = MaterialTheme.typography.bodySmall)
+                        TextButton(
+                            enabled = archivePage > 0,
+                            onClick = { archivePage = (archivePage - 1).coerceAtLeast(0) }
+                        ) { Text("Önceki") }
+                        TextButton(
+                            enabled = hasNextArchivePage,
+                            onClick = { archivePage += 1 }
+                        ) { Text("Sonraki") }
+                    }
+                }
+                if (selectedTaskId != null && selectedTask == null) {
+                    Text("Seçilen video kaydı kalıcı arşivden yükleniyor…", style = MaterialTheme.typography.bodySmall)
+                } else if (selectedTask == null) {
+                    Text("Oynatmak için arşivden bir video seç.", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    Text(selectedTask.goal, style = MaterialTheme.typography.titleSmall)
+                    when (val state = availability) {
                     PlaybackAvailability.Empty -> Text("Henüz video seçilmedi.")
                     PlaybackAvailability.Loading -> {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -333,6 +429,7 @@ fun VideoArtifactPlayerPanel(modifier: Modifier = Modifier) {
                             )
                         }
                     }
+                }
                 }
             }
         }
