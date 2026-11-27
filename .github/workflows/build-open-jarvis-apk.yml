@@ -3,9 +3,9 @@ name: Build Open Jarvis APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, "feature/approval-toggle", "feature/repair-overlay-input-digest-2026-11-21" ]
+    branches: [ main, "feature/approval-toggle", "feature/repair-overlay-input-digest-2026-11-21", "infra/feature-host-patch-runner-20261126" ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, "feature/canonical-device-player-shorts-20261126" ]
 
 permissions:
   contents: read
