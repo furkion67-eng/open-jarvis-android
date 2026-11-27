@@ -17,8 +17,13 @@ LAUNCHER="com.openjarvis/.ui.MainActivity"
 fail() { echo "SMOKE-FAIL: $1"; exit 1; }
 
 adb wait-for-device
-adb root >/dev/null 2>&1 || true
+API_LEVEL="$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
+case "$API_LEVEL" in
+  33|34) echo "Android API $API_LEVEL smoke test" ;;
+  *) fail "unexpected emulator API level: $API_LEVEL (expected 33 or 34)" ;;
+esac
 
+# No adb root: use run-as on the debuggable test package for private test data.
 adb install -r "$APP_APK" >/dev/null || fail "app APK install failed"
 adb shell pm clear "$APP_PKG" >/dev/null
 

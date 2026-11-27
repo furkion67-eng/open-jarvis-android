@@ -1,0 +1,390 @@
+package com.openjarvis.deviceactions.sms
+
+import com.openjarvis.tasks.DeviceActionOutcomeCode
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class SmsActionContractTest {
+    private class InMemorySmsAttemptStore : SmsAttemptStore {
+        private val records = linkedMapOf<String, SmsAttemptRecord>()
+        override fun all(): List<SmsAttemptRecord> = records.values.toList()
+        override fun get(requestId: String): SmsAttemptRecord? = records[requestId]
+        override fun put(record: SmsAttemptRecord) { records[record.requestId] = record }
+        override fun remove(requestId: String) { records.remove(requestId) }
+    }
+    @Test
+    fun sharedOutcomeMappingKeepsUnknownDistinctFromSent() {
+        assertEquals(DeviceActionOutcomeCode.SENT, SmsSendOutcome.Sent.toDeviceActionOutcomeCode())
+        assertEquals(DeviceActionOutcomeCode.UNKNOWN, SmsSendOutcome.Unknown("missing callback").toDeviceActionOutcomeCode())
+        assertEquals(DeviceActionOutcomeCode.FAILED, SmsSendOutcome.Failed("platform failure").toDeviceActionOutcomeCode())
+        assertEquals(DeviceActionOutcomeCode.NOT_EXECUTED, SmsSendOutcome.PermissionDenied.toDeviceActionOutcomeCode())
+        assertEquals(DeviceActionOutcomeCode.NOT_EXECUTED, SmsSendOutcome.Unsupported.toDeviceActionOutcomeCode())
+        assertEquals(DeviceActionOutcomeCode.NOT_EXECUTED, SmsSendOutcome.Rejected.toDeviceActionOutcomeCode())
+    }
+
+    @Test
+    fun messageCannotBeConsumedBeforeExplicitConfirmation() {
+        val gate = SmsConfirmationGate()
+        val review = gate.prepare("İpek Yılmaz", "+905321112233", "Merhaba")
+        assertNull(gate.consume(ConfirmedSmsAction(review.reviewId, "not-issued")))
+        assertNotNull(gate.confirm(review.reviewId))
+    }
+
+    @Test
+    fun confirmationIsSingleUse() {
+        val gate = SmsConfirmationGate()
+        val review = gate.prepare("İpek Yılmaz", "+905321112233", "Tam metin")
+        val confirmation = gate.confirm(review.reviewId)!!
+        val draft = gate.consume(confirmation)
+        assertEquals("Tam metin", draft?.exactMessage)
+        assertNull(gate.consume(confirmation))
+    }
+
+    @Test
+    fun forgedTokenCannotConsumeLegitimateConfirmation() {
+        val gate = SmsConfirmationGate()
+        val review = gate.prepare("İpek Yılmaz", "+905321112233", "Tam metin")
+        val legitimate = gate.confirm(review.reviewId)!!
+        assertNull(gate.consume(ConfirmedSmsAction(review.reviewId, "wrong-token")))
+        assertEquals("Tam metin", gate.consume(legitimate)?.exactMessage)
+    }
+
+    @Test
+    fun deniedPermissionCancelsConfirmationAndNeverCallsTransport() {
+        val gate = SmsConfirmationGate()
+        val review = gate.prepare("İpek Yılmaz", "+905321112233", "Merhaba")
+        val confirmation = gate.confirm(review.reviewId)!!
+        var transportCalled = false
+        var outcome: SmsSendOutcome? = null
+        val dispatcher = ConfirmedSmsDispatcher(
+            permission = SmsPermission { false },
+            gate = gate,
+            transport = SmsTransport { _, _ -> transportCalled = true }
+        )
+        dispatcher.dispatch(confirmation) { outcome = it }
+        assertEquals(SmsSendOutcome.PermissionDenied, outcome)
+        assertEquals(false, transportCalled)
+        assertNull(gate.consume(confirmation))
+    }
+
+    @Test
+    fun permissionRevokedAfterFinalConfirmationPreventsTransport() {
+        val gate = SmsConfirmationGate()
+        val review = gate.prepare("İpek Yılmaz", "+905321112233", "Onaydan sonra izin geri alındı")
+        val confirmation = gate.confirm(review.reviewId)!!
+        var granted = true
+        var transportCalls = 0
+        var outcome: SmsSendOutcome? = null
+        val dispatcher = ConfirmedSmsDispatcher(
+            permission = SmsPermission { granted },
+            gate = gate,
+            transport = SmsTransport { _, callback ->
+                transportCalls += 1
+                callback(SmsSendOutcome.Sent)
+            }
+        )
+
+        granted = false
+        dispatcher.dispatch(confirmation) { outcome = it }
+
+        assertEquals(SmsSendOutcome.PermissionDenied, outcome)
+        assertEquals(0, transportCalls)
+        assertNull(gate.consume(confirmation))
+    }
+
+    @Test
+    fun dispatcherConsumesConfirmationBeforeTransportAndRejectsReplay() {
+        val gate = SmsConfirmationGate()
+        val review = gate.prepare("İpek Yılmaz", "+905321112233", "Tam ve kesin mesaj")
+        val confirmation = gate.confirm(review.reviewId)!!
+        val sentDrafts = mutableListOf<SmsDraft>()
+        val outcomes = mutableListOf<SmsSendOutcome>()
+        val dispatcher = ConfirmedSmsDispatcher(
+            permission = SmsPermission { true },
+            gate = gate,
+            transport = SmsTransport { draft, callback ->
+                sentDrafts += draft
+                callback(SmsSendOutcome.Sent)
+            }
+        )
+
+        dispatcher.dispatch(confirmation) { outcomes += it }
+        dispatcher.dispatch(confirmation) { outcomes += it }
+
+        assertEquals(1, sentDrafts.size)
+        assertEquals(review.recipientName, sentDrafts.single().recipientName)
+        assertEquals(review.phoneNumber, sentDrafts.single().phoneNumber)
+        assertEquals(review.exactMessage, sentDrafts.single().exactMessage)
+        assertEquals(listOf(SmsSendOutcome.Sent, SmsSendOutcome.Rejected), outcomes)
+    }
+
+    @Test
+    fun sentRequiresSuccessfulCallbackForEveryPart() {
+        val tracker = SmsSendTracker(2)
+        assertEquals(SmsSendState.PENDING, tracker.recordPart(0, SmsPartResult.SENT))
+        assertEquals(SmsSendState.SENT, tracker.recordPart(1, SmsPartResult.SENT))
+    }
+
+    @Test
+    fun androidPlatformResultCodesMapOnlyResultOkToSentForEveryPart() {
+        val tracker = SmsSendTracker(3)
+        assertEquals(SmsSendState.PENDING, tracker.recordPlatformResult(0, -1, -1))
+        assertEquals(SmsSendState.PENDING, tracker.recordPlatformResult(1, -1, -1))
+        assertEquals(SmsSendState.SENT, tracker.recordPlatformResult(2, -1, -1))
+    }
+
+    @Test
+    fun anyNonOkPlatformPartFailsAndLatePartsCannotPromoteToSent() {
+        val tracker = SmsSendTracker(2)
+        assertEquals(SmsSendState.PENDING, tracker.recordPlatformResult(0, -1, -1))
+        assertEquals(SmsSendState.FAILED, tracker.recordPlatformResult(1, 0, -1))
+        assertEquals(SmsSendState.FAILED, tracker.recordPlatformResult(1, -1, -1))
+    }
+
+    @Test
+    fun callbackAfterProcessLossUnknownCannotBecomeSent() {
+        val tracker = SmsSendTracker(1)
+        assertEquals(SmsSendState.UNKNOWN, tracker.markUnknown())
+        assertEquals(SmsSendState.UNKNOWN, tracker.recordPlatformResult(0, -1, -1))
+    }
+
+    @Test
+    fun changingNameQueryOrResolvedRecipientInvalidatesOldSelection() {
+        assertTrue(SmsSelectionInvalidationPolicy.queryChanged("Ayşe", "Ali"))
+        assertTrue(SmsSelectionInvalidationPolicy.recipientChanged("Ayşe", "+905551111111", "Ali", "+905552222222"))
+        assertTrue(SmsSelectionInvalidationPolicy.recipientChanged("Ayşe", "+905551111111", "Ayşe", "+905553333333"))
+        assertEquals(false, SmsSelectionInvalidationPolicy.queryChanged("Ayşe", "Ayşe"))
+        assertEquals(false, SmsSelectionInvalidationPolicy.recipientChanged("Ayşe", "+905551111111", "Ayşe", "+905551111111"))
+    }
+
+    @Test
+    fun durableJournalRequiresEveryMultipartCallbackToBeResultOk() {
+        val store = InMemorySmsAttemptStore()
+        val journal = SmsAttemptJournal(store)
+        journal.begin("request-1", 2)
+        assertEquals(SmsSendState.PENDING, journal.recordPlatformResult("request-1", 0, -1, -1))
+        assertEquals(SmsSendState.SENT, journal.recordPlatformResult("request-1", 1, -1, -1))
+        assertEquals(SmsSendState.SENT, store.get("request-1")?.state)
+    }
+
+    @Test
+    fun processReopenTurnsMissingSmsCallbackIntoUnknownWithoutReplay() {
+        val store = InMemorySmsAttemptStore()
+        val beforeRestart = SmsAttemptJournal(store)
+        beforeRestart.begin("request-restart", 2)
+        beforeRestart.recordPlatformResult("request-restart", 0, -1, -1)
+
+        val afterRestart = SmsAttemptJournal(store)
+        assertEquals(1, afterRestart.recoverPendingAsUnknown().size)
+        assertEquals(SmsSendState.UNKNOWN, store.get("request-restart")?.state)
+        assertEquals(SmsSendState.UNKNOWN, afterRestart.recordPlatformResult("request-restart", 1, -1, -1))
+    }
+
+    @Test
+    fun failedPartWaitsForEveryCallbackBeforeBecomingTerminal() {
+        val tracker = SmsSendTracker(2)
+        assertEquals(SmsSendState.PENDING, tracker.recordPart(0, SmsPartResult.FAILED))
+        assertEquals(SmsSendState.FAILED, tracker.recordPart(1, SmsPartResult.SENT))
+    }
+
+    @Test
+    fun missingCallbackIsUnknownNotSent() {
+        val tracker = SmsSendTracker(1)
+        assertEquals(SmsSendState.UNKNOWN, tracker.markUnknown())
+    }
+
+    @Test
+    fun invalidPhoneAndEmptyMessageCannotCreateReview() {
+        val gate = SmsConfirmationGate()
+        assertTrue(runCatching { gate.prepare("İpek", "123abc456", "Merhaba") }.isFailure)
+        assertTrue(runCatching { gate.prepare("İpek", "abc", "Merhaba") }.isFailure)
+        assertTrue(runCatching { gate.prepare("İpek", "+905321112233", "  ") }.isFailure)
+    }
+    @Test
+    fun platformCallbackRecorderPersistsEveryMultipartResultOkBeforeSent() {
+        val store = InMemorySmsAttemptStore()
+        val journal = SmsAttemptJournal(store)
+        journal.begin("receiver-ok", 3)
+        val recorder = SmsPlatformCallbackRecorder("receiver-ok", journal, -1)
+
+        assertEquals(SmsSendState.PENDING, recorder.record(0, -1))
+        assertEquals(SmsSendState.PENDING, recorder.record(1, -1))
+        assertEquals(SmsSendState.SENT, recorder.record(2, -1))
+        assertEquals(SmsSendState.SENT, store.get("receiver-ok")?.state)
+    }
+
+    @Test
+    fun platformCallbackRecorderKeepsFailureTerminalWhenLaterMultipartCallbackSucceeds() {
+        val store = InMemorySmsAttemptStore()
+        val journal = SmsAttemptJournal(store)
+        journal.begin("receiver-failed", 3)
+        val recorder = SmsPlatformCallbackRecorder("receiver-failed", journal, -1)
+
+        assertEquals(SmsSendState.PENDING, recorder.record(0, -1))
+        assertEquals(SmsSendState.PENDING, recorder.record(1, 0))
+        assertEquals(SmsSendState.FAILED, recorder.record(2, -1))
+        assertEquals(SmsSendState.FAILED, store.get("receiver-failed")?.state)
+    }
+
+    @Test
+    fun failedPartWithMissingCallbackRecoversAsUnknownNotFailedOrSent() {
+        val store = InMemorySmsAttemptStore()
+        val beforeRestart = SmsAttemptJournal(store)
+        beforeRestart.begin("partial-failure-restart", 2)
+
+        // One explicit failure does not resolve a multipart send while another callback is absent.
+        assertEquals(
+            SmsSendState.PENDING,
+            beforeRestart.recordPlatformResult("partial-failure-restart", 0, 0, -1)
+        )
+        assertEquals(SmsSendState.PENDING, store.get("partial-failure-restart")?.state)
+
+        val afterRestart = SmsAttemptJournal(store)
+        assertEquals(1, afterRestart.recoverPendingAsUnknown().size)
+        assertEquals(SmsSendState.UNKNOWN, store.get("partial-failure-restart")?.state)
+
+        // A late success callback cannot erase the unresolved process-loss result.
+        assertEquals(
+            SmsSendState.UNKNOWN,
+            afterRestart.recordPlatformResult("partial-failure-restart", 1, -1, -1)
+        )
+    }
+
+    @Test
+    fun callbackAfterProcessRecoveryRemainsUnknownAndCannotBecomeSent() {
+        val store = InMemorySmsAttemptStore()
+        val beforeRestart = SmsAttemptJournal(store)
+        beforeRestart.begin("receiver-restart", 2)
+        assertEquals(SmsSendState.PENDING, beforeRestart.recordPlatformResult("receiver-restart", 0, -1, -1))
+
+        val afterRestart = SmsAttemptJournal(store)
+        assertEquals(1, afterRestart.recoverPendingAsUnknown().size)
+        val recorder = SmsPlatformCallbackRecorder("receiver-restart", afterRestart, -1)
+        assertEquals(SmsSendState.UNKNOWN, recorder.record(1, -1))
+        assertEquals(SmsSendState.UNKNOWN, store.get("receiver-restart")?.state)
+    }
+
+    @Test
+    fun duplicateMultipartCallbackCannotCountAsASecondPart() {
+        val store = InMemorySmsAttemptStore()
+        val journal = SmsAttemptJournal(store)
+        journal.begin("receiver-duplicate", 2)
+        val recorder = SmsPlatformCallbackRecorder("receiver-duplicate", journal, -1)
+
+        assertEquals(SmsSendState.PENDING, recorder.record(0, -1))
+        assertEquals(SmsSendState.PENDING, recorder.record(0, -1))
+        assertEquals(SmsSendState.SENT, recorder.record(1, -1))
+    }
+
+
+    @Test
+    fun dispatcherRecoversPendingAttemptsForUiWithoutExposingTransport() = runBlocking {
+        val store = InMemorySmsAttemptStore()
+        val journal = SmsAttemptJournal(store)
+        journal.begin("ui-recovery", 1)
+        val dispatcher = ConfirmedSmsDispatcher(
+            permission = SmsPermission { true },
+            gate = SmsConfirmationGate(),
+            transport = object : SmsTransport {
+                override fun send(draft: SmsDraft, callback: (SmsSendOutcome) -> Unit) {
+                    callback(SmsSendOutcome.Rejected)
+                }
+
+                override suspend fun recoverPendingAttempts(): Int =
+                    journal.recoverPendingAsUnknown().size
+            }
+        )
+
+        assertEquals(1, dispatcher.recoverPendingAttempts())
+        assertEquals(SmsSendState.UNKNOWN, store.get("ui-recovery")?.state)
+    }
+
+    @Test
+    fun recoveryCancellationPropagatesInsteadOfBecomingAnOrdinaryFailure() = runBlocking {
+        val cancellation = CancellationException("test cancellation")
+        val dispatcher = ConfirmedSmsDispatcher(
+            permission = SmsPermission { true },
+            gate = SmsConfirmationGate(),
+            transport = object : SmsTransport {
+                override fun send(draft: SmsDraft, callback: (SmsSendOutcome) -> Unit) = Unit
+                override suspend fun recoverPendingAttempts(): Int = throw cancellation
+            }
+        )
+        var failureReported = false
+
+        val thrown = runCatching {
+            recoverPendingSmsAttemptsOrReport(dispatcher) { failureReported = true }
+        }.exceptionOrNull()
+
+        assertSame(cancellation, thrown)
+        assertEquals(false, failureReported)
+    }
+
+    @Test
+    fun ordinaryRecoveryFailureIsReportedAndBlocksTheNextSend() = runBlocking {
+        val failure = IllegalStateException("journal unavailable")
+        val dispatcher = ConfirmedSmsDispatcher(
+            permission = SmsPermission { true },
+            gate = SmsConfirmationGate(),
+            transport = object : SmsTransport {
+                override fun send(draft: SmsDraft, callback: (SmsSendOutcome) -> Unit) = Unit
+                override suspend fun recoverPendingAttempts(): Int = throw failure
+            }
+        )
+        var reported: Exception? = null
+
+        val recovered = recoverPendingSmsAttemptsOrReport(dispatcher) { reported = it }
+
+        assertNull(recovered)
+        assertSame(failure, reported)
+    }
+
+    @Test
+    fun suspendJournalOperationRethrowsCancellationInsteadOfReturningFailure() = runBlocking {
+        val cancellation = CancellationException("journal operation cancelled")
+
+        val thrown = runCatching {
+            runSmsJournalOperation<Int> { throw cancellation }
+        }.exceptionOrNull()
+
+        assertSame(cancellation, thrown)
+    }
+
+    @Test
+    fun suspendJournalOperationReturnsOrdinaryFailureForSafeClassification() = runBlocking {
+        val failure = IllegalStateException("journal unavailable")
+
+        val result = runSmsJournalOperation<Int> { throw failure }
+
+        assertSame(failure, result.exceptionOrNull())
+    }
+
+    @Test
+    fun cancellingPreparedReviewPreventsLaterConfirmation() {
+        val gate = SmsConfirmationGate()
+        val review = gate.prepare("İpek Yılmaz", "+905321112233", "Gönderilmemeli")
+
+        gate.cancel(review.reviewId)
+
+        assertNull(gate.confirm(review.reviewId))
+    }
+
+    @Test
+    fun cancellingIssuedConfirmationInvalidatesItsOneTimeToken() {
+        val gate = SmsConfirmationGate()
+        val review = gate.prepare("İpek Yılmaz", "+905321112233", "Gönderilmemeli")
+        val confirmation = gate.confirm(review.reviewId)!!
+
+        gate.cancel(review.reviewId)
+
+        assertNull(gate.consume(confirmation))
+        assertNull(gate.confirm(review.reviewId))
+    }
+
+}

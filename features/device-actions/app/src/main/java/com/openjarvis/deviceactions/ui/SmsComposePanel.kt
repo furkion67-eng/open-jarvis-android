@@ -1,0 +1,427 @@
+package com.openjarvis.deviceactions.ui
+
+import com.openjarvis.deviceactions.sms.SmsDraftHandoff
+import com.openjarvis.commands.ContactChoicePaging
+
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import com.openjarvis.deviceaccess.capabilities.AndroidCapabilityStatusReader
+import com.openjarvis.deviceactions.contacts.AndroidContactsResolver
+import com.openjarvis.deviceactions.contacts.ContactLookupRunner
+import com.openjarvis.deviceactions.contacts.ContactCandidate
+import com.openjarvis.deviceactions.contacts.ContactLookupResult
+import com.openjarvis.deviceactions.contacts.ContactPhoneOption
+import com.openjarvis.deviceactions.sms.SmsConfirmationGate
+import com.openjarvis.deviceactions.sms.SmsDispatchIoRunner
+import com.openjarvis.deviceactions.sms.createAndroidSmsDispatcher
+import com.openjarvis.deviceactions.sms.SmsSendOutcome
+import com.openjarvis.deviceactions.sms.SmsSelectionInvalidationPolicy
+import com.openjarvis.deviceactions.sms.toDeviceActionOutcomeCode
+import com.openjarvis.tasks.DeviceActionOutcomeCode
+import com.openjarvis.tasks.DeviceActionOutcomeJournal
+import com.openjarvis.tasks.DeviceActionType
+
+/** Contact-first SMS flow. No phone-number field is shown for a unique contact match. */
+@Composable
+fun SmsComposePanel(
+    modifier: Modifier = Modifier,
+    onSmsOutcome: (SmsSendOutcome) -> Unit = {}
+) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val contacts = remember(context) { AndroidContactsResolver(context) }
+    val contactLookupRunner = remember(contacts) { ContactLookupRunner(contacts) }
+    val capabilityStatus = remember(context) { AndroidCapabilityStatusReader(context) }
+    val gate = remember { SmsConfirmationGate() }
+    val smsIo = remember { SmsDispatchIoRunner() }
+    val dispatcher = remember(context, gate) {
+        createAndroidSmsDispatcher(context, gate)
+    }
+
+    var nameQuery by remember { mutableStateOf("") }
+    var message by remember { mutableStateOf("") }
+    var lookupResult by remember { mutableStateOf<ContactLookupResult?>(null) }
+    var selectedContact by remember { mutableStateOf<ContactCandidate?>(null) }
+    var selectedPhone by remember { mutableStateOf<ContactPhoneOption?>(null) }
+    var status by remember { mutableStateOf("SMS için önce rehberden bir kişi bul.") }
+    var showConfirmation by remember { mutableStateOf(false) }
+    var contactPageIndex by remember { mutableStateOf(0) }
+    var resolvingContacts by remember { mutableStateOf(false) }
+
+    suspend fun persistSmsOutcome(outcome: SmsSendOutcome) {
+        val journalFailed = try {
+            DeviceActionOutcomeJournal.record(
+                context,
+                DeviceActionType.SMS,
+                outcome.toDeviceActionOutcomeCode()
+            )
+            false
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            true
+        }
+
+        // The platform SMS result remains authoritative even if the secondary history write fails.
+        onSmsOutcome(outcome)
+        if (journalFailed) {
+            status += "\nGönderim sonucu yerel geçmişe kaydedilemedi. SMS sonucu değişmedi; otomatik tekrar yapılmadı."
+        }
+    }
+
+    LaunchedEffect(dispatcher) {
+        try {
+            val recoveredUnknownCount = smsIo.recoverPendingAttempts(dispatcher)
+            if (recoveredUnknownCount > 0) {
+                status = "Önceki SMS gönderiminin sonucu uygulama yeniden açıldığında doğrulanamadı (UNKNOWN). JARVIS mesajı otomatik tekrar göndermedi."
+                repeat(recoveredUnknownCount) {
+                    persistSmsOutcome(
+                        SmsSendOutcome.Unknown("Önceki süreçte SMS gönderim callback'i alınamadı; otomatik tekrar yapılmadı.")
+                    )
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            status = "Önceki SMS denemeleri güvenli biçimde kurtarılamadı; gönderim kapalı: " +
+                (error.localizedMessage ?: "kayıt hatası")
+        }
+    }
+
+    fun applyLookup(result: ContactLookupResult) {
+        lookupResult = result
+        contactPageIndex = 0
+        selectedContact = null
+        selectedPhone = null
+        showConfirmation = false
+        when (result) {
+            is ContactLookupResult.Unique -> {
+                selectedContact = result.contact
+                selectedPhone = result.phone
+            }
+            is ContactLookupResult.ChooseNumber -> selectedContact = result.contact
+            else -> Unit
+        }
+    }
+
+    suspend fun lookupContacts(query: String) {
+        if (query.isBlank()) {
+            applyLookup(ContactLookupResult.InvalidQuery)
+            return
+        }
+        resolvingContacts = true
+        status = "Android Rehberi aranıyor…"
+        try {
+            val result = contactLookupRunner.resolve(query)
+            if (nameQuery == query) {
+                applyLookup(result)
+                status = "Rehber araması tamamlandı."
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            if (nameQuery == query) {
+                applyLookup(ContactLookupResult.Unavailable(error.localizedMessage ?: "Android Rehberi okunamadı."))
+                status = "Rehber araması tamamlanamadı."
+            }
+        } finally {
+            resolvingContacts = false
+        }
+    }
+
+    val contactsPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        capabilityStatus.recordPermissionRequestResult("contacts", granted)
+        if (granted) {
+            val query = nameQuery
+            coroutineScope.launch { lookupContacts(query) }
+        } else {
+            applyLookup(ContactLookupResult.PermissionDenied)
+            status = "Rehber izni verilmedi. Kişi adı okunmadı."
+        }
+    }
+    val smsPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        capabilityStatus.recordPermissionRequestResult("sms", granted)
+        status = if (granted) {
+            "SMS izni verildi. Göndermek için tekrar Gönder'e dokun ve onay ekranını onayla."
+        } else {
+            "SMS gönderme izni verilmedi. Hiçbir mesaj gönderilmedi."
+        }
+    }
+
+    Card(modifier = modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("Kişiye SMS gönder", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "JARVIS önce Android Rehberinde arar. Tek bir kişi ve tek bir numara bulunursa numarayı elle yazman istenmez.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            OutlinedTextField(
+                value = nameQuery,
+                onValueChange = { value ->
+                    if (SmsSelectionInvalidationPolicy.queryChanged(nameQuery, value)) {
+                        selectedContact = null
+                        selectedPhone = null
+                        lookupResult = null
+                        contactPageIndex = 0
+                        showConfirmation = false
+                    }
+                    nameQuery = value
+                },
+                label = { Text("Rehberde kişi adı") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Button(
+                enabled = nameQuery.isNotBlank() && !resolvingContacts,
+                onClick = {
+                    if (context.checkSelfPermission(Manifest.permission.READ_CONTACTS) ==
+                        PackageManager.PERMISSION_GRANTED
+                    ) {
+                        val query = nameQuery
+                        coroutineScope.launch { lookupContacts(query) }
+                    } else {
+                        contactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+                    }
+                }
+            ) { Text(if (resolvingContacts) "Rehber aranıyor…" else "Rehberde ara") }
+
+            when (val result = lookupResult) {
+                is ContactLookupResult.PermissionDenied -> Text(
+                    "Kişiler izni yok. Android iznini vererek yeniden deneyebilirsin.",
+                    color = MaterialTheme.colorScheme.error
+                )
+                is ContactLookupResult.InvalidQuery -> Text("Bir kişi adı yaz.")
+                is ContactLookupResult.NoMatch -> Text(
+                    "“" + result.query + "” adına uygun telefon numaralı kişi bulunamadı. İsmi kontrol et veya kişiyi Android Rehberine ekle."
+                )
+                is ContactLookupResult.Unavailable -> Text(
+                    "Rehber okunamadı: " + result.reason,
+                    color = MaterialTheme.colorScheme.error
+                )
+                is ContactLookupResult.ChooseContact -> {
+                    Text("Birden fazla kişi eşleşti. Alıcıyı seç:")
+                    val page = ContactChoicePaging.page(result.candidates, contactPageIndex)
+                    page.items.forEach { candidate ->
+                        Button(
+                            onClick = {
+                                if (SmsSelectionInvalidationPolicy.recipientChanged(
+                                        selectedContact?.displayName,
+                                        selectedPhone?.number,
+                                        candidate.displayName,
+                                        candidate.phoneNumbers.singleOrNull()?.number
+                                    )
+                                ) {
+                                    showConfirmation = false
+                                }
+                                selectedContact = candidate
+                                if (candidate.phoneNumbers.size == 1) {
+                                    val onlyPhone = candidate.phoneNumbers.single()
+                                    selectedPhone = onlyPhone
+                                    lookupResult = ContactLookupResult.Unique(candidate, onlyPhone)
+                                } else {
+                                    selectedPhone = null
+                                    lookupResult = ContactLookupResult.ChooseNumber(candidate)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text(candidate.displayName + " · " + candidate.phoneNumbers.size + " numara") }
+                    }
+                    if (page.pageCount > 1) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextButton(
+                                enabled = page.hasPrevious,
+                                onClick = { contactPageIndex = page.pageIndex - 1 }
+                            ) { Text("Önceki") }
+                            Text("${page.pageIndex + 1}/${page.pageCount}")
+                            TextButton(
+                                enabled = page.hasNext,
+                                onClick = { contactPageIndex = page.pageIndex + 1 }
+                            ) { Text("Sonraki") }
+                        }
+                    }
+                }
+                is ContactLookupResult.ChooseNumber -> {
+                    Text(result.contact.displayName + " için numara seç:")
+                    result.contact.phoneNumbers.forEach { phone ->
+                        TextButton(onClick = {
+                            if (SmsSelectionInvalidationPolicy.recipientChanged(
+                                    selectedContact?.displayName,
+                                    selectedPhone?.number,
+                                    result.contact.displayName,
+                                    phone.number
+                                )
+                            ) {
+                                showConfirmation = false
+                            }
+                            selectedPhone = phone
+                            lookupResult = ContactLookupResult.Unique(result.contact, phone)
+                        }) {
+                            Text((phone.label ?: "Telefon") + " · " + phone.number)
+                        }
+                    }
+                }
+                is ContactLookupResult.Unique -> Text(
+                    "Tek eşleşme bulundu: " + result.contact.displayName + " · " + result.phone.number
+                )
+                null -> Unit
+            }
+
+            val recipient = selectedContact
+            val phone = selectedPhone
+            if (recipient != null && phone != null) {
+                Text("Alıcı: " + recipient.displayName, style = MaterialTheme.typography.titleSmall)
+                Text("Numara: " + phone.number, style = MaterialTheme.typography.bodyMedium)
+                OutlinedTextField(
+                    value = message,
+                    onValueChange = {
+                        showConfirmation = false
+                        message = it
+                    },
+                    label = { Text("Mesajın") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3
+                )
+                Button(
+                    enabled = message.isNotBlank(),
+                    onClick = {
+                        if (context.checkSelfPermission(Manifest.permission.SEND_SMS) ==
+                            PackageManager.PERMISSION_GRANTED
+                        ) {
+                            showConfirmation = true
+                        } else {
+                            smsPermissionLauncher.launch(Manifest.permission.SEND_SMS)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Gönderme önizlemesi ve onay") }
+
+                TextButton(
+                    enabled = message.isNotBlank(),
+                    onClick = {
+                        val handoff = SmsDraftHandoff.createIntent(phone.number, message)
+                        try {
+                            context.startActivity(handoff)
+                            status = "SMS uygulamasında taslak açıldı. JARVIS bunu gönderildi olarak işaretlemez; son gönderme işlemi SMS uygulamasında sana aittir."
+                            coroutineScope.launch {
+                                try {
+                                    DeviceActionOutcomeJournal.record(
+                                        context,
+                                        DeviceActionType.SMS,
+                                        SmsDraftHandoff.outcomeCode
+                                    )
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (_: Exception) {
+                                    status += "\nTaslak açıldı ancak yerel işlem geçmişine kaydedilemedi."
+                                }
+                            }
+                        } catch (_: Exception) {
+                            status = "Varsayılan SMS uygulaması açılamadı."
+                        }
+                    }
+                ) { Text("SMS uygulamasında taslak aç (gönderilmez)") }
+            }
+
+            Text(status, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+
+    if (showConfirmation && selectedContact != null && selectedPhone != null) {
+        val recipient = selectedContact!!
+        val phone = selectedPhone!!
+        AlertDialog(
+            onDismissRequest = { showConfirmation = false },
+            title = { Text("SMS gönderilsin mi?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Alıcı: " + recipient.displayName)
+                    Text("Numara: " + phone.number)
+                    Text("Gönderilecek mesaj:")
+                    Text(message, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Bu onay yalnızca bu alıcıya ve yukarıdaki tam mesaja aittir.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showConfirmation = false
+                    val review = gate.prepare(recipient.displayName, phone.number, message)
+                    val confirmation = gate.confirm(review.reviewId)
+                    if (confirmation == null) {
+                        status = "Gönderim onayı oluşturulamadı."
+                    } else {
+                        status = "SMS gönderim sonucu bekleniyor…"
+                        coroutineScope.launch {
+                            try {
+                                val recovered = smsIo.recoverPendingAttempts(dispatcher)
+                                repeat(recovered) {
+                                    persistSmsOutcome(SmsSendOutcome.Unknown("Önceki SMS callback'i süreç kapanırken kayboldu; otomatik tekrar yapılmadı."))
+                                }
+                                smsIo.dispatch(dispatcher, confirmation) { outcome ->
+                                    coroutineScope.launch {
+                                        status = when (outcome) {
+                                            SmsSendOutcome.Sent -> "Android gönderim callback'i başarılı. Bu, mesajın alıcıya teslim edildiğini kanıtlamaz."
+                                            SmsSendOutcome.PermissionDenied -> "SMS izni yok veya geri alındı. SENT kaydedilmedi."
+                                            SmsSendOutcome.Unsupported -> "Bu cihaz SMS gönderimini desteklemiyor."
+                                            SmsSendOutcome.Rejected -> "Onay geçersiz veya daha önce kullanılmış. Mesaj gönderilmedi."
+                                            is SmsSendOutcome.Failed -> "SMS gönderilemedi: " + outcome.reason
+                                            is SmsSendOutcome.Unknown -> "Gönderim sonucu doğrulanamadı: " + outcome.reason
+                                        }
+                                        persistSmsOutcome(outcome)
+                                    }
+                                }
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                status = "SMS gönderimi güvenli biçimde başlatılamadı: " + (error.localizedMessage ?: "bilinmeyen hata")
+                            }
+                        }
+                    }
+                }) { Text("Onayla ve SMS gönder") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmation = false }) { Text("İptal") }
+            }
+        )
+    }
+}

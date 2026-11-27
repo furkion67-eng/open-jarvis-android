@@ -1,0 +1,551 @@
+package com.openjarvis.video.assets
+
+import java.io.File
+import java.nio.file.Files
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class VideoVisualAssetsTest {
+    private val now = 1_800_000_000_000L
+    private val jpeg = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 1, 2, 3, 4, 5)
+
+    @Test
+    fun missingUnknownNcAndNdLicensesFailBeforeDownload() {
+        val downloader = FakeDownloader(jpeg)
+        val resolver = VideoVisualAssetResolver(MemoryCache(), downloader, clock = { now })
+        val missing = descriptor().copy(licenseId = "", licenseVersion = "", licenseUrl = "")
+        val nc = descriptor().copy(licenseId = "CC BY-NC", licenseVersion = "4.0")
+        val nd = descriptor().copy(licenseId = "CC BY-ND", licenseVersion = "4.0")
+
+        listOf(missing, nc, nd).forEach { candidate ->
+            assertTrue(runCatching { resolver.resolveAll(listOf(candidate)) }.isFailure)
+        }
+        assertEquals(0, downloader.calls)
+    }
+
+    @Test
+    fun attributionRequiresCreatorExactSourceAndShareAlikeObligation() {
+        val missingCreator = descriptor().copy(creator = "")
+        val missingSource = descriptor().copy(sourceUrl = "https://commons.wikimedia.org/wiki/File:Example.jpg")
+        val missingShareAlike = descriptor().copy(requiredOutputLicense = null)
+        val missingLicenseVersion = descriptor().copy(
+            attributionText = descriptor().attributionText.replace("CC BY-SA 4.0", "CC BY-SA")
+        )
+
+        val wrongSourceHost = descriptor().copy(
+            sourceUrl = "https://commons.wikimedia.org.evil.example/w/index.php?title=File:Example.jpg&oldid=123456"
+        )
+        val wrongDownloadHost = descriptor().copy(downloadUrl = "https://evil.example/example.jpg")
+        listOf(wrongSourceHost, wrongDownloadHost).forEach { candidate ->
+            assertTrue(runCatching { VideoAssetLicensePolicy.validate(candidate) }.isFailure)
+        }
+        listOf(missingCreator, missingSource, missingShareAlike, missingLicenseVersion).forEach { candidate ->
+            assertTrue(runCatching { VideoAssetLicensePolicy.validate(candidate) }.isFailure)
+        }
+    }
+
+    @Test
+    fun forgedAttributionCannotMarkNcLicenseAsCommercial() {
+        val source = "https://commons.wikimedia.org/w/index.php?title=File:Example.jpg&oldid=123456"
+        val forged = VideoAssetAttribution(
+            sceneIndex = 0,
+            sceneId = "scene-01",
+            assetId = "asset-one",
+            sha256 = "a".repeat(64),
+            sourceUrl = source,
+            sourceUploadSha1 = "a".repeat(40),
+            pinnedPageRevisionTimestamp = "2026-11-20T00:00:00Z",
+            uploadTimestamp = "2026-11-19T00:00:00Z",
+            creator = "Example Creator",
+            licenseId = "CC BY-NC",
+            licenseVersion = "4.0",
+            licenseUrl = "https://creativecommons.org/licenses/by-nc/4.0/",
+            attributionText = "Example Creator; CC BY-NC; https://creativecommons.org/licenses/by-nc/4.0/; " + source,
+            retrievedAtEpochMs = now,
+            cacheKey = "b".repeat(64),
+            cacheMetadata = "provider=WikimediaCommons;mime=image/jpeg;bytes=8",
+            commercialUseAllowed = true,
+            derivativesAllowed = true,
+            shareAlikeRequired = false,
+            requiredOutputLicense = null
+        )
+        assertFalse(forged.isValid())
+    }
+
+    @Test
+    fun verifiedAssetIsCachedWithShaAndCompleteAttribution() {
+        val cache = MemoryCache()
+        val downloader = FakeDownloader(jpeg)
+        val resolver = VideoVisualAssetResolver(cache, downloader, clock = { now })
+        val resolved = resolver.resolveAll(listOf(descriptor())).single()
+
+        assertTrue(resolved.file.isFile)
+        assertEquals(0, resolved.attribution.sceneIndex)
+        assertEquals("scene-01", resolved.attribution.sceneId)
+        assertTrue(resolved.attribution.sha256.matches(Regex("[a-f0-9]{64}")))
+        assertEquals(descriptor().expectedUploadSha1, resolved.attribution.sourceUploadSha1)
+        assertEquals(descriptor().pinnedPageRevisionTimestamp, resolved.attribution.pinnedPageRevisionTimestamp)
+        assertEquals(descriptor().uploadTimestamp, resolved.attribution.uploadTimestamp)
+        assertTrue(resolved.attribution.attributionText.contains(resolved.attribution.sourceUrl))
+        assertTrue(resolved.attribution.attributionText.contains(resolved.attribution.licenseUrl))
+        assertEquals("CC BY-SA", resolved.attribution.licenseId)
+        assertTrue(resolved.attribution.shareAlikeRequired)
+        assertEquals("CC BY-SA 4.0", resolved.attribution.requiredOutputLicense)
+        assertTrue(resolved.attribution.cacheMetadata.contains("expiresAt"))
+        assertEquals(1, downloader.calls)
+    }
+
+    @Test
+    fun mismatchedOriginalUploadSha1FailsClosedBeforeCaching() {
+        val wrongEvidence = descriptor().copy(expectedUploadSha1 = sha1("different source".toByteArray()))
+        val downloader = FakeDownloader(jpeg)
+        val resolver = VideoVisualAssetResolver(MemoryCache(), downloader, clock = { now })
+        assertTrue(runCatching { resolver.resolveAll(listOf(wrongEvidence)) }.isFailure)
+        assertEquals(1, downloader.calls)
+    }
+
+    @Test
+    fun thumbnailRequiresMatchingOriginalSourceBytesAndSha1() {
+        val svg = "<svg xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M0 0\"/></svg>".toByteArray()
+        val png = byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)
+        val source = descriptor().copy(
+            downloadUrl = "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Example.jpg/1280px-Example.jpg.png",
+            expectedMimeType = "image/png",
+            expectedUploadSha1 = sha1(svg),
+            sourceVerificationUrl = "https://upload.wikimedia.org/wikipedia/commons/a/ab/Example.jpg",
+            sourceVerificationMimeType = "image/svg+xml",
+            sourceVerificationMaxBytes = 1_024L
+        )
+        val downloader = FakeDownloader(png, sourceBytes = svg, sourceMimeType = "image/svg+xml")
+        val resolved = VideoVisualAssetResolver(MemoryCache(), downloader, clock = { now })
+            .resolveAll(listOf(source)).single()
+        assertEquals(sha1(svg), resolved.attribution.sourceUploadSha1)
+        assertTrue(
+            resolved.file.readBytes().take(8).map { it.toInt() and 0xff } ==
+                listOf(137, 80, 78, 71, 13, 10, 26, 10)
+        )
+        assertEquals(1, downloader.calls)
+    }
+
+    @Test
+    fun sourceVerificationUrlMustBeThePinnedOriginalFile() {
+        val svg = "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>".toByteArray()
+        val valid = descriptor().copy(
+            downloadUrl = "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Example.jpg/1280px-Example.jpg.png",
+            expectedMimeType = "image/png",
+            expectedUploadSha1 = sha1(svg),
+            sourceVerificationUrl = "https://upload.wikimedia.org/wikipedia/commons/a/ab/Example.jpg",
+            sourceVerificationMimeType = "image/svg+xml",
+            sourceVerificationMaxBytes = 1_024L
+        )
+        VideoAssetLicensePolicy.validate(valid)
+        assertTrue(runCatching {
+            VideoAssetLicensePolicy.validate(valid.copy(
+                sourceVerificationUrl = "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Example.jpg/1280px-Example.jpg.png"
+            ))
+        }.isFailure)
+        assertTrue(runCatching {
+            VideoAssetLicensePolicy.validate(valid.copy(
+                sourceVerificationUrl = "https://upload.wikimedia.org/wikipedia/commons/a/ab/Other.jpg"
+            ))
+        }.isFailure)
+    }
+
+    @Test
+    fun pinnedUploadEvidenceRejectsMissingDigestAndUploadAfterPageRevision() {
+        val valid = descriptor()
+        assertFalse(VideoAssetLicensePolicy.isValidUploadEvidence("", valid.pinnedPageRevisionTimestamp, valid.uploadTimestamp))
+        assertFalse(VideoAssetLicensePolicy.isValidUploadEvidence(
+            valid.expectedUploadSha1,
+            "2025-01-01T00:00:00Z",
+            "2025-01-02T00:00:00Z"
+        ))
+        assertFalse(VideoAssetLicensePolicy.isValidUploadEvidence(
+            valid.expectedUploadSha1,
+            "not-a-timestamp",
+            valid.uploadTimestamp
+        ))
+        assertFalse(VideoAssetLicensePolicy.isValidUploadEvidence(
+            valid.expectedUploadSha1,
+            "2099-01-01T00:00:00Z",
+            "2098-01-01T00:00:00Z"
+        ))
+    }
+
+    @Test
+    fun cacheHitAvoidsSecondNetworkRequest() {
+        val cache = MemoryCache()
+        val downloader = FakeDownloader(jpeg)
+        val resolver = VideoVisualAssetResolver(cache, downloader, clock = { now })
+        val first = resolver.resolveAll(listOf(descriptor())).single()
+        val second = resolver.resolveAll(listOf(descriptor())).single()
+        assertEquals(first.attribution.sha256, second.attribution.sha256)
+        assertEquals(1, downloader.calls)
+    }
+
+    @Test
+    fun networkFailureWithoutValidCacheFailsClosed() {
+        val downloader = FakeDownloader(jpeg).apply { fail = true }
+        val resolver = VideoVisualAssetResolver(MemoryCache(), downloader, clock = { now })
+        assertTrue(runCatching { resolver.resolveAll(listOf(descriptor())) }.isFailure)
+        assertEquals(1, downloader.calls)
+    }
+
+
+    @Test
+    fun validCacheCanBeReusedWhenNetworkGoesOffline() {
+        val cache = MemoryCache()
+        val downloader = FakeDownloader(jpeg)
+        val resolver = VideoVisualAssetResolver(cache, downloader, clock = { now })
+        val first = resolver.resolveAll(listOf(descriptor())).single()
+        downloader.fail = true
+        val second = resolver.resolveAll(listOf(descriptor())).single()
+        assertEquals(first.attribution.sha256, second.attribution.sha256)
+        assertEquals(1, downloader.calls)
+    }
+
+    @Test
+    fun cacheWriteFailureStopsRenderingInsteadOfUsingUntrackedImage() {
+        val failingCache = object : VideoVisualAssetCache {
+            override fun read(cacheKey: String, nowEpochMs: Long): CachedVisualAsset? = null
+            override fun write(
+                cacheKey: String,
+                bytes: ByteArray,
+                mimeType: String,
+                contentSha256: String,
+                retrievedAtEpochMs: Long,
+                expiresAtEpochMs: Long
+            ) {
+                throw java.io.IOException("disk full")
+            }
+            override fun cleanup(nowEpochMs: Long) = Unit
+        }
+        val resolver = VideoVisualAssetResolver(failingCache, FakeDownloader(jpeg), clock = { now })
+        assertTrue(runCatching { resolver.resolveAll(listOf(descriptor())) }.isFailure)
+    }
+
+    @Test
+    fun duplicateAssetIdsOrIdenticalImageHashesAreRejected() {
+        val resolver = VideoVisualAssetResolver(MemoryCache(), FakeDownloader(jpeg), clock = { now })
+        val sameId = listOf(descriptor(), descriptor().copy(sceneId = "scene-02"))
+        assertTrue(runCatching { resolver.resolveAll(sameId) }.isFailure)
+
+        val distinctIds = listOf(
+            descriptor(),
+            descriptor().copy(assetId = "asset-two", sceneId = "scene-02")
+        )
+        assertTrue(runCatching { resolver.resolveAll(distinctIds) }.isFailure)
+    }
+
+    @Test
+    fun fileCacheExpiresAndEvictsOldestEntriesWithinBounds() {
+        val root = Files.createTempDirectory("jarvis-visual-cache").toFile()
+        try {
+            val cache = FileVideoVisualAssetCache(root, maxEntries = 2, maxBytes = 64L)
+            val firstKey = "a".repeat(64)
+            val secondKey = "b".repeat(64)
+            val thirdKey = "c".repeat(64)
+            val hash = sha256(jpeg)
+            cache.write(firstKey, jpeg, "image/jpeg", hash, now, now + 10_000L)
+            cache.write(secondKey, jpeg, "image/jpeg", hash, now + 1L, now + 10_000L)
+            cache.write(thirdKey, jpeg, "image/jpeg", hash, now + 2L, now + 10_000L)
+            cache.cleanup(now + 3L)
+            val survivors = listOf(firstKey, secondKey, thirdKey).count { cache.read(it, now + 3L) != null }
+            assertTrue(survivors <= 2)
+            assertEquals(null, cache.read(thirdKey, now + 20_000L))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun pinnedCommonsRevisionMustBeNumericUniqueAndOnTheExpectedFilePage() {
+        val source = descriptor().sourceUrl
+        val invalidSources = listOf(
+            source.replace("oldid=123456", "oldid="),
+            source.replace("oldid=123456", "oldid=not-a-revision"),
+            source + "&oldid=654321",
+            source + "#fragment",
+            source.replace("https://", "http://"),
+            source.replace("/w/index.php?", "/wiki/File:Example.jpg?")
+        )
+        invalidSources.forEach { invalid ->
+            assertTrue(runCatching {
+                VideoAssetLicensePolicy.validate(descriptor().copy(sourceUrl = invalid))
+            }.isFailure)
+        }
+
+        val invalidDownloads = listOf(
+            "http://upload.wikimedia.org/wikipedia/commons/a/ab/example.jpg",
+            "https://upload.wikimedia.org:444/wikipedia/commons/a/ab/example.jpg",
+            "https://user@upload.wikimedia.org/wikipedia/commons/a/ab/example.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/a/ab/example.jpg#fragment"
+        )
+        invalidDownloads.forEach { invalid ->
+            assertTrue(runCatching {
+                VideoAssetLicensePolicy.validate(descriptor().copy(downloadUrl = invalid))
+            }.isFailure)
+        }
+    }
+
+    @Test
+    fun everyCuratedAssetBindsItsDownloadToItsPinnedCommonsFilePage() {
+        val allAssets = Wikimedia1453AssetCatalog.assets + WikimediaSinanAssetCatalog.assets
+        assertEquals(10, allAssets.size)
+        allAssets.forEach { asset ->
+            assertTrue(
+                asset.assetId,
+                VideoAssetLicensePolicy.isDownloadForPinnedSource(asset.sourceUrl, asset.downloadUrl)
+            )
+            VideoAssetLicensePolicy.validate(asset)
+        }
+    }
+
+    @Test
+    fun mimarSinanAssetsHaveDistinctScenesHashesAndCommercialShareAlikeTerms() {
+        val assets = WikimediaSinanAssetCatalog.assets
+        assertEquals(5, assets.size)
+        assertEquals(5, assets.map { it.assetId }.distinct().size)
+        assertEquals(5, assets.map { it.sceneId }.distinct().size)
+        assets.forEach { asset ->
+            assertEquals("CC BY-SA", asset.licenseId)
+            assertEquals("4.0", asset.licenseVersion)
+            assertEquals("https://creativecommons.org/licenses/by-sa/4.0/", asset.licenseUrl)
+            assertTrue(asset.commercialUseAllowed)
+            assertTrue(asset.derivativesAllowed)
+            assertTrue(asset.shareAlikeRequired)
+            assertEquals("CC BY-SA 4.0", asset.requiredOutputLicense)
+            assertTrue(asset.attributionText.contains(asset.creator))
+            assertTrue(asset.attributionText.contains(asset.sourceUrl))
+            assertTrue(asset.attributionText.contains(asset.licenseUrl))
+        }
+    }
+
+    @Test
+    fun pinnedSourceRejectsPercentEncodedDuplicateQueryKeys() {
+        val source = descriptor().sourceUrl
+        val invalid = listOf(
+            source.replace("&oldid=", "&%74itle=File%3AOther.jpg&oldid="),
+            source.replace("&oldid=", "&old%69d=654321&oldid="),
+            source + "&%ZZ=ignored"
+        )
+        assertTrue(VideoAssetLicensePolicy.isPinnedCommonsSource(source))
+        invalid.forEach { candidate ->
+            assertFalse(VideoAssetLicensePolicy.isPinnedCommonsSource(candidate))
+        }
+    }
+
+    @Test
+    fun downloadUrlMustMatchTheExactFileNamedByThePinnedCommonsPage() {
+        val mismatched = descriptor().copy(
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/a/ab/Other.jpg"
+        )
+        assertTrue(runCatching { VideoAssetLicensePolicy.validate(mismatched) }.isFailure)
+    }
+
+    @Test
+    fun pinnedCommonsFilenameComparisonIsCaseSensitive() {
+        val candidate = descriptor().copy(
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/a/ab/example.jpg"
+        )
+        assertFalse(
+            VideoAssetLicensePolicy.isDownloadForPinnedSource(
+                candidate.sourceUrl,
+                candidate.downloadUrl
+            )
+        )
+        assertTrue(runCatching { VideoAssetLicensePolicy.validate(candidate) }.isFailure)
+    }
+
+    @Test
+    fun redirectCannotSubstituteAnotherCommonsFileWithTheSameMimeType() {
+        val downloader = object : VideoVisualAssetDownloader {
+            override fun download(descriptor: VideoVisualAssetDescriptor) = DownloadedVisualAsset(
+                jpeg,
+                descriptor.expectedMimeType,
+                "https://upload.wikimedia.org/wikipedia/commons/a/ab/Other.jpg"
+            )
+        }
+        val resolver = VideoVisualAssetResolver(MemoryCache(), downloader, clock = { now })
+        assertTrue(runCatching { resolver.resolveAll(listOf(descriptor())) }.isFailure)
+    }
+
+    @Test
+    fun futureDatedCacheEntriesAreRejectedBeforeReuse() {
+        val file = File.createTempFile("jarvis-future-", ".img").apply { writeBytes(jpeg) }
+        val futureCache = object : VideoVisualAssetCache {
+            override fun read(cacheKey: String, nowEpochMs: Long): CachedVisualAsset = CachedVisualAsset(
+                file,
+                sha256(jpeg),
+                "image/jpeg",
+                now + 1L,
+                now + 10_000L,
+                jpeg.size.toLong()
+            )
+            override fun write(cacheKey: String, bytes: ByteArray, mimeType: String, contentSha256: String, retrievedAtEpochMs: Long, expiresAtEpochMs: Long) = Unit
+            override fun cleanup(nowEpochMs: Long) = Unit
+        }
+        try {
+            val resolver = VideoVisualAssetResolver(futureCache, FakeDownloader(jpeg), clock = { now })
+            assertTrue(runCatching { resolver.resolveAll(listOf(descriptor())) }.isFailure)
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun resolvedAttributionRejectsMissingCreatorLicenseSourceAndCacheEvidence() {
+        val attribution = VideoVisualAssetResolver(
+            MemoryCache(),
+            FakeDownloader(jpeg),
+            clock = { now }
+        ).resolveAll(listOf(descriptor())).single().attribution
+        assertTrue(attribution.isValid())
+
+        assertFalse(attribution.copy(
+            attributionText = attribution.attributionText.replace("Example Creator", "Unknown")
+        ).isValid())
+        assertFalse(attribution.copy(
+            attributionText = attribution.attributionText.replace("CC BY-SA 4.0", "CC BY-SA")
+        ).isValid())
+        assertFalse(attribution.copy(
+            attributionText = attribution.attributionText.replace(attribution.sourceUrl, "")
+        ).isValid())
+        assertFalse(attribution.copy(
+            sourceUrl = attribution.sourceUrl.replace("https://", "http://")
+        ).isValid())
+        assertFalse(attribution.copy(
+            cacheMetadata = "provider=Unverified;mime=image/jpeg;bytes=8;expiresAt=${now + 10_000L}"
+        ).isValid())
+        assertFalse(attribution.copy(
+            cacheMetadata = "provider=WikimediaCommons;mime=image/jpeg;bytes=8;expiresAt=$now"
+        ).isValid())
+        assertFalse(attribution.copy(
+            cacheMetadata = "provider=WikimediaCommons;mime=image/jpeg;bytes=8;expiresAt=${now + VideoVisualAssetResolver.DEFAULT_CACHE_TTL_MS + 1L}"
+        ).isValid())
+        assertTrue(runCatching {
+            VideoVisualAssetResolver(
+                MemoryCache(),
+                FakeDownloader(jpeg),
+                clock = { now },
+                cacheTtlMs = VideoVisualAssetResolver.DEFAULT_CACHE_TTL_MS + 1L
+            )
+        }.isFailure)
+    }
+
+    @Test
+    fun fileCacheRejectsAnOverlongTtl() {
+        val root = Files.createTempDirectory("jarvis-asset-cache-ttl").toFile()
+        try {
+            val cache = FileVideoVisualAssetCache(root)
+            assertTrue(runCatching {
+                cache.write(
+                    "a".repeat(64),
+                    jpeg,
+                    "image/jpeg",
+                    sha256(jpeg),
+                    now,
+                    now + VideoAssetLicensePolicy.MAX_CACHE_TTL_MS + 1L
+                )
+            }.isFailure)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    private fun descriptor(): VideoVisualAssetDescriptor {
+        val source = "https://commons.wikimedia.org/w/index.php?title=File:Example.jpg&oldid=123456"
+        return VideoVisualAssetDescriptor(
+            assetId = "asset-one",
+            sceneId = "scene-01",
+            title = "Example visual",
+            downloadUrl = "https://upload.wikimedia.org/wikipedia/commons/a/ab/Example.jpg",
+            sourceUrl = source,
+            creator = "Example Creator",
+            licenseId = "CC BY-SA",
+            licenseVersion = "4.0",
+            licenseUrl = "https://creativecommons.org/licenses/by-sa/4.0/",
+            attributionText = "Example Creator, Example visual; CC BY-SA 4.0. License: https://creativecommons.org/licenses/by-sa/4.0/. Source: " + source,
+            expectedMimeType = "image/jpeg",
+            shareAlikeRequired = true,
+            requiredOutputLicense = "CC BY-SA 4.0",
+            expectedUploadSha1 = sha1(jpeg),
+            pinnedPageRevisionTimestamp = "2026-11-20T00:00:00Z",
+            uploadTimestamp = "2026-11-19T00:00:00Z"
+        )
+    }
+
+    private class FakeDownloader(
+        private val bytes: ByteArray,
+        private val sourceBytes: ByteArray? = null,
+        private val sourceMimeType: String? = null
+    ) : VideoVisualAssetDownloader {
+        var calls = 0
+        var fail = false
+
+        override fun download(descriptor: VideoVisualAssetDescriptor): DownloadedVisualAsset {
+            calls++
+            if (fail) throw java.io.IOException("offline")
+            return DownloadedVisualAsset(
+                bytes,
+                descriptor.expectedMimeType,
+                descriptor.downloadUrl,
+                sourceBytes,
+                sourceMimeType
+            )
+        }
+    }
+
+    private class MemoryCache : VideoVisualAssetCache {
+        private val records = mutableMapOf<String, CachedVisualAsset>()
+
+        override fun read(cacheKey: String, nowEpochMs: Long): CachedVisualAsset? {
+            val cached = records[cacheKey] ?: return null
+            if (cached.expiresAtEpochMs <= nowEpochMs) {
+                records.remove(cacheKey)
+                cached.file.delete()
+                return null
+            }
+            return cached
+        }
+
+        override fun write(
+            cacheKey: String,
+            bytes: ByteArray,
+            mimeType: String,
+            contentSha256: String,
+            retrievedAtEpochMs: Long,
+            expiresAtEpochMs: Long
+        ) {
+            val file = File.createTempFile("jarvis-asset-", ".img")
+            file.writeBytes(bytes)
+            records[cacheKey] = CachedVisualAsset(
+                file,
+                contentSha256,
+                mimeType,
+                retrievedAtEpochMs,
+                expiresAtEpochMs,
+                bytes.size.toLong()
+            )
+        }
+
+        override fun cleanup(nowEpochMs: Long) {
+            records.entries.removeAll { entry ->
+                if (entry.value.expiresAtEpochMs <= nowEpochMs) {
+                    entry.value.file.delete()
+                    true
+                } else false
+            }
+        }
+    }
+
+    private fun sha1(bytes: ByteArray): String =
+        java.security.MessageDigest.getInstance("SHA-1").digest(bytes)
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+    private fun sha256(bytes: ByteArray): String =
+        java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+}
