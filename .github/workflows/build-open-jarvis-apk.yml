@@ -84,7 +84,7 @@ jobs:
                   dependency = "    androidTestImplementation 'androidx.test:rules:1.5.0'"
               if marker not in source:
                   raise SystemExit("Cannot locate dependencies block for instrumentation-only test dependency")
-              source = source.replace(marker, marker + "\\n" + dependency, 1)
+              source = source.replace(marker, marker + chr(10) + dependency, 1)
               build_file.write_text(source)
           print("AndroidX test-rules dependency is available to instrumentation tests only")
           PY
