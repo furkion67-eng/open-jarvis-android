@@ -197,9 +197,17 @@ class SmsTransportExposureTest {
             if (count > 0) path to count else null
         }.toMap()
         assertEquals(
-            "Only the executor and visible compose panel may dispatch a confirmed token",
-            mapOf(executorPath to 1, panelPath to 1),
+            "Only the executor may call the confirmed dispatcher directly; the panel must use SmsDispatchIoRunner",
+            mapOf(executorPath to 1),
             dispatcherDispatchCallSites
+        )
+        assertTrue(
+            "The visible compose panel must dispatch through the IO runner",
+            panelSource.contains("smsIo.dispatch(dispatcher, confirmation)")
+        )
+        assertTrue(
+            "The runner must invoke the confirmed dispatcher under its IO context",
+            contractSource.contains("withContext(ioDispatcher) { dispatcher.dispatch(confirmation, callback) }")
         )
     }
 
