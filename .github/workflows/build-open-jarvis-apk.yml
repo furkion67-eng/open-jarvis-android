@@ -3,7 +3,7 @@ name: Build Open Jarvis APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, "feature/approval-toggle", "feature/repair-overlay-input-digest-2026-11-21", "infra/feature-host-patch-runner-20261126" ]
+    branches: [ main, "feature/approval-toggle", "feature/repair-overlay-input-digest-2026-11-21", "infra/feature-host-patch-runner-20261126", "infra/ci-all-pr-targets-20261127" ]
   pull_request:
     # Validate every PR target branch, including isolated Feature follow-ups.
     branches: [ "**" ]
