@@ -5,7 +5,8 @@ on:
   push:
     branches: [ main, "feature/approval-toggle", "feature/repair-overlay-input-digest-2026-11-21", "infra/feature-host-patch-runner-20261126" ]
   pull_request:
-    branches: [ main, "feature/canonical-device-player-shorts-20261126" ]
+    # Validate every PR target branch, including isolated Feature follow-ups.
+    branches: [ "**" ]
 
 permissions:
   contents: read
