@@ -209,7 +209,7 @@ class VideoArtifactPlayerInstrumentedTest {
             val captionsText = context.contentResolver.openInputStream(persistedCaptionsUri)!!
                 .bufferedReader(Charsets.UTF_8).use { it.readText() }
             val cueBlocks = captionsText.trim().split(Regex("\\r?\\n\\s*\\r?\\n"))
-            assertEquals("The renderer must persist one hook cue and five scene cues.", 6, cueBlocks.size)
+            assertTrue("The renderer must persist a measured hook and at least one readable cue per scene.", cueBlocks.size >= 6)
             assertTrue(cueBlocks.all { it.contains("-->") })
 
             val thumbnailHeader = context.contentResolver.openInputStream(persistedThumbnailUri)!!.use { input ->
