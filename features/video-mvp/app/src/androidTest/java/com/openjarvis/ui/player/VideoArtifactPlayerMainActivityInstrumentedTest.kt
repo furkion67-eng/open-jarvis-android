@@ -85,8 +85,14 @@ class VideoArtifactPlayerMainActivityInstrumentedTest {
                                 SystemClock.elapsedRealtime() - launchStartedAt
                             )
                             firstFrameDrawn.countDown()
-                            if (decor.viewTreeObserver.isAlive) {
-                                decor.viewTreeObserver.removeOnDrawListener(this)
+                            // ViewTreeObserver forbids removing an OnDrawListener while
+                            // dispatchOnDraw is iterating its listener set. Defer removal
+                            // until after this traversal; the latch still records this first frame.
+                            decor.post {
+                                val currentObserver = decor.viewTreeObserver
+                                if (currentObserver.isAlive) {
+                                    currentObserver.removeOnDrawListener(this)
+                                }
                             }
                         }
                     })

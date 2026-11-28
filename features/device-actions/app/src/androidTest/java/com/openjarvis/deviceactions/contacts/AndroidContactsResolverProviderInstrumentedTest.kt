@@ -75,7 +75,7 @@ class AndroidContactsResolverProviderInstrumentedTest {
         assertTrue(result is ContactLookupResult.Unique)
         assertEquals("+90 532 111 22 33", (result as ContactLookupResult.Unique).phone.number)
         assertEquals(Phone.CONTENT_URI, FakeContactsProvider.lastUri)
-        assertTrue(FakeContactsProvider.lastSortOrder.orEmpty().contains("DISPLAY_NAME_PRIMARY"))
+        assertTrue(FakeContactsProvider.lastSortOrder.orEmpty().contains(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY))
         assertTrue(FakeContactsProvider.lastProjection.contains(Phone.CONTACT_ID))
         assertTrue(FakeContactsProvider.lastProjection.contains(Phone.NUMBER))
     }
