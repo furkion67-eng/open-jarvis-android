@@ -94,10 +94,9 @@ class VideoNarratedExportInstrumentedTest {
             val cueTimes = Regex(
                 "(?m)^(\\d{2}:\\d{2}:\\d{2},\\d{3}) --> (\\d{2}:\\d{2}:\\d{2},\\d{3})$"
             ).findAll(srt).toList()
-            assertEquals(
-                "A dedicated measured hook cue plus one cue per storyboard scene is expected",
-                result.sceneCount + 1,
-                cueTimes.size
+            assertTrue(
+                "The measured hook and every storyboard scene must contribute readable cues",
+                cueTimes.size >= result.sceneCount + 1
             )
             assertEquals(5, result.sceneCount)
             assertTrue("The measured hook must be positive and no longer than two seconds", result.hookDurationMs in 1L..2_000L)
@@ -124,15 +123,22 @@ class VideoNarratedExportInstrumentedTest {
                 formatSrtTime(result.audioDurationMs),
                 cueTimes.last().groupValues[2]
             )
-            assertTrue("The exact two-second hook must appear in captions", srt.contains(storyPlan.hookText))
+            val reconstructedCaptionText = srt.lineSequence()
+                .filterNot { line -> line.trim().matches(Regex("\\d+")) || "-->" in line }
+                .joinToString(" ")
+                .replace(Regex("\\s+"), " ")
+                .trim()
             assertTrue(
-                "The first scene caption must come from the current story plan",
-                srt.contains(storyPlan.scenes.first().caption)
+                "The exact hook wording must survive readable cue splitting",
+                reconstructedCaptionText.contains(storyPlan.hookText)
             )
-            assertTrue(
-                "A later scene heading and caption must come from the current story plan",
-                srt.contains("${storyPlan.scenes[1].heading}. ${storyPlan.scenes[1].caption}")
-            )
+            storyPlan.scenes.forEach { scene ->
+                val spokenSceneText = "${scene.heading}. ${scene.caption}"
+                assertTrue(
+                    "Every scene's complete spoken wording must survive readable cue splitting",
+                    reconstructedCaptionText.contains(spokenSceneText)
+                )
+            }
         } finally {
             context.contentResolver.delete(result.exportedUri, null, null)
             context.contentResolver.delete(result.captionsUri, null, null)

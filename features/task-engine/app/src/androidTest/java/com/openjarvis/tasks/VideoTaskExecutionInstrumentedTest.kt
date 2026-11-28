@@ -324,7 +324,7 @@ class VideoTaskExecutionInstrumentedTest {
             val captions = context.contentResolver.openInputStream(srtUri!!)!!
                 .bufferedReader(Charsets.UTF_8).use { it.readText() }
             val cueBlocks = captions.trim().split(Regex("\\r?\\n\\s*\\r?\\n"))
-            assertEquals("One measured hook cue plus five scene cues are required.", 6, cueBlocks.size)
+            assertTrue("The measured hook and five scenes must produce at least six readable cues.", cueBlocks.size >= 6)
             val cueTimes = cueBlocks.mapIndexed { index, block ->
                 val lines = block.lines().map { it.trim() }.filter { it.isNotEmpty() }
                 assertEquals((index + 1).toString(), lines[0])
@@ -342,7 +342,7 @@ class VideoTaskExecutionInstrumentedTest {
                 "Gemiler karadan Haliç'e!",
                 cueBlocks.first().lines().drop(2).joinToString(" ").trim()
             )
-            assertEquals("Five scene speech cues must follow the hook.", 5, cueBlocks.drop(1).size)
+            assertTrue("Every scene must contribute at least one readable speech cue.", cueBlocks.drop(1).size >= 5)
             for (index in 1 until cueTimes.size) {
                 assertEquals("Speech cues must follow the measured timeline without gaps.", cueTimes[index - 1].second, cueTimes[index].first)
             }
