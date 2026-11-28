@@ -3,7 +3,7 @@ name: Build Open Jarvis APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, "feature/approval-toggle", "feature/repair-overlay-input-digest-2026-11-21", "infra/feature-host-patch-runner-20261126", "integration/ci-blockers-fix-20261127", "feature/fix-mainactivity-first-draw-test-20261128" ]
+    branches: [ main, "feature/approval-toggle", "feature/repair-overlay-input-digest-2026-11-21", "infra/feature-host-patch-runner-20261126", "integration/ci-blockers-fix-20261127", "feature/fix-mainactivity-first-draw-test-20261128", "feature/fix-contacts-provider-sort-assertion-20261128" ]
   pull_request:
     branches: [ main, "feature/canonical-device-player-shorts-20261126", "integration/jarvis-current-feature-stack-20261126", "integration/ci-blockers-fix-20261127" ]
 
